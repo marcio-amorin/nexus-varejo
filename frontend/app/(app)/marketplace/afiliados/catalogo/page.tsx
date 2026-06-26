@@ -102,37 +102,66 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
+    const log: string[] = []
     try {
-      // 1ª tentativa: browser direto com OAuth token (sem bloqueio IP)
       const token = await getMLToken()
-      const todos: any[] = []
-      for (const termo of TERMOS_AUTO.slice(0,2)) {
+      log.push(`token:${token ? 'ok' : 'null'}`)
+
+      // 1ª tentativa: browser direto (simples GET sem auth)
+      const url = `https://api.mercadolibre.com/sites/MLB/search?q=smartphone%20samsung&limit=20&sort=sold_quantity_desc`
+      let browserOk = false
+      try {
+        const r = await fetch(url)
+        log.push(`browser_status:${r.status}`)
+        if (r.ok) {
+          const data = await r.json()
+          const results = data.results || []
+          log.push(`browser_results:${results.length}`)
+          if (results.length > 0) {
+            setRes(results.map((item:any) => montarProduto(item, 'ML_AFILIADOS')))
+            setLoadingAuto(false); return
+          }
+        }
+      } catch(e:any) {
+        log.push(`browser_err:${e?.message||'CORS'}`)
+      }
+
+      // 1b: com token (caso browser precise auth)
+      if (token && !browserOk) {
         try {
-          const prods = await buscarMLDireto(termo, 15, token)
-          todos.push(...prods)
-        } catch { /* ignora — tenta fallback abaixo */ }
+          const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+          log.push(`browser_auth_status:${r.status}`)
+          if (r.ok) {
+            const data = await r.json()
+            const results = data.results || []
+            log.push(`browser_auth_results:${results.length}`)
+            if (results.length > 0) {
+              setRes(results.map((item:any) => montarProduto(item, 'ML_AFILIADOS')))
+              setLoadingAuto(false); return
+            }
+          }
+        } catch(e:any) {
+          log.push(`browser_auth_err:${e?.message||'CORS'}`)
+        }
       }
 
-      if (todos.length > 0) {
-        const vistos = new Set<string>()
-        const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
-        unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
-        setRes(unicos.slice(0,30))
-        setLoadingAuto(false)
-        return
+      // 2ª tentativa: backend /ml-destaques
+      try {
+        const rd = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
+        log.push(`backend_status:${rd.status}`)
+        if (rd.ok) {
+          const dd = await rd.json()
+          const prods = dd.resultados || []
+          log.push(`backend_results:${prods.length},fonte:${dd.fonte}`)
+          if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
+        }
+      } catch(e:any) {
+        log.push(`backend_err:${e?.message}`)
       }
 
-      // 2ª tentativa: endpoint backend /ml-destaques (highlights público, sem bloqueio IP)
-      const rd = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
-      if (rd.ok) {
-        const dd = await rd.json()
-        const prods = dd.resultados || []
-        if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
-      }
-
-      setErro('Não foi possível carregar produtos automaticamente. Tente pesquisar manualmente acima.')
+      setErro(`[${log.join(' | ')}]`)
     } catch (e:any) {
-      setErro(`Erro: ${e?.message || String(e)}`)
+      setErro(`Erro: ${e?.message || String(e)} | log:${log.join(',')}`)
     }
     setLoadingAuto(false)
   }

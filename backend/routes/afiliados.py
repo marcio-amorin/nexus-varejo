@@ -1250,6 +1250,152 @@ async def gerar_conteudo(
     db.commit()
     return {"conteudos": criados, "ia_ativa": provedor or "template"}
 
+# ─── Importar Produto por Link ML ────────────────────────────────────────────
+
+COM_ML_BACKEND: dict = {
+    'MLB1000':8,'MLB1055':10,'MLB1051':9,'MLB1648':12,'MLB1499':11,
+    'MLB1574':10,'MLB1459':8,'MLB12':7
+}
+
+def _comissao_ml_by_cat(cat_id: str) -> float:
+    for k, v in COM_ML_BACKEND.items():
+        if cat_id.startswith(k):
+            return float(v)
+    return 6.0
+
+class ImportarLinkIn(BaseModel):
+    url_ou_texto: str
+
+@router.post("/importar-link")
+async def importar_link_produto(
+    body: ImportarLinkIn,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user)
+):
+    """Recebe URL do ML ou texto do produto, busca dados e gera copies com IA"""
+    import re
+    texto = body.url_ou_texto.strip()
+    produto = None
+
+    # Extrai ID do produto ML da URL (ex: MLB1234567890)
+    ml_match = re.search(r'MLB-?(\d+)', texto, re.IGNORECASE)
+    if ml_match:
+        item_id = f"MLB{ml_match.group(1)}"
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                r = await client.get(
+                    f"https://api.mercadolibre.com/items/{item_id}",
+                    headers={"Accept": "application/json"},
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    preco = float(d.get("price") or 0)
+                    cat   = d.get("category_id", "")
+                    pct   = _comissao_ml_by_cat(cat)
+                    imagem = (d.get("thumbnail") or "").replace("I.jpg", "O.jpg")
+                    produto = {
+                        "produto_ext_id": d.get("id", item_id),
+                        "titulo":         d.get("title", ""),
+                        "preco":          preco,
+                        "preco_original": d.get("original_price"),
+                        "comissao_pct":   pct,
+                        "comissao_valor": round(preco * pct / 100, 2),
+                        "imagem_url":     imagem,
+                        "url_produto":    d.get("permalink", texto),
+                        "vendas_mes":     d.get("sold_quantity", 0),
+                        "avaliacao":      0,
+                        "total_avaliacoes": 0,
+                        "categoria":      cat,
+                        "plataforma":     "ML_AFILIADOS",
+                    }
+        except Exception:
+            pass
+
+    # Fallback: extrai info do texto bruto com IA
+    if not produto:
+        provedor, api_key = _get_ia_key(db)
+        if provedor == "groq" and api_key:
+            try:
+                loop = asyncio.get_event_loop()
+                def _extrair_groq():
+                    client = _GroqClient(api_key=api_key)
+                    resp = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "user", "content":
+                            f"Extraia as informações deste produto e responda SOMENTE em JSON válido com as chaves: titulo, preco (número), categoria.\n\nTexto: {texto[:800]}"}],
+                        max_tokens=200,
+                        temperature=0.1,
+                    )
+                    return resp.choices[0].message.content
+
+                raw = await loop.run_in_executor(None, _extrair_groq)
+                import json as _json
+                jstart = raw.find('{'); jend = raw.rfind('}') + 1
+                if jstart >= 0 and jend > jstart:
+                    info = _json.loads(raw[jstart:jend])
+                    preco = float(info.get("preco") or 0)
+                    produto = {
+                        "produto_ext_id": f"MANUAL_{int(preco*100)}",
+                        "titulo":         info.get("titulo", texto[:60]),
+                        "preco":          preco,
+                        "preco_original": None,
+                        "comissao_pct":   6.0,
+                        "comissao_valor": round(preco * 0.06, 2),
+                        "imagem_url":     "",
+                        "url_produto":    texto if texto.startswith("http") else "",
+                        "vendas_mes":     0,
+                        "avaliacao":      0,
+                        "total_avaliacoes": 0,
+                        "categoria":      info.get("categoria", ""),
+                        "plataforma":     "ML_AFILIADOS",
+                    }
+            except Exception:
+                pass
+
+    if not produto:
+        raise HTTPException(
+            status_code=400,
+            detail="Cole o link de um produto do Mercado Livre (ex: mercadolivre.com.br/MLB123...) ou texto com título e preço."
+        )
+
+    # Gera copies com IA para Instagram e TikTok
+    copies: dict = {}
+    provedor, api_key = _get_ia_key(db)
+    if provedor and api_key:
+        class _Prod:
+            titulo = produto["titulo"]
+            preco  = produto["preco"]
+            vendas_mes = produto["vendas_mes"]
+            avaliacao  = produto["avaliacao"]
+            comissao_pct = produto["comissao_pct"]
+            url_produto  = produto["url_produto"]
+        p = _Prod()
+        for rede in ["INSTAGRAM", "TIKTOK"]:
+            try:
+                if provedor == "groq":
+                    t, h = await _gerar_texto_groq(p, rede, "POST", api_key)
+                elif provedor == "gemini":
+                    t, h = await _gerar_texto_gemini(p, rede, "POST", api_key)
+                else:
+                    t, h = _gerar_texto_template(p, rede, "POST")
+                copies[rede.lower()] = {"texto": t, "hashtags": h}
+            except Exception:
+                t, h = _gerar_texto_template(p, rede, "POST")
+                copies[rede.lower()] = {"texto": t, "hashtags": h}
+    else:
+        class _Prod2:
+            titulo = produto["titulo"]
+            preco  = produto["preco"]
+            vendas_mes = 0
+            avaliacao  = 0
+        p2 = _Prod2()
+        for rede in ["INSTAGRAM", "TIKTOK"]:
+            t, h = _gerar_texto_template(p2, rede, "POST")
+            copies[rede.lower()] = {"texto": t, "hashtags": h}
+
+    return {"produto": produto, "copies": copies}
+
+
 def _gerar_texto_template(prod, rede: str, tipo: str) -> tuple:
     """Fallback — templates quando Claude não está configurado"""
     titulo = prod.titulo if prod else "produto incrível"

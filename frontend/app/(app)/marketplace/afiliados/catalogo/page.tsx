@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw } from 'lucide-react'
+import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw, ExternalLink, X, Copy, CheckCircle } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -48,6 +48,14 @@ export default function Catalogo() {
   const [loadingAuto, setLoadingAuto] = useState(false)
   const [erroBusca, setErro]          = useState('')
   const [msgLink, setMsgLink]         = useState('')
+
+  // Modal importar por link
+  const [modalLink, setModalLink]       = useState(false)
+  const [inputLink, setInputLink]       = useState('')
+  const [loadingImport, setLoadingImport] = useState(false)
+  const [importResult, setImportResult] = useState<any>(null)
+  const [importErro, setImportErro]     = useState('')
+  const [copiedKey, setCopiedKey]       = useState('')
 
   useEffect(() => { carregarCatalogo(); buscarAuto() }, [])
 
@@ -141,6 +149,31 @@ export default function Catalogo() {
     carregarCatalogo(); setAba('catalogo')
   }
 
+  async function importarLink() {
+    if (!inputLink.trim()) return
+    setLoadingImport(true); setImportErro(''); setImportResult(null)
+    try {
+      const r = await fetch(`${API}/afiliados/importar-link`, {
+        method:'POST', headers:hdr(), body:JSON.stringify({ url_ou_texto: inputLink.trim() })
+      })
+      const d = await r.json()
+      if (!r.ok) { setImportErro(d.detail || 'Erro ao processar'); setLoadingImport(false); return }
+      setImportResult(d)
+    } catch { setImportErro('Erro de conexão com o servidor') }
+    setLoadingImport(false)
+  }
+
+  async function copiarTexto(texto: string, key: string) {
+    await navigator.clipboard.writeText(texto)
+    setCopiedKey(key); setTimeout(() => setCopiedKey(''), 2000)
+  }
+
+  async function salvarImportado() {
+    if (!importResult?.produto) return
+    await salvarProduto(importResult.produto)
+    setModalLink(false); setImportResult(null); setInputLink('')
+  }
+
   async function toggleFav(id:number) {
     await fetch(`${API}/afiliados/catalogo/${id}/favorito`, { method:'PATCH', headers:hdr() })
     carregarCatalogo()
@@ -170,9 +203,16 @@ export default function Catalogo() {
             <h1 className="text-base font-black text-white flex items-center gap-2"><ShoppingBag size={16}/> Catálogo Produtos</h1>
             <p className="text-xs text-white/75 mt-0.5">Produtos mais vendidos — salve e promova</p>
           </div>
-          <span className="text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
-            {catalogo.length} salvos
-          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setModalLink(true); setImportResult(null); setImportErro(''); setInputLink('') }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black"
+              style={{ background:'rgba(255,255,255,0.2)', color:'#fff', border:'1px solid rgba(255,255,255,0.35)' }}>
+              <ExternalLink size={12}/> Importar Link ML
+            </button>
+            <span className="text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
+              {catalogo.length} salvos
+            </span>
+          </div>
         </div>
       </div>
 
@@ -308,6 +348,96 @@ export default function Catalogo() {
               ))}
             </div>
           )}
+        </div>
+      )}
+      {/* ── Modal Importar por Link ───────────────────────────────────────── */}
+      {modalLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:'rgba(0,0,0,0.7)' }}
+          onClick={e => { if (e.target === e.currentTarget) setModalLink(false) }}>
+          <div className="w-full max-w-lg mx-4 rounded-2xl overflow-hidden flex flex-col" style={{ background:'var(--card)', border:'1px solid var(--border)', maxHeight:'90vh' }}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom:'1px solid var(--border)', background: GRAD }}>
+              <div>
+                <p className="text-sm font-black text-white flex items-center gap-2"><ExternalLink size={14}/> Importar Produto por Link</p>
+                <p className="text-[10px] text-white/75">Cole o link do ML ou texto do produto → IA gera copies automático</p>
+              </div>
+              <button onClick={() => setModalLink(false)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'rgba(255,255,255,0.2)' }}>
+                <X size={14} color="#fff"/>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 space-y-3">
+              {/* Input */}
+              <div>
+                <label className="text-[10px] font-bold block mb-1" style={{ color:'var(--muted)' }}>Link do produto ou texto descritivo</label>
+                <textarea value={inputLink} onChange={e => setInputLink(e.target.value)}
+                  placeholder="Cole o link: https://www.mercadolivre.com.br/fone-bluetooth.../p/MLB123...&#10;ou texto: Fone Bluetooth JBL R$ 89,90 categoria eletrônicos"
+                  rows={3} className="w-full px-3 py-2 rounded-lg text-xs resize-none"/>
+              </div>
+
+              <button onClick={importarLink} disabled={loadingImport || !inputLink.trim()}
+                className="w-full py-2.5 rounded-xl font-black text-white text-xs flex items-center justify-center gap-2"
+                style={{ background: GRAD, opacity: inputLink.trim() ? 1 : 0.5 }}>
+                {loadingImport
+                  ? <><RefreshCw size={13} className="animate-spin"/> Processando com IA...</>
+                  : <><Search size={13}/> Extrair Produto + Gerar Copies</>}
+              </button>
+
+              {importErro && (
+                <div className="p-3 rounded-xl text-xs" style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', color:'#fca5a5' }}>
+                  {importErro}
+                </div>
+              )}
+
+              {/* Resultado */}
+              {importResult && (
+                <div className="space-y-3">
+                  {/* Produto */}
+                  <div className="rounded-xl overflow-hidden" style={{ background:'var(--card2)', border:'1px solid var(--border)' }}>
+                    <div className="flex items-center gap-3 p-3">
+                      {importResult.produto.imagem_url
+                        ? <img src={importResult.produto.imagem_url} className="w-14 h-14 object-contain rounded-lg flex-shrink-0" style={{ background:'var(--card)' }}/>
+                        : <div className="w-14 h-14 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background:'var(--card)' }}><ShoppingBag size={24} color="var(--muted)"/></div>}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white leading-tight">{importResult.produto.titulo}</p>
+                        <p className="text-lg font-black mt-1" style={{ color:'#f97316' }}>
+                          {fmtR(importResult.produto.preco)}
+                        </p>
+                        <p className="text-[10px] font-bold" style={{ color:'#22c55e' }}>
+                          Comissão estimada: {importResult.produto.comissao_pct}% = {fmtR(importResult.produto.comissao_valor)}/venda
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Copies gerados */}
+                  {Object.entries(importResult.copies || {}).map(([rede, copy]: any) => (
+                    <div key={rede} className="rounded-xl p-3 space-y-2" style={{ background:'var(--card2)', border:'1px solid var(--border)' }}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>
+                          {rede === 'instagram' ? '📸 INSTAGRAM' : '🎵 TIKTOK'}
+                        </p>
+                        <button onClick={() => copiarTexto(`${copy.texto}\n\n${copy.hashtags}`, rede)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold"
+                          style={{ background: copiedKey===rede ? 'rgba(34,197,94,0.2)' : 'var(--card)', color: copiedKey===rede ? '#22c55e' : 'var(--muted)', border:`1px solid ${copiedKey===rede?'rgba(34,197,94,0.3)':'var(--border)'}` }}>
+                          {copiedKey===rede ? <><CheckCircle size={10}/> Copiado!</> : <><Copy size={10}/> Copiar</>}
+                        </button>
+                      </div>
+                      <p className="text-xs text-white leading-relaxed whitespace-pre-wrap">{copy.texto}</p>
+                      <p className="text-[10px]" style={{ color:'#3b82f6' }}>{copy.hashtags}</p>
+                    </div>
+                  ))}
+
+                  <button onClick={salvarImportado}
+                    className="w-full py-2.5 rounded-xl font-black text-white text-xs flex items-center justify-center gap-2"
+                    style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)' }}>
+                    <Plus size={13}/> Salvar no Catálogo
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

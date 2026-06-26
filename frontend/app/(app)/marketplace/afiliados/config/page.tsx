@@ -41,13 +41,20 @@ export default function ConfigAfiliados() {
   useEffect(() => { carregar(); carregarIA() }, [])
 
   async function carregar() {
-    const r = await fetch(`${API}/afiliados/configs`, { headers:hdr() })
-    setConfigs(await r.json())
+    try {
+      const r = await fetch(`${API}/afiliados/configs`, { headers:hdr() })
+      if (!r.ok) { setConfigs([]); return }
+      const data = await r.json()
+      setConfigs(Array.isArray(data) ? data : [])
+    } catch { setConfigs([]) }
   }
 
   async function carregarIA() {
-    const r = await fetch(`${API}/afiliados/ia-config`, { headers:hdr() })
-    setIaStatus(await r.json())
+    try {
+      const r = await fetch(`${API}/afiliados/ia-config`, { headers:hdr() })
+      if (!r.ok) { setIaStatus(null); return }
+      setIaStatus(await r.json())
+    } catch { setIaStatus(null) }
   }
 
   async function salvarIAConfig(plataforma: string = 'GEMINI_API') {

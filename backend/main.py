@@ -216,7 +216,8 @@ try:
         ADMPERMS = json.dumps(["pdv","vendas","compras","estoque","financeiro","relatorios","usuarios","configuracoes"])
         OPPERMS  = json.dumps(["pdv","vendas","estoque"])
         for uname, uemail, uperfil, uperms, usenha in [
-            ("marcio",   "marcio@amorin.com.br",    "ADMIN",    ADMPERMS, "amorin"),
+            ("marcio",   "marcio@amorin.com.br",    "ADMIN",    ADMPERMS, "Amorin"),
+            ("karla",    "karla@nexusvarejo.com",   "ADMIN",    ADMPERMS, "Amorin"),
             ("operador", "operador@maxxvendas.com", "OPERADOR", OPPERMS,  "maxx123"),
         ]:
             u = db.query(Usuario).filter(Usuario.email == uemail).first()

@@ -58,6 +58,27 @@ def debug():
         resultado["erro"] = str(e)
     return resultado
 
+@app.get("/debug-ml")
+async def debug_ml():
+    import httpx, time
+    t0 = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://api.mercadolibre.com/sites/MLB/search",
+                params={"q": "smartphone", "limit": 3, "sort": "sold_quantity_desc"}
+            )
+        elapsed = round(time.time() - t0, 2)
+        data = r.json()
+        total = data.get("paging", {}).get("total", 0)
+        primeiros = [
+            {"id": p["id"], "titulo": p["title"][:60], "preco": p.get("price", 0)}
+            for p in data.get("results", [])[:3]
+        ]
+        return {"ok": True, "status_http": r.status_code, "total_resultados": total, "tempo_s": elapsed, "primeiros": primeiros}
+    except Exception as e:
+        return {"ok": False, "erro": str(e), "tempo_s": round(time.time() - t0, 2)}
+
 @app.get("/admin/seed-usuarios")
 def seed_usuarios():
     import json

@@ -1,14 +1,14 @@
-﻿'use client'
-import { useEffect, useState, useRef } from 'react'
+'use client'
+import { useEffect, useState } from 'react'
 import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 
 const PLATS = [
-  { value:'ML_AFILIADOS', label:'Mercado Livre', cor:'#f59e0b', icone:'ðŸŸ¡' },
-  { value:'SHOPEE',       label:'Shopee',        cor:'#ef4444', icone:'ðŸŸ ' },
-  { value:'AMAZON',       label:'Amazon',        cor:'#f97316', icone:'ðŸ“¦' },
+  { value:'ML_AFILIADOS', label:'Mercado Livre', cor:'#f59e0b', icone:'🟡' },
+  { value:'SHOPEE',       label:'Shopee',        cor:'#ef4444', icone:'🟠' },
+  { value:'AMAZON',       label:'Amazon',        cor:'#f97316', icone:'📦' },
 ]
 
 function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('nexus_token')}` } }
@@ -23,25 +23,39 @@ export default function Catalogo() {
   const [catalogo, setCat]        = useState<any[]>([])
   const [loading, setLoading]     = useState(false)
   const [erroBusca, setErro]      = useState('')
-  const [precisaConfig, setPrecisa] = useState(false)
   const [msgLink, setMsgLink]     = useState('')
 
-  useEffect(() => { carregarCatalogo() }, [])
+  useEffect(() => { carregarCatalogo(); buscarAuto() }, [])
 
   async function carregarCatalogo() {
-    const r = await fetch(`${API}/afiliados/catalogo`, { headers: hdr() })
-    const d = await r.json()
-    setCat(Array.isArray(d) ? d : [])
+    try {
+      const r = await fetch(`${API}/afiliados/catalogo`, { headers: hdr() })
+      const d = await r.json()
+      setCat(Array.isArray(d) ? d : [])
+    } catch { setCat([]) }
+  }
+
+  async function buscarAuto() {
+    setLoading(true); setRes([]); setErro('')
+    try {
+      const p = new URLSearchParams({ q:'', plataforma:'ML_AFILIADOS', ordenar:'vendas', limit:'20' })
+      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+      const d = await r.json()
+      setRes(d.resultados||[])
+      if (d.erro) setErro(d.erro)
+    } catch { setErro('Erro ao carregar produtos') }
+    setLoading(false)
   }
 
   async function buscar() {
-    setLoading(true); setRes([]); setErro(''); setPrecisa(false)
-    const p = new URLSearchParams({ q:query, plataforma:plat, ordenar, limit:'20' })
-    const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
-    const d = await r.json()
-    setRes(d.resultados||[])
-    if (d.erro) setErro(d.erro)
-    if (d.precisa_config) setPrecisa(true)
+    setLoading(true); setRes([]); setErro('')
+    try {
+      const p = new URLSearchParams({ q:query, plataforma:plat, ordenar, limit:'20' })
+      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+      const d = await r.json()
+      setRes(d.resultados||[])
+      if (d.erro) setErro(d.erro)
+    } catch { setErro('Erro ao buscar produtos') }
     setLoading(false)
   }
 
@@ -78,8 +92,8 @@ export default function Catalogo() {
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
         <div className="px-5 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-base font-black text-white flex items-center gap-2"><ShoppingBag size={16}/> CatÃ¡logo Produtos</h1>
-            <p className="text-xs text-white/75 mt-0.5">Busque e salve produtos com maiores comissÃµes</p>
+            <h1 className="text-base font-black text-white flex items-center gap-2"><ShoppingBag size={16}/> Catálogo Produtos</h1>
+            <p className="text-xs text-white/75 mt-0.5">Produtos mais vendidos — salve e promova</p>
           </div>
           <span className="text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
             {catalogo.length} salvos
@@ -96,7 +110,7 @@ export default function Catalogo() {
 
       {/* Abas */}
       <div className="pg-stats flex gap-1">
-        {[['buscar','ðŸ” Buscar'],['catalogo',`ðŸ“¦ Meu CatÃ¡logo (${catalogo.length})`]].map(([v,l]) => (
+        {[['buscar','🔍 Buscar'],['catalogo',`📦 Meu Catálogo (${catalogo.length})`]].map(([v,l]) => (
           <button key={v} onClick={() => setAba(v as any)}
             className="px-4 py-1.5 rounded-lg text-xs font-bold"
             style={{ background:aba===v?GRAD:'var(--card2)', color:aba===v?'#fff':'var(--muted)', border:aba===v?'none':'1px solid var(--border)' }}>
@@ -109,7 +123,6 @@ export default function Catalogo() {
       {aba === 'buscar' && (
         <>
           <div className="pg-stats rounded-xl p-3 space-y-2" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
-            {/* Plataformas */}
             <div className="flex gap-1.5 flex-wrap">
               {PLATS.map(p => (
                 <button key={p.value} onClick={() => setPlat(p.value)}
@@ -119,19 +132,18 @@ export default function Catalogo() {
                 </button>
               ))}
             </div>
-            {/* Busca */}
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Search size={14} color="var(--muted)" className="absolute left-3 top-1/2 -translate-y-1/2"/>
                 <input value={query} onChange={e => setQuery(e.target.value)}
                   onKeyDown={e => e.key==='Enter' && buscar()}
-                  placeholder="Ex: fone bluetooth, tÃªnis, perfume..."
+                  placeholder="Ex: fone bluetooth, tênis, perfume..."
                   className="w-full pl-8 pr-3 py-2 text-xs rounded-lg"/>
               </div>
               <select value={ordenar} onChange={e => setOrdenar(e.target.value)} className="px-2 py-2 rounded-lg text-xs">
                 <option value="vendas">+ Vendidos</option>
-                <option value="comissao">+ ComissÃ£o</option>
-                <option value="preco">Menor PreÃ§o</option>
+                <option value="comissao">+ Comissão</option>
+                <option value="preco">Menor Preço</option>
               </select>
               <button onClick={buscar} disabled={loading} className="btn-primary px-4 py-2 flex items-center gap-1.5 text-xs">
                 {loading ? <RefreshCw size={13} className="animate-spin"/> : <Search size={13}/>} Buscar
@@ -143,26 +155,13 @@ export default function Catalogo() {
             {loading && (
               <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
                 <RefreshCw size={28} color="#f97316" className="animate-spin"/>
-                <p className="text-xs">Buscando melhores produtos...</p>
+                <p className="text-xs">Buscando produtos mais vendidos...</p>
               </div>
             )}
 
-            {precisaConfig && (
-              <div className="flex flex-col items-center justify-center py-10 gap-3">
-                <div className="text-3xl">âš™ï¸</div>
-                <p className="text-sm font-bold text-white">ConfiguraÃ§Ã£o necessÃ¡ria</p>
-                <p className="text-xs text-center" style={{ color:'var(--muted)' }}>{erroBusca}</p>
-                <a href="/marketplace/afiliados/config" className="btn-primary text-xs px-5 py-2">
-                  Configurar Mercado Livre
-                </a>
-              </div>
-            )}
-
-            {!loading && !precisaConfig && resultados.length === 0 && !query && (
-              <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
-                <div className="text-4xl">ðŸ”</div>
-                <p className="text-sm font-bold text-white">Digite o produto que quer promover</p>
-                <p className="text-xs">Fones, roupas, eletrÃ´nicos, cosmÃ©ticos...</p>
+            {erroBusca && !loading && (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <p className="text-xs text-center" style={{ color:'#ef4444' }}>{erroBusca}</p>
               </div>
             )}
 
@@ -177,10 +176,10 @@ export default function Catalogo() {
                       <p className="text-[10px] font-bold text-white leading-tight mb-1.5" style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.titulo}</p>
                       <div className="flex justify-between mb-1.5">
                         <span className="text-[10px] font-black" style={{ color:'#f97316' }}>{fmtR(p.preco)}</span>
-                        <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}% Â· {fmtR(p.comissao_valor)}</span>
+                        <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}% · {fmtR(p.comissao_valor)}</span>
                       </div>
                       <button onClick={() => salvarProduto(p)} className="w-full py-1.5 rounded-lg text-[10px] font-bold text-white flex items-center justify-center gap-1" style={{ background:GRAD }}>
-                        <Plus size={11}/> Salvar
+                        <Plus size={11}/> Salvar no Catálogo
                       </button>
                     </div>
                   </div>
@@ -191,14 +190,15 @@ export default function Catalogo() {
         </>
       )}
 
-      {/* ABA CATÃLOGO */}
+      {/* ABA CATÁLOGO */}
       {aba === 'catalogo' && (
         <div className="pg-body p-2">
           {catalogo.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3" style={{ color:'var(--muted)' }}>
               <ShoppingBag size={36}/>
-              <p className="text-sm font-bold text-white">CatÃ¡logo vazio</p>
-              <button onClick={() => setAba('buscar')} className="btn-primary text-xs px-5 py-2">Buscar Produtos</button>
+              <p className="text-sm font-bold text-white">Catálogo vazio</p>
+              <p className="text-xs">Salve produtos da aba Buscar para promover</p>
+              <button onClick={() => setAba('buscar')} className="btn-primary text-xs px-5 py-2">Ver Produtos</button>
             </div>
           ) : (
             <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
@@ -236,4 +236,3 @@ export default function Catalogo() {
     </div>
   )
 }
-

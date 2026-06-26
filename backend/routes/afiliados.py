@@ -304,13 +304,16 @@ button{{margin-top:20px;padding:12px 28px;background:{cor};color:#fff;border:non
 
 @router.get("/ml-token")
 async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Sempre retorna token fresco via client_credentials (POST ao ML auth funciona do Render).
-    O browser usa esse token para chamar ML API diretamente (browser IP não é bloqueado)."""
+    """Retorna o user OAuth token salvo (válido 6h). Só faz refresh se não tiver access_token."""
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
     if not cfg or not cfg.client_id or not cfg.client_secret:
         return {"access_token": None, "configurado": False, "erro": "Configure Client ID e Secret em Config. Afiliados"}
 
-    # Tenta refresh do user token primeiro (mais permissivo)
+    # 1. Usa o user token OAuth armazenado diretamente (mais permissivo, válido por 6h)
+    if cfg.access_token:
+        return {"access_token": cfg.access_token, "tipo": "oauth", "configurado": True}
+
+    # 2. Tenta refresh se não tem access_token salvo
     if cfg.refresh_token:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -320,29 +323,19 @@ async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user
                     "client_secret": cfg.client_secret,
                     "refresh_token": cfg.refresh_token,
                 })
-                data = r.json()
-            if "access_token" in data:
-                cfg.access_token  = data["access_token"]
-                cfg.refresh_token = data.get("refresh_token", cfg.refresh_token)
-                db.commit()
-                return {"access_token": cfg.access_token, "tipo": "refreshed", "configurado": True}
+                body = r.text.strip()
+                if body:
+                    data = r.json()
+                    if "access_token" in data:
+                        cfg.access_token  = data["access_token"]
+                        cfg.refresh_token = data.get("refresh_token", cfg.refresh_token)
+                        db.commit()
+                        return {"access_token": cfg.access_token, "tipo": "refreshed", "configurado": True}
         except Exception:
             pass
 
-    # App token via client_credentials
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(ML_TOKEN_URL, data={
-                "grant_type":    "client_credentials",
-                "client_id":     cfg.client_id,
-                "client_secret": cfg.client_secret,
-            })
-            data = r.json()
-        if "access_token" in data:
-            return {"access_token": data["access_token"], "tipo": "app", "configurado": True}
-        return {"access_token": None, "configurado": False, "erro": data.get("message","Erro ao obter token"), "raw": data}
-    except Exception as e:
-        return {"access_token": None, "configurado": False, "erro": str(e)}
+    return {"access_token": None, "configurado": False,
+            "erro": "Token expirado. Vá em Config. Afiliados → Conectar Mercado Livre novamente."}
 
 @router.post("/configs")
 def salvar_config(body: ConfigIn, db: Session = Depends(get_db), _=Depends(get_current_user)):

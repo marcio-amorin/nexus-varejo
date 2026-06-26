@@ -286,15 +286,42 @@ button{{margin-top:20px;padding:12px 28px;background:{cor};color:#fff;border:non
 
 @router.get("/ml-token")
 async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Retorna token ML para o frontend usar nas chamadas diretas ao ML API.
-    Tenta: 1) token OAuth do usuário, 2) app token via client_credentials"""
+    """Retorna token ML válido: testa user token → tenta refresh → app token (client_credentials)"""
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
 
-    # Tenta token OAuth do usuário primeiro
     if cfg and cfg.access_token:
-        return {"access_token": cfg.access_token, "tipo": "user", "configurado": True}
+        # Valida se o user token ainda é válido
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                test = await client.get(
+                    "https://api.mercadolibre.com/users/me",
+                    headers={"Authorization": f"Bearer {cfg.access_token}"}
+                )
+            if test.status_code == 200:
+                return {"access_token": cfg.access_token, "tipo": "user", "configurado": True}
+        except Exception:
+            pass
 
-    # Fallback: app token via client_credentials (não precisa de OAuth do usuário)
+        # Token expirado — tenta refresh automático
+        if cfg.refresh_token and cfg.client_id and cfg.client_secret:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(ML_TOKEN_URL, data={
+                        "grant_type":    "refresh_token",
+                        "client_id":     cfg.client_id,
+                        "client_secret": cfg.client_secret,
+                        "refresh_token": cfg.refresh_token,
+                    })
+                    data = r.json()
+                if "access_token" in data:
+                    cfg.access_token  = data["access_token"]
+                    cfg.refresh_token = data.get("refresh_token", cfg.refresh_token)
+                    db.commit()
+                    return {"access_token": cfg.access_token, "tipo": "user_refreshed", "configurado": True}
+            except Exception:
+                pass
+
+    # Fallback final: app token via client_credentials
     if cfg and cfg.client_id and cfg.client_secret:
         try:
             async with httpx.AsyncClient(timeout=10) as client:

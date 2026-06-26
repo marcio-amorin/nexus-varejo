@@ -178,14 +178,16 @@ def listar_configs(db: Session = Depends(get_db), _=Depends(get_current_user)):
     for chave, info in todas.items():
         cfg = configs.get(chave)
         result.append({
-            "plataforma":   chave,
-            "nome":         info["nome"],
-            "cor":          info["cor"],
-            "icone":        info["icone"],
-            "tipo":         "afiliado" if chave in PLATAFORMAS_AFILIADO else "social",
-            "ativo":        cfg.ativo if cfg else False,
-            "configurado":  bool(cfg and cfg.access_token),
-            "extra_json":   cfg.extra_json if cfg else None,
+            "plataforma":       chave,
+            "nome":             info["nome"],
+            "cor":              info["cor"],
+            "icone":            info["icone"],
+            "tipo":             "afiliado" if chave in PLATAFORMAS_AFILIADO else "social",
+            "ativo":            cfg.ativo if cfg else False,
+            "configurado":      bool(cfg and cfg.access_token),
+            "tem_client_id":    bool(cfg and cfg.client_id),
+            "tem_client_secret":bool(cfg and cfg.client_secret),
+            "extra_json":       cfg.extra_json if cfg else None,
         })
     return result
 

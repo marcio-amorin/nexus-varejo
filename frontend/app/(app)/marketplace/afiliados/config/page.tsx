@@ -109,19 +109,20 @@ export default function ConfigAfiliados() {
   }
 
   async function conectarML() {
-    // Salva credenciais com ativo=true (não usar salvar() que envia o toggle atual)
-    const body: any = { plataforma: 'ML_AFILIADOS', ativo: true }
-    if (form.client_id)     body.client_id     = form.client_id
-    if (form.client_secret) body.client_secret = form.client_secret
-    await fetch(`${API}/afiliados/configs`, { method:'POST', headers:hdr(), body:JSON.stringify(body) })
+    // Só salva credenciais se o form tiver valores digitados
+    if (form.client_id || form.client_secret) {
+      const body: any = { plataforma: 'ML_AFILIADOS', ativo: true }
+      if (form.client_id)     body.client_id     = form.client_id
+      if (form.client_secret) body.client_secret = form.client_secret
+      await fetch(`${API}/afiliados/configs`, { method:'POST', headers:hdr(), body:JSON.stringify(body) })
+    }
     const r = await fetch(`${API}/afiliados/ml-auth-url`, { headers:hdr() })
     if (r.status === 401) { localStorage.removeItem('nexus_token'); window.location.href = '/login'; return }
     const d = await r.json()
     if (d.url) {
-      // Redireciona na mesma aba — após autorizar, ML volta para esta página com ?ml_ok=1
       window.location.href = d.url
     } else {
-      alert(d.detail || 'Erro ao gerar URL de autenticação')
+      alert(d.detail || 'Salve o Client ID primeiro antes de conectar.')
     }
   }
 
@@ -293,12 +294,20 @@ export default function ConfigAfiliados() {
               </div>
 
               {/* Campos */}
-              {guia?.campos.map(campo => (
+              {guia?.campos.map(campo => {
+                const salvo = campo.key==='client_id' ? cfgSel?.tem_client_id
+                            : campo.key==='client_secret' ? cfgSel?.tem_client_secret
+                            : campo.key==='access_token' ? cfgSel?.configurado
+                            : false
+                return (
                 <div key={campo.key}>
-                  <label className="text-[10px] font-bold block mb-1" style={{ color:'var(--muted)' }}>{campo.label}</label>
+                  <label className="text-[10px] font-bold block mb-1 flex items-center gap-1.5" style={{ color:'var(--muted)' }}>
+                    {campo.label}
+                    {salvo && !form[campo.key] && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-black" style={{ background:'rgba(34,197,94,0.2)', color:'#22c55e' }}>✓ SALVO</span>}
+                  </label>
                   <div className="relative">
                     <input type={campo.tipo==='password'&&!showPass[campo.key]?'password':'text'}
-                      value={form[campo.key]||''} placeholder={campo.dica}
+                      value={form[campo.key]||''} placeholder={salvo && !form[campo.key] ? '●●●●●●●● (salvo no servidor)' : campo.dica}
                       onChange={e => setForm({...form,[campo.key]:e.target.value})}
                       className="w-full px-3 py-2 rounded-lg text-xs pr-8"/>
                     {campo.tipo==='password' && (
@@ -309,7 +318,8 @@ export default function ConfigAfiliados() {
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
 
               {/* Tutorial */}
               {guia?.tutorial && (

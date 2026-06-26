@@ -190,7 +190,7 @@ def listar_configs(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 # ─── OAuth2 Mercado Livre ─────────────────────────────────────────────────────
 
-ML_REDIRECT_URI = "http://localhost:8001/afiliados/ml-callback"
+ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onrender.com/afiliados/ml-callback")
 ML_AUTH_URL     = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL    = "https://api.mercadolibre.com/oauth/token"
 

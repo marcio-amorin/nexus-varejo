@@ -15,7 +15,7 @@ const GUIAS: Record<string,{campos:{key:string;label:string;tipo:string;dica:str
       { key:'client_secret', label:'Client Secret',  tipo:'password', dica:'Secret gerado na criação da app' },
       { key:'extra_json',    label:'Affiliate ID',   tipo:'text',     dica:'{"affiliate_id":"SEU_ID"}' },
     ],
-    tutorial:'1. developers.mercadolivre.com → Criar App → Categoria "Afiliados"\n2. Redirect URI: http://localhost:8001/afiliados/ml-callback\n3. Copie Client ID + Secret → Salve → Clique "Conectar"',
+    tutorial:'1. developers.mercadolivre.com → Criar App → Categoria "Afiliados"\n2. Redirect URI: https://nexus-varejo-backend.onrender.com/afiliados/ml-callback\n3. Copie Client ID + Secret → Salve → Clique "Conectar"',
   },
   SHOPEE:  { campos:[{key:'client_id',label:'App ID',tipo:'text',dica:'open.shopee.com → Meu App'},{key:'client_secret',label:'Secret Key',tipo:'password',dica:'Secret do app Shopee'},{key:'access_token',label:'Access Token',tipo:'password',dica:'Token OAuth Shopee'}], tutorial:'open.shopee.com → Cadastre-se como dev → Crie App Affiliate' },
   AMAZON:  { campos:[{key:'client_id',label:'Access Key ID',tipo:'text',dica:'afiliados.amazon.com.br → PA API'},{key:'client_secret',label:'Secret Key',tipo:'password',dica:'Chave PA API'},{key:'extra_json',label:'Partner Tag',tipo:'text',dica:'{"partner_tag":"TAG-20"}'}], tutorial:'afiliados.amazon.com.br → Ferramentas → PA API → Solicite acesso' },

@@ -236,12 +236,13 @@ async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get
         cfg.access_token  = data["access_token"]
         cfg.refresh_token = data.get("refresh_token", "")
         cfg.ativo         = True
-        # Salva user_id no extra_json para uso futuro
         extra = json.loads(cfg.extra_json or "{}")
         extra["user_id"] = data.get("user_id", "")
         cfg.extra_json = json.dumps(extra)
         db.commit()
-        return HTMLResponse(_html_resultado(True, "Mercado Livre conectado com sucesso! Pode fechar esta janela."))
+        # Redireciona de volta para a página de config (sem popup, sem fechar janela)
+        frontend_url = os.getenv("FRONTEND_URL", "https://nexus-varejo.vercel.app")
+        return RedirectResponse(url=f"{frontend_url}/marketplace/afiliados/config?ml_ok=1", status_code=302)
     except Exception as e:
         return HTMLResponse(_html_resultado(False, str(e)))
 

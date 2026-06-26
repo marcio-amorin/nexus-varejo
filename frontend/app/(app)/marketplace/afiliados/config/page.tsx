@@ -48,7 +48,14 @@ export default function ConfigAfiliados() {
   const [salvandoIA, setSalvandoIA] = useState(false)
   const [okIA, setOkIA]           = useState(false)
 
-  useEffect(() => { carregar(); carregarIA() }, [])
+  useEffect(() => {
+    carregar(); carregarIA()
+    if (typeof window !== 'undefined' && window.location.search.includes('ml_ok=1')) {
+      setOk(true); setSel('ML_AFILIADOS')
+      setTimeout(() => setOk(false), 5000)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
 
   async function carregar() {
     try {
@@ -102,16 +109,13 @@ export default function ConfigAfiliados() {
 
   async function conectarML() {
     if (form.client_id && form.client_secret) await salvar()
-    // Abre janela imediatamente (resposta direta ao click) para não ser bloqueada pelo browser
-    const popup = window.open('about:blank', 'mlauth', 'width=640,height=720,left=200,top=100')
     const r = await fetch(`${API}/afiliados/ml-auth-url`, { headers:hdr() })
-    if (r.status === 401) { if (popup) popup.close(); localStorage.removeItem('nexus_token'); window.location.href = '/login'; return }
+    if (r.status === 401) { localStorage.removeItem('nexus_token'); window.location.href = '/login'; return }
     const d = await r.json()
-    if (d.url && popup) {
-      popup.location.href = d.url
-      setTimeout(() => carregar(), 10000)
+    if (d.url) {
+      // Redireciona na mesma aba — após autorizar, ML volta para esta página com ?ml_ok=1
+      window.location.href = d.url
     } else {
-      if (popup) popup.close()
       alert(d.detail || 'Erro ao gerar URL de autenticação')
     }
   }

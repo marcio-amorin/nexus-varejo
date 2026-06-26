@@ -14,9 +14,12 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('nexus_token')
-      localStorage.removeItem('nexus_user')
-      window.location.href = '/'
+      const token = localStorage.getItem('nexus_token')
+      if (token) {
+        localStorage.removeItem('nexus_token')
+        localStorage.removeItem('nexus_user')
+        window.location.href = '/'
+      }
     }
     return Promise.reject(err)
   }

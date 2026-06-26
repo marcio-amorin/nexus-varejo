@@ -333,6 +333,27 @@ def root():
 def health():
     return {"status": "ok"}
 
+@app.get("/admin/seed-usuarios")
+def seed_usuarios():
+    import json
+    from database import SessionLocal
+    from models import Usuario
+    from utils.security import get_password_hash
+    db = SessionLocal()
+    criados = []
+    ADMPERMS = json.dumps(["pdv","vendas","compras","estoque","financeiro","relatorios","usuarios","configuracoes"])
+    for nome, email, senha in [("marcio","marcio@amorin.com.br","amorin"),("karla","karla@nexusvarejo.com","amorin")]:
+        u = db.query(Usuario).filter(Usuario.email == email).first()
+        if not u:
+            db.add(Usuario(nome=nome, email=email, senha_hash=get_password_hash(senha), perfil="ADMIN", is_active=True, permissoes=ADMPERMS))
+            criados.append(f"criado: {nome}")
+        else:
+            u.senha_hash = get_password_hash(senha)
+            u.is_active = True
+            criados.append(f"atualizado: {nome}")
+    db.commit(); db.close()
+    return {"ok": True, "resultado": criados}
+
 @app.get("/admin/reset-senha")
 def reset_senha(email: str = "marcio@amorin.com.br", senha: str = "amorin"):
     from database import SessionLocal

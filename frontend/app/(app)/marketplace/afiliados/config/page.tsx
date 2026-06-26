@@ -108,7 +108,11 @@ export default function ConfigAfiliados() {
   }
 
   async function conectarML() {
-    if (form.client_id && form.client_secret) await salvar()
+    // Salva credenciais com ativo=true (não usar salvar() que envia o toggle atual)
+    const body: any = { plataforma: 'ML_AFILIADOS', ativo: true }
+    if (form.client_id)     body.client_id     = form.client_id
+    if (form.client_secret) body.client_secret = form.client_secret
+    await fetch(`${API}/afiliados/configs`, { method:'POST', headers:hdr(), body:JSON.stringify(body) })
     const r = await fetch(`${API}/afiliados/ml-auth-url`, { headers:hdr() })
     if (r.status === 401) { localStorage.removeItem('nexus_token'); window.location.href = '/login'; return }
     const d = await r.json()

@@ -6,9 +6,10 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 
 const PLATS = [
-  { value:'ML_AFILIADOS', label:'Mercado Livre', cor:'#f59e0b', icone:'🟡' },
-  { value:'SHOPEE',       label:'Shopee',        cor:'#ef4444', icone:'🟠' },
-  { value:'AMAZON',       label:'Amazon',        cor:'#f97316', icone:'📦' },
+  { value:'ML_AFILIADOS', label:'Mercado Livre',  cor:'#f59e0b', icone:'🟡' },
+  { value:'SHOPEE',       label:'Shopee',         cor:'#ef4444', icone:'🟠' },
+  { value:'AMAZON',       label:'Amazon',         cor:'#f97316', icone:'📦' },
+  { value:'TIKTOK_SHOP',  label:'TikTok Shop',    cor:'#ff0050', icone:'🎵' },
 ]
 
 function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('nexus_token')}` } }

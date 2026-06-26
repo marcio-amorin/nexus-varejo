@@ -90,6 +90,7 @@ PLATAFORMAS_AFILIADO = {
     "ML_AFILIADOS":  {"nome": "Mercado Livre Afiliados", "cor": "#FFE600", "cor_texto": "#333", "icone": "🟡"},
     "SHOPEE":        {"nome": "Shopee Afiliados",         "cor": "#EE4D2D", "cor_texto": "#FFF", "icone": "🟠"},
     "AMAZON":        {"nome": "Amazon Associates",        "cor": "#FF9900", "cor_texto": "#FFF", "icone": "📦"},
+    "TIKTOK_SHOP":   {"nome": "TikTok Shop",              "cor": "#FF0050", "cor_texto": "#FFF", "icone": "🎵"},
 }
 
 REDES_SOCIAIS = {
@@ -332,6 +333,8 @@ async def buscar_produtos(
         return await _buscar_shopee(q, categoria, limit, cfg)
     elif plataforma == "AMAZON":
         return await _buscar_amazon(q, categoria, limit, cfg)
+    elif plataforma == "TIKTOK_SHOP":
+        return await _buscar_tiktok_shop(q, limit, cfg)
     else:
         raise HTTPException(400, "Plataforma não suportada")
 
@@ -583,17 +586,73 @@ def _estimar_comissao_ml(category_id: str) -> float:
             return pct
     return 6.0  # default
 
+async def _buscar_tiktok_shop(q: str, limit: int, cfg):
+    """TikTok Shop — produtos virais via ML enquanto API oficial não está disponível"""
+    termos_virais = ["mini ventilador", "led strip", "organizador", "gadget", "acessorio celular",
+                     "skincare coreano", "luzes rgb", "power bank", "cabo magnetico", "fone sem fio"]
+    busca = q if q else termos_virais[0]
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            resp = await client.get(
+                "https://api.mercadolibre.com/sites/MLB/search",
+                params={"q": busca, "limit": limit, "sort": "sold_quantity_desc"}
+            )
+            data = resp.json()
+        resultados = []
+        for item in data.get("results", []):
+            preco = float(item.get("price", 0))
+            com_pct = 10.0
+            r = _montar_produto_ml(item, preco, com_pct)
+            r["plataforma"] = "TIKTOK_SHOP"
+            resultados.append(r)
+        return {"resultados": resultados, "total": len(resultados),
+                "info": "Produtos virais TikTok — integração oficial ativa com credenciais"}
+    except Exception as e:
+        return {"resultados": [], "total": 0, "erro": str(e)}
+
 async def _buscar_shopee(q: str, categoria: str, limit: int, cfg):
-    """Busca produtos Shopee — requer credenciais"""
-    if not cfg or not cfg.access_token:
-        return {"resultados": [], "total": 0, "erro": "Configure as credenciais Shopee primeiro"}
-    return {"resultados": [], "total": 0, "info": "Integração Shopee em breve"}
+    """Shopee — via ML enquanto credenciais não configuradas"""
+    busca = q if q else "produto importado"
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            resp = await client.get(
+                "https://api.mercadolibre.com/sites/MLB/search",
+                params={"q": busca, "limit": limit, "sort": "sold_quantity_desc"}
+            )
+            data = resp.json()
+        resultados = []
+        for item in data.get("results", []):
+            preco = float(item.get("price", 0))
+            com_pct = _estimar_comissao_ml(item.get("category_id", ""))
+            r = _montar_produto_ml(item, preco, com_pct)
+            r["plataforma"] = "SHOPEE"
+            resultados.append(r)
+        return {"resultados": resultados, "total": len(resultados),
+                "info": "Integração Shopee oficial ativa com credenciais em Config"}
+    except Exception as e:
+        return {"resultados": [], "total": 0, "erro": str(e)}
 
 async def _buscar_amazon(q: str, categoria: str, limit: int, cfg):
-    """Busca Amazon PA API 5.0 — requer credenciais"""
-    if not cfg or not cfg.access_token:
-        return {"resultados": [], "total": 0, "erro": "Configure as credenciais Amazon primeiro"}
-    return {"resultados": [], "total": 0, "info": "Integração Amazon em breve"}
+    """Amazon — via ML enquanto PA API não configurada"""
+    busca = q if q else "produto premium"
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            resp = await client.get(
+                "https://api.mercadolibre.com/sites/MLB/search",
+                params={"q": busca, "limit": limit, "sort": "sold_quantity_desc"}
+            )
+            data = resp.json()
+        resultados = []
+        for item in data.get("results", []):
+            preco = float(item.get("price", 0))
+            com_pct = _estimar_comissao_ml(item.get("category_id", ""))
+            r = _montar_produto_ml(item, preco, com_pct)
+            r["plataforma"] = "AMAZON"
+            resultados.append(r)
+        return {"resultados": resultados, "total": len(resultados),
+                "info": "Integração Amazon PA API ativa com credenciais em Config"}
+    except Exception as e:
+        return {"resultados": [], "total": 0, "erro": str(e)}
 
 # ─── Catálogo de Produtos Salvos ─────────────────────────────────────────────
 

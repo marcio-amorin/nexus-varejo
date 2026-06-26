@@ -248,7 +248,10 @@ async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get
         cfg.access_token  = data["access_token"]
         cfg.refresh_token = data.get("refresh_token", "")
         cfg.ativo         = True
-        extra = json.loads(cfg.extra_json or "{}")
+        try:
+            extra = json.loads(cfg.extra_json or "{}")
+        except Exception:
+            extra = {}
         extra["user_id"] = data.get("user_id", "")
         cfg.extra_json = json.dumps(extra)
         db.commit()

@@ -38,7 +38,7 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoading(true); setRes([]); setErro('')
     try {
-      const p = new URLSearchParams({ q:'', plataforma:'ML_AFILIADOS', ordenar:'vendas', limit:'20' })
+      const p = new URLSearchParams({ q:'', plataforma:'ML_AFILIADOS', ordenar:'vendas', limit:'30' })
       const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
       const d = await r.json()
       setRes(d.resultados||[])

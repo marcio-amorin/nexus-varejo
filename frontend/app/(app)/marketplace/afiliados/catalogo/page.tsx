@@ -70,22 +70,15 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
-      // Chama ML API direto do browser (sem passar pelo backend — evita bloqueio 403)
-      const todos: any[] = []
-      for (const termo of TERMOS_AUTO.slice(0,4)) {
-        try {
-          const prods = await buscarMLDireto(termo, 8)
-          todos.push(...prods)
-        } catch {}
-      }
-      // Remove duplicatas por produto_ext_id
-      const vistos = new Set<string>()
-      const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
-      unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
-      setRes(unicos.slice(0,30))
-      if (unicos.length === 0) setErro('Nenhum produto encontrado')
+      const url = 'https://api.mercadolibre.com/sites/MLB/search?q=smartphone+samsung&limit=20&sort=sold_quantity_desc'
+      const r = await fetch(url)
+      if (!r.ok) { setErro(`ML API retornou ${r.status}`); setLoadingAuto(false); return }
+      const data = await r.json()
+      const prods = (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+      setRes(prods)
+      if (prods.length === 0) setErro(`Sem resultados (total ML: ${data?.paging?.total ?? 0})`)
     } catch (e:any) {
-      setErro('Erro ao carregar produtos')
+      setErro(`Erro: ${e?.message || String(e)}`)
     }
     setLoadingAuto(false)
   }

@@ -469,51 +469,102 @@ def _estrategia_top(meta: float, top_prods: list) -> dict:
 
 async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
     """Busca produtos no Mercado Livre — API pública, access_token opcional"""
+    headers_req = {}
+    if cfg and cfg.access_token:
+        headers_req["Authorization"] = f"Bearer {cfg.access_token}"
+
+    # Quando não há query, busca produtos de alto potencial em múltiplas categorias
+    if not q and not categoria:
+        return await _buscar_ml_top_oportunidades(limit, headers_req)
+
     try:
         sort_map = {"vendas": "sold_quantity_desc", "preco": "price_asc", "comissao": "sold_quantity_desc"}
         sort = sort_map.get(ordenar, "sold_quantity_desc")
-        params = {"q": q or "produto", "limit": limit, "sort": sort}
+        params = {"q": q, "limit": limit, "sort": sort}
         if categoria:
             params["category"] = categoria
 
-        headers_req = {}
-        if cfg and cfg.access_token:
-            headers_req["Authorization"] = f"Bearer {cfg.access_token}"
-
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                "https://api.mercadolibre.com/sites/MLB/search",
-                params=params, headers=headers_req
-            )
+            resp = await client.get("https://api.mercadolibre.com/sites/MLB/search", params=params, headers=headers_req)
             data = resp.json()
-
-        if resp.status_code == 401:
-            return {"resultados": [], "total": 0,
-                    "precisa_config": True,
-                    "erro": "Token do Mercado Livre expirado. Atualize em Configurações."}
 
         resultados = []
         for item in data.get("results", []):
-            preco    = float(item.get("price", 0))
-            com_pct  = _estimar_comissao_ml(item.get("category_id", ""))
-            resultados.append({
-                "produto_ext_id":  item["id"],
-                "titulo":          item["title"],
-                "preco":           preco,
-                "preco_original":  item.get("original_price"),
-                "comissao_pct":    com_pct,
-                "comissao_valor":  round(preco * com_pct / 100, 2),
-                "imagem_url":      item.get("thumbnail", "").replace("I.jpg", "O.jpg"),
-                "url_produto":     item.get("permalink"),
-                "vendas_mes":      item.get("sold_quantity", 0),
-                "avaliacao":       item.get("reviews", {}).get("rating_average", 0) if item.get("reviews") else 0,
-                "total_avaliacoes": item.get("reviews", {}).get("total", 0) if item.get("reviews") else 0,
-                "categoria":       item.get("category_id"),
-                "plataforma":      "ML_AFILIADOS",
-            })
+            preco   = float(item.get("price", 0))
+            com_pct = _estimar_comissao_ml(item.get("category_id", ""))
+            resultados.append(_montar_produto_ml(item, preco, com_pct))
         return {"resultados": resultados, "total": len(resultados)}
     except Exception as e:
         return {"resultados": [], "total": 0, "erro": str(e)}
+
+
+async def _buscar_ml_top_oportunidades(limit: int, headers_req: dict):
+    """Busca top produtos de alto potencial para meta de R$20k/mês"""
+    # Categorias com melhor ticket × comissão para atingir metas altas
+    BUSCAS_META = [
+        "smartphone samsung",
+        "notebook gamer",
+        "smartwatch",
+        "perfume importado",
+        "fone bluetooth",
+        "cafeteira expresso",
+        "aspirador robot",
+        "kit skincare",
+    ]
+
+    todos: list = []
+    vistos: set = set()
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        tasks = []
+        for termo in BUSCAS_META:
+            tasks.append(client.get(
+                "https://api.mercadolibre.com/sites/MLB/search",
+                params={"q": termo, "limit": 8, "sort": "sold_quantity_desc"},
+                headers=headers_req,
+            ))
+        respostas = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for resp in respostas:
+        if isinstance(resp, Exception):
+            continue
+        try:
+            data = resp.json()
+            for item in data.get("results", []):
+                pid = item.get("id")
+                if pid in vistos:
+                    continue
+                vistos.add(pid)
+                preco   = float(item.get("price", 0))
+                com_pct = _estimar_comissao_ml(item.get("category_id", ""))
+                # Filtra: preço mínimo R$50, comissão mínima 5%
+                if preco >= 50 and com_pct >= 5:
+                    p = _montar_produto_ml(item, preco, com_pct)
+                    todos.append(p)
+        except Exception:
+            continue
+
+    # Ordena por comissão_valor (maior potencial de ganho) e retorna top N
+    todos.sort(key=lambda x: x["comissao_valor"], reverse=True)
+    return {"resultados": todos[:limit], "total": len(todos[:limit])}
+
+
+def _montar_produto_ml(item: dict, preco: float, com_pct: float) -> dict:
+    return {
+        "produto_ext_id":   item["id"],
+        "titulo":           item["title"],
+        "preco":            preco,
+        "preco_original":   item.get("original_price"),
+        "comissao_pct":     com_pct,
+        "comissao_valor":   round(preco * com_pct / 100, 2),
+        "imagem_url":       item.get("thumbnail", "").replace("I.jpg", "O.jpg"),
+        "url_produto":      item.get("permalink"),
+        "vendas_mes":       item.get("sold_quantity", 0),
+        "avaliacao":        item.get("reviews", {}).get("rating_average", 0) if item.get("reviews") else 0,
+        "total_avaliacoes": item.get("reviews", {}).get("total", 0) if item.get("reviews") else 0,
+        "categoria":        item.get("category_id"),
+        "plataforma":       "ML_AFILIADOS",
+    }
 
 def _estimar_comissao_ml(category_id: str) -> float:
     """Comissões típicas ML Afiliados por categoria"""

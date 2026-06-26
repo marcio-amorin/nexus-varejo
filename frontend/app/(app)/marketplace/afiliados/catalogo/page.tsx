@@ -68,13 +68,12 @@ export default function Catalogo() {
   }
 
   async function buscarMLDireto(q: string, limit: number, token: string|null) {
-    // Chama ML API direto do browser com token (browser IP não é bloqueado pelo ML)
-    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
-    const headers: Record<string,string> = { 'Accept': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const r = await fetch(url, { headers })
+    // Usa proxy Vercel /api/ml-search (evita CORS e bloqueio IP do ML)
+    const p = new URLSearchParams({ q, limit: String(limit), sort: 'sold_quantity_desc' })
+    if (token) p.set('token', token)
+    const r = await fetch(`/api/ml-search?${p}`)
     const data = await r.json()
-    if (!r.ok) throw new Error(`HTTP ${r.status}: ${data.message || data.error || JSON.stringify(data).slice(0,80)}`)
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${data.message || data.error || JSON.stringify(data).slice(0,100)}`)
     return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
   }
 

@@ -24,8 +24,17 @@ const GUIAS: Record<string,{campos:{key:string;label:string;tipo:string;dica:str
   TIKTOK:   { campos:[{key:'access_token',label:'Access Token',tipo:'password',dica:'developers.tiktok.com'},{key:'extra_json',label:'Open ID',tipo:'text',dica:'{"open_id":"SEU_OPEN_ID"}'}], tutorial:'developers.tiktok.com → Crie App → Content Posting API → OAuth' },
 }
 
+const PLATAFORMAS_FIXAS = [
+  { plataforma:'ML_AFILIADOS', nome:'Mercado Livre Afiliados', icone:'🟡', tipo:'afiliado', ativo:false, configurado:false, extra_json:null },
+  { plataforma:'SHOPEE',       nome:'Shopee Afiliados',         icone:'🟠', tipo:'afiliado', ativo:false, configurado:false, extra_json:null },
+  { plataforma:'AMAZON',       nome:'Amazon Associates',        icone:'📦', tipo:'afiliado', ativo:false, configurado:false, extra_json:null },
+  { plataforma:'INSTAGRAM',    nome:'Instagram',                icone:'📸', tipo:'social',   ativo:false, configurado:false, extra_json:null },
+  { plataforma:'FACEBOOK',     nome:'Facebook',                 icone:'👤', tipo:'social',   ativo:false, configurado:false, extra_json:null },
+  { plataforma:'TIKTOK',       nome:'TikTok',                   icone:'🎵', tipo:'social',   ativo:false, configurado:false, extra_json:null },
+]
+
 export default function ConfigAfiliados() {
-  const [configs, setConfigs]     = useState<any[]>([])
+  const [configs, setConfigs]     = useState<any[]>(PLATAFORMAS_FIXAS)
   const [sel, setSel]             = useState<string|null>(null)
   const [form, setForm]           = useState<Record<string,string>>({})
   const [ativo, setAtivo]         = useState(false)
@@ -43,10 +52,10 @@ export default function ConfigAfiliados() {
   async function carregar() {
     try {
       const r = await fetch(`${API}/afiliados/configs`, { headers:hdr() })
-      if (!r.ok) { setConfigs([]); return }
+      if (!r.ok) return
       const data = await r.json()
-      setConfigs(Array.isArray(data) ? data : [])
-    } catch { setConfigs([]) }
+      if (Array.isArray(data) && data.length > 0) setConfigs(data)
+    } catch { /* mantém lista estática */ }
   }
 
   async function carregarIA() {

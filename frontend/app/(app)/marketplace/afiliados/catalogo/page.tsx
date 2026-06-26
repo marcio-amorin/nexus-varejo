@@ -21,9 +21,10 @@ export default function Catalogo() {
   const [ordenar, setOrdenar]     = useState('vendas')
   const [resultados, setRes]      = useState<any[]>([])
   const [catalogo, setCat]        = useState<any[]>([])
-  const [loading, setLoading]     = useState(false)
-  const [erroBusca, setErro]      = useState('')
-  const [msgLink, setMsgLink]     = useState('')
+  const [loading, setLoading]         = useState(false)
+  const [loadingAuto, setLoadingAuto] = useState(false)
+  const [erroBusca, setErro]          = useState('')
+  const [msgLink, setMsgLink]         = useState('')
 
   useEffect(() => { carregarCatalogo(); buscarAuto() }, [])
 
@@ -36,7 +37,7 @@ export default function Catalogo() {
   }
 
   async function buscarAuto() {
-    setLoading(true); setRes([]); setErro('')
+    setLoadingAuto(true); setRes([]); setErro('')
     try {
       const ctrl = new AbortController()
       const tid = setTimeout(() => ctrl.abort(), 15000)
@@ -47,10 +48,10 @@ export default function Catalogo() {
       setRes(d.resultados||[])
       if (d.erro) setErro(d.erro)
     } catch (e:any) {
-      if (e?.name === 'AbortError') setErro('Tempo esgotado — tente buscar por um produto específico')
+      if (e?.name === 'AbortError') setErro('Tempo esgotado — use o campo de busca acima')
       else setErro('Erro ao carregar produtos')
     }
-    setLoading(false)
+    setLoadingAuto(false)
   }
 
   async function buscar() {
@@ -158,7 +159,7 @@ export default function Catalogo() {
           </div>
 
           <div className="pg-body p-2">
-            {loading && (
+            {(loading || loadingAuto) && (
               <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
                 <RefreshCw size={28} color="#f97316" className="animate-spin"/>
                 <p className="text-xs">Buscando produtos mais vendidos...</p>

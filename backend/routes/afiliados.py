@@ -473,9 +473,9 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
     if cfg and cfg.access_token:
         headers_req["Authorization"] = f"Bearer {cfg.access_token}"
 
-    # Quando não há query, busca produtos de alto potencial em múltiplas categorias
+    # Quando não há query, busca produtos mais vendidos do Brasil
     if not q and not categoria:
-        return await _buscar_ml_top_oportunidades(limit, headers_req)
+        q = "produto"
 
     try:
         sort_map = {"vendas": "sold_quantity_desc", "preco": "price_asc", "comissao": "sold_quantity_desc"}

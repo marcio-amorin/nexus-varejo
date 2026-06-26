@@ -38,12 +38,18 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoading(true); setRes([]); setErro('')
     try {
+      const ctrl = new AbortController()
+      const tid = setTimeout(() => ctrl.abort(), 15000)
       const p = new URLSearchParams({ q:'', plataforma:'ML_AFILIADOS', ordenar:'vendas', limit:'30' })
-      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr(), signal: ctrl.signal })
+      clearTimeout(tid)
       const d = await r.json()
       setRes(d.resultados||[])
       if (d.erro) setErro(d.erro)
-    } catch { setErro('Erro ao carregar produtos') }
+    } catch (e:any) {
+      if (e?.name === 'AbortError') setErro('Tempo esgotado — tente buscar por um produto específico')
+      else setErro('Erro ao carregar produtos')
+    }
     setLoading(false)
   }
 

@@ -75,28 +75,29 @@ export default function Catalogo() {
     } catch { return null }
   }
 
-  async function buscarMLDireto(q: string, limit: number, token: string|null) {
-    let tokenValido = token
-    // 1ª tentativa: chamada direta browser→ML com token OAuth (IP do usuário)
-    if (tokenValido) {
-      try {
-        const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${tokenValido}`, Accept: 'application/json' } })
+  async function buscarMLDireto(q: string, limit: number, _token: string|null) {
+    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
+    // Requisição simples sem Authorization — sem CORS preflight, ML permite de qualquer IP de usuário
+    try {
+      const r = await fetch(url)
+      if (r.ok) {
         const data = await r.json()
-        if (r.ok) return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
-        if (r.status === 401 || r.status === 403) tokenValido = null // token expirado → proxy sem token
-      } catch {
-        // CORS ou rede → mantém token para o proxy tentar
+        const results = data.results || []
+        if (results.length > 0) return results.map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
       }
+    } catch { /* CORS bloqueado — tenta com token abaixo */ }
+
+    // Tentativa com token (pode falhar CORS preflight, mas vale tentar)
+    if (_token) {
+      try {
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${_token}` } })
+        if (r.ok) {
+          const data = await r.json()
+          return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+        }
+      } catch { /* ignora */ }
     }
-    // 2ª tentativa: proxy Vercel (sem token se falhou, com token se só foi CORS)
-    const p = new URLSearchParams({ q, limit: String(limit), sort: 'sold_quantity_desc' })
-    if (tokenValido) p.set('token', tokenValido)
-    const r = await fetch(`/api/ml-search?${p}`)
-    const data = await r.json()
-    if (r.status === 403 || r.status === 401) return [] // sem token válido — retorna vazio silenciosamente
-    if (!r.ok) throw new Error(`HTTP ${r.status}: ${data.message || data.error || JSON.stringify(data).slice(0,100)}`)
-    return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+    return []
   }
 
   async function buscarAuto() {

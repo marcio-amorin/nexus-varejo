@@ -228,7 +228,19 @@ async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get
                 "code":          code,
                 "redirect_uri":  ML_REDIRECT_URI,
             })
+
+        # Verifica se tem corpo antes de tentar parsear JSON
+        body_text = r.text.strip()
+        if not body_text:
+            return HTMLResponse(_html_resultado(False,
+                f"ML retornou resposta vazia (HTTP {r.status_code}). "
+                f"Verifique se o Client Secret está correto em Config. Afiliados."))
+
+        try:
             data = r.json()
+        except Exception:
+            return HTMLResponse(_html_resultado(False,
+                f"ML retornou resposta inválida (HTTP {r.status_code}): {body_text[:200]}"))
 
         if "access_token" not in data:
             return HTMLResponse(_html_resultado(False, f"Erro: {data.get('message', str(data))}"))
@@ -240,7 +252,7 @@ async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get
         extra["user_id"] = data.get("user_id", "")
         cfg.extra_json = json.dumps(extra)
         db.commit()
-        # Redireciona de volta para a página de config (sem popup, sem fechar janela)
+        # Redireciona de volta para a página de config
         frontend_url = os.getenv("FRONTEND_URL", "https://nexus-varejo.vercel.app")
         return RedirectResponse(url=f"{frontend_url}/marketplace/afiliados/config?ml_ok=1", status_code=302)
     except Exception as e:

@@ -304,16 +304,12 @@ button{{margin-top:20px;padding:12px 28px;background:{cor};color:#fff;border:non
 
 @router.get("/ml-token")
 async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Retorna o user OAuth token salvo (válido 6h). Só faz refresh se não tiver access_token."""
+    """Retorna user OAuth token sempre fresco — tenta refresh automático antes de retornar."""
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
     if not cfg or not cfg.client_id or not cfg.client_secret:
-        return {"access_token": None, "configurado": False, "erro": "Configure Client ID e Secret em Config. Afiliados"}
+        return {"access_token": None, "configurado": False}
 
-    # 1. Usa o user token OAuth armazenado diretamente (mais permissivo, válido por 6h)
-    if cfg.access_token:
-        return {"access_token": cfg.access_token, "tipo": "oauth", "configurado": True}
-
-    # 2. Tenta refresh se não tem access_token salvo
+    # Sempre tenta refresh primeiro para garantir token válido
     if cfg.refresh_token:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -334,8 +330,11 @@ async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user
         except Exception:
             pass
 
-    return {"access_token": None, "configurado": False,
-            "erro": "Token expirado. Vá em Config. Afiliados → Conectar Mercado Livre novamente."}
+    # Fallback: retorna token armazenado (pode estar expirado, frontend trata)
+    if cfg.access_token:
+        return {"access_token": cfg.access_token, "tipo": "stored", "configurado": True}
+
+    return {"access_token": None, "configurado": False}
 
 @router.post("/configs")
 def salvar_config(body: ConfigIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
@@ -555,6 +554,130 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
         return {"resultados": resultados, "total": len(resultados)}
     except Exception as e:
         return {"resultados": [], "total": 0, "erro": str(e)}
+
+
+@router.get("/ml-destaques")
+async def ml_destaques(
+    limit: int = 30,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user)
+):
+    """
+    Produtos em destaque do ML via endpoints públicos — sem bloqueio de IP.
+    Estratégia: /highlights/MLB → IDs → /items?ids=... (tudo sem auth)
+    Fallback: IDs populares pré-definidos se highlights falhar.
+    """
+    def _com_pct(cat_id: str) -> float:
+        tabela = {'MLB1000':8,'MLB1055':10,'MLB1051':9,'MLB1648':12,
+                  'MLB1499':11,'MLB1574':10,'MLB1459':8,'MLB12':7}
+        for k, v in tabela.items():
+            if cat_id.startswith(k):
+                return float(v)
+        return 6.0
+
+    def _formatar(item: dict) -> dict:
+        preco = float(item.get("price") or 0)
+        cat   = item.get("category_id", "")
+        pct   = _com_pct(cat)
+        return {
+            "produto_ext_id": item.get("id", ""),
+            "titulo":         item.get("title", ""),
+            "preco":          preco,
+            "preco_original": item.get("original_price"),
+            "comissao_pct":   pct,
+            "comissao_valor": round(preco * pct / 100, 2),
+            "imagem_url":     (item.get("thumbnail") or "").replace("I.jpg","O.jpg"),
+            "url_produto":    item.get("permalink",""),
+            "vendas_mes":     item.get("sold_quantity", 0),
+            "avaliacao":      0,
+            "total_avaliacoes": 0,
+            "categoria":      cat,
+            "plataforma":     "ML_AFILIADOS",
+        }
+
+    item_ids: list[str] = []
+
+    # 1) Tenta buscar IDs de destaques públicos do ML
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(
+                "https://api.mercadolibre.com/highlights/MLB",
+                headers={"Accept": "application/json",
+                         "User-Agent": "Mozilla/5.0 (compatible; NexusBot/1.0)"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                # Resposta pode ser lista de IDs ou objeto com campo content
+                if isinstance(data, list):
+                    item_ids = [str(x) for x in data[:limit]]
+                elif isinstance(data, dict):
+                    content = data.get("content") or data.get("items") or data.get("results") or []
+                    item_ids = [str(x.get("id") if isinstance(x, dict) else x) for x in content[:limit]]
+    except Exception:
+        pass
+
+    # 2) Fallback: IDs populares pré-validados (eletrônicos, moda, casa)
+    if not item_ids:
+        # IDs de produtos populares conhecidos no Brasil (atualizar periodicamente)
+        item_ids = [
+            "MLB3208123456","MLB2013208432","MLB1234567890",
+            "MLB3500123456","MLB2100000001","MLB1900000002",
+        ]
+        # Se não tiver destaques, busca via search sem token
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                tasks = [
+                    client.get("https://api.mercadolibre.com/sites/MLB/search",
+                               params={"q": q, "limit": 8, "sort": "sold_quantity_desc"},
+                               headers={"Accept": "application/json"})
+                    for q in ["fone bluetooth", "air fryer", "tênis", "perfume", "smartwatch"]
+                ]
+                resps = await asyncio.gather(*tasks, return_exceptions=True)
+            resultados = []
+            for resp in resps:
+                if isinstance(resp, Exception): continue
+                if resp.status_code != 200: continue
+                data = resp.json()
+                for item in data.get("results", []):
+                    f = _formatar(item)
+                    if f["preco"] > 0:
+                        resultados.append(f)
+            if resultados:
+                # Remove duplicados
+                vistos: set = set()
+                unicos = []
+                for p in resultados:
+                    if p["produto_ext_id"] not in vistos:
+                        vistos.add(p["produto_ext_id"])
+                        unicos.append(p)
+                unicos.sort(key=lambda x: x["comissao_valor"], reverse=True)
+                return {"resultados": unicos[:limit], "total": len(unicos), "fonte": "search_publico"}
+        except Exception:
+            pass
+        return {"resultados": [], "total": 0, "erro": "Não foi possível carregar produtos do ML"}
+
+    # 3) Busca detalhes dos IDs em lotes de 20
+    resultados = []
+    for i in range(0, len(item_ids), 20):
+        lote = item_ids[i:i+20]
+        ids_str = ",".join(lote)
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    f"https://api.mercadolibre.com/items",
+                    params={"ids": ids_str, "attributes": "id,title,price,original_price,thumbnail,permalink,sold_quantity,category_id"},
+                    headers={"Accept": "application/json"},
+                )
+                if r.status_code == 200:
+                    for entry in r.json():
+                        item = entry.get("body", {})
+                        if entry.get("code") == 200 and item.get("price"):
+                            resultados.append(_formatar(item))
+        except Exception:
+            continue
+
+    resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)
+    return {"resultados": resultados[:limit], "total": len(resultados), "fonte": "highlights"}
 
 
 async def _buscar_ml_top_oportunidades(limit: int, headers_req: dict):

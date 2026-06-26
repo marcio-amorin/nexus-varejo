@@ -94,6 +94,7 @@ export default function Catalogo() {
     if (tokenValido) p.set('token', tokenValido)
     const r = await fetch(`/api/ml-search?${p}`)
     const data = await r.json()
+    if (r.status === 403 || r.status === 401) return [] // sem token válido — retorna vazio silenciosamente
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${data.message || data.error || JSON.stringify(data).slice(0,100)}`)
     return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
   }
@@ -101,21 +102,34 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
+      // 1ª tentativa: browser direto com OAuth token (sem bloqueio IP)
       const token = await getMLToken()
-      // Continua mesmo sem token — proxy busca publicamente
       const todos: any[] = []
-      let ultimoErro = ''
       for (const termo of TERMOS_AUTO.slice(0,2)) {
         try {
           const prods = await buscarMLDireto(termo, 15, token)
           todos.push(...prods)
-        } catch (e:any) { ultimoErro = e?.message || String(e) }
+        } catch { /* ignora — tenta fallback abaixo */ }
       }
-      const vistos = new Set<string>()
-      const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
-      unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
-      setRes(unicos.slice(0,30))
-      if (unicos.length === 0) setErro(ultimoErro || 'Sem produtos encontrados')
+
+      if (todos.length > 0) {
+        const vistos = new Set<string>()
+        const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
+        unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
+        setRes(unicos.slice(0,30))
+        setLoadingAuto(false)
+        return
+      }
+
+      // 2ª tentativa: endpoint backend /ml-destaques (highlights público, sem bloqueio IP)
+      const rd = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
+      if (rd.ok) {
+        const dd = await rd.json()
+        const prods = dd.resultados || []
+        if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
+      }
+
+      setErro('Não foi possível carregar produtos automaticamente. Tente pesquisar manualmente acima.')
     } catch (e:any) {
       setErro(`Erro: ${e?.message || String(e)}`)
     }

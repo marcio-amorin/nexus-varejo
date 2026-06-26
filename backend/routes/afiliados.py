@@ -471,14 +471,13 @@ def _estrategia_top(meta: float, top_prods: list) -> dict:
     }
 
 async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
-    """Busca produtos no Mercado Livre — API pública, access_token opcional"""
-    headers_req = {}
+    """Busca produtos no Mercado Livre — usa access_token OAuth para evitar bloqueio de IP"""
+    headers_req = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     if cfg and cfg.access_token:
         headers_req["Authorization"] = f"Bearer {cfg.access_token}"
 
-    # Quando não há query, busca produtos mais vendidos do Brasil
     if not q and not categoria:
-        q = "produto"
+        q = "smartphone samsung"
 
     try:
         sort_map = {"vendas": "sold_quantity_desc", "preco": "price_asc", "comissao": "sold_quantity_desc"}
@@ -489,8 +488,11 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get("https://api.mercadolibre.com/sites/MLB/search", params=params, headers=headers_req)
-            data = resp.json()
 
+        if resp.status_code == 403:
+            return {"resultados": [], "total": 0, "erro": "ML API bloqueou o servidor (403). Reconecte o Mercado Livre em Configurações para usar o token OAuth."}
+
+        data = resp.json()
         resultados = []
         for item in data.get("results", []):
             preco   = float(item.get("price", 0))

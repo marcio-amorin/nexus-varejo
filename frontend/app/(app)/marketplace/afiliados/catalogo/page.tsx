@@ -167,9 +167,11 @@ export default function Catalogo() {
               </div>
             )}
 
-            {erroBusca && !loading && (
-              <div className="flex flex-col items-center justify-center py-10 gap-2">
-                <p className="text-xs text-center" style={{ color:'#ef4444' }}>{erroBusca}</p>
+            {erroBusca && !loadingAuto && !loading && (
+              <div className="rounded-xl p-4 flex flex-col gap-2" style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)' }}>
+                <p className="text-xs font-bold" style={{ color:'#ef4444' }}>Erro ao carregar produtos:</p>
+                <p className="text-xs" style={{ color:'#fca5a5' }}>{erroBusca}</p>
+                <p className="text-xs" style={{ color:'var(--muted)' }}>Use o campo de busca acima para pesquisar manualmente.</p>
               </div>
             )}
 

@@ -62,22 +62,55 @@ def debug():
 async def debug_ml():
     import httpx, time
     t0 = time.time()
+    resultados = {}
+
+    # Pega o access_token do ML salvo no banco
+    token = None
+    try:
+        from database import SessionLocal
+        from models import AfiliadoConfig
+        db = SessionLocal()
+        cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+        if cfg:
+            token = cfg.access_token
+        db.close()
+    except Exception as e:
+        resultados["db_erro"] = str(e)
+
+    resultados["token_disponivel"] = bool(token)
+
+    # Teste 1: sem token
+    t1 = time.time()
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
                 "https://api.mercadolibre.com/sites/MLB/search",
-                params={"q": "smartphone", "limit": 3, "sort": "sold_quantity_desc"}
+                params={"q": "smartphone", "limit": 3},
+                headers={"User-Agent": "Mozilla/5.0"}
             )
-        elapsed = round(time.time() - t0, 2)
         data = r.json()
-        total = data.get("paging", {}).get("total", 0)
-        primeiros = [
-            {"id": p["id"], "titulo": p["title"][:60], "preco": p.get("price", 0)}
-            for p in data.get("results", [])[:3]
-        ]
-        return {"ok": True, "status_http": r.status_code, "total_resultados": total, "tempo_s": elapsed, "primeiros": primeiros}
+        resultados["sem_token"] = {"status": r.status_code, "total": data.get("paging", {}).get("total", 0), "tempo": round(time.time()-t1,2)}
     except Exception as e:
-        return {"ok": False, "erro": str(e), "tempo_s": round(time.time() - t0, 2)}
+        resultados["sem_token"] = {"erro": str(e)}
+
+    # Teste 2: com token (se disponível)
+    if token:
+        t2 = time.time()
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r2 = await client.get(
+                    "https://api.mercadolibre.com/sites/MLB/search",
+                    params={"q": "smartphone", "limit": 3},
+                    headers={"Authorization": f"Bearer {token}", "User-Agent": "Mozilla/5.0"}
+                )
+            data2 = r2.json()
+            itens = [{"titulo": p["title"][:50], "preco": p.get("price")} for p in data2.get("results", [])[:3]]
+            resultados["com_token"] = {"status": r2.status_code, "total": data2.get("paging", {}).get("total", 0), "tempo": round(time.time()-t2,2), "itens": itens}
+        except Exception as e:
+            resultados["com_token"] = {"erro": str(e)}
+
+    resultados["tempo_total"] = round(time.time()-t0, 2)
+    return resultados
 
 @app.get("/admin/seed-usuarios")
 def seed_usuarios():

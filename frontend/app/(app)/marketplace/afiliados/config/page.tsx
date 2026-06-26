@@ -95,7 +95,8 @@ export default function ConfigAfiliados() {
   async function salvar() {
     if (!sel) return
     setSalvando(true)
-    const body:any = { plataforma:sel, ativo }
+    const body:any = { plataforma:sel }
+    if (ativo) body.ativo = true   // só manda ativo=true, nunca false (não desativa config salva)
     if (form.client_id)     body.client_id     = form.client_id
     if (form.client_secret) body.client_secret = form.client_secret
     if (form.access_token)  body.access_token  = form.access_token

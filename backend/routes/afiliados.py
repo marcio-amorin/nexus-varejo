@@ -284,6 +284,14 @@ button{{margin-top:20px;padding:12px 28px;background:{cor};color:#fff;border:non
 <button onclick="window.close()">Fechar</button></div>
 <script>if({'true' if sucesso else 'false'}){{setTimeout(()=>window.close(),3000)}}</script></body></html>"""
 
+@router.get("/ml-token")
+def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Retorna o access_token do ML para uso no frontend (chamadas diretas ao ML API)"""
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    if not cfg or not cfg.access_token:
+        return {"access_token": None, "configurado": False}
+    return {"access_token": cfg.access_token, "configurado": True}
+
 @router.post("/configs")
 def salvar_config(body: ConfigIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
     cfg = db.query(AfiliadoConfig).filter_by(plataforma=body.plataforma).first()

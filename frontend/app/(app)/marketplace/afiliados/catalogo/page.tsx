@@ -59,24 +59,43 @@ export default function Catalogo() {
     } catch { setCat([]) }
   }
 
-  async function buscarMLDireto(q: string, limit: number) {
-    const sort = 'sold_quantity_desc'
-    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=${sort}`
-    const r = await fetch(url)
+  async function getMLToken(): Promise<string|null> {
+    try {
+      const r = await fetch(`${API}/afiliados/ml-token`, { headers: hdr() })
+      const d = await r.json()
+      return d.access_token || null
+    } catch { return null }
+  }
+
+  async function buscarMLDireto(q: string, limit: number, token: string|null) {
+    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
+    const headers: Record<string,string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const r = await fetch(url, { headers })
     const data = await r.json()
+    if (data.error) throw new Error(`ML: ${data.message} (${data.status})`)
     return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
   }
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
-      const url = 'https://api.mercadolibre.com/sites/MLB/search?q=smartphone+samsung&limit=20&sort=sold_quantity_desc'
-      const r = await fetch(url)
-      if (!r.ok) { setErro(`ML API retornou ${r.status}`); setLoadingAuto(false); return }
-      const data = await r.json()
-      const prods = (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
-      setRes(prods)
-      if (prods.length === 0) setErro(`Sem resultados (total ML: ${data?.paging?.total ?? 0})`)
+      const token = await getMLToken()
+      const todos: any[] = []
+      for (const termo of TERMOS_AUTO.slice(0,4)) {
+        try {
+          const prods = await buscarMLDireto(termo, 8, token)
+          todos.push(...prods)
+        } catch {}
+      }
+      const vistos = new Set<string>()
+      const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
+      unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
+      setRes(unicos.slice(0,30))
+      if (unicos.length === 0) {
+        if (!token) setErro('Token ML não configurado. Conecte o Mercado Livre em Configurações.')
+        else setErro('Token expirado. Reconecte o Mercado Livre em Configurações → Conectar.')
+      }
     } catch (e:any) {
       setErro(`Erro: ${e?.message || String(e)}`)
     }
@@ -87,8 +106,8 @@ export default function Catalogo() {
     setLoading(true); setRes([]); setErro('')
     try {
       if (plat === 'ML_AFILIADOS') {
-        // Busca direto no ML pelo browser
-        const prods = await buscarMLDireto(query || 'produto', 20)
+        const token = await getMLToken()
+        const prods = await buscarMLDireto(query || 'smartphone', 20, token)
         setRes(prods)
         if (prods.length === 0) setErro('Nenhum produto encontrado')
       } else {

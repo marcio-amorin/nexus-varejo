@@ -97,8 +97,7 @@ export default function ConfigAfiliados() {
   }
 
   async function conectarML() {
-    if (!form.client_id||!form.client_secret) { alert('Preencha Client ID e Secret primeiro'); return }
-    await salvar()
+    if (form.client_id && form.client_secret) await salvar()
     const r = await fetch(`${API}/afiliados/ml-auth-url`, { headers:hdr() })
     const d = await r.json()
     if (d.url) { window.open(d.url,'_blank','width=600,height=700'); setTimeout(()=>carregar(),10000) }

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Seed das categorias padrão do NexusVarejo.
 Roda este script para criar/atualizar as 13 categorias.
 """

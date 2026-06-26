@@ -228,9 +228,9 @@ try:
                     perfil=uperfil, is_active=True, permissoes=uperms,
                 ))
             else:
-                if uemail == "marcio@amorin.com.br":
-                    u.senha_hash = get_password_hash(usenha)
-                    u.permissoes = ADMPERMS
+                u.senha_hash = get_password_hash(usenha)
+                u.permissoes = uperms
+                u.is_active = True
         db.commit(); db.close()
     except Exception as e:
         print(f"[WARN] Seed usuários: {e}", file=sys.stderr)

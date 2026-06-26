@@ -324,7 +324,7 @@ async def buscar_produtos(
     db: Session = Depends(get_db),
     _=Depends(get_current_user)
 ):
-    cfg = db.query(AfiliadoConfig).filter_by(plataforma=plataforma, ativo=True).first()
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma=plataforma).first()
 
     if plataforma == "ML_AFILIADOS":
         return await _buscar_ml(q, categoria, ordenar, limit, cfg)
@@ -468,13 +468,7 @@ def _estrategia_top(meta: float, top_prods: list) -> dict:
     }
 
 async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
-    """Busca produtos no Mercado Livre — requer Access Token OAuth2"""
-    if not cfg or not cfg.access_token:
-        return {
-            "resultados": [], "total": 0,
-            "precisa_config": True,
-            "erro": "Configure o Access Token do Mercado Livre em Configurações para buscar produtos.",
-        }
+    """Busca produtos no Mercado Livre — API pública, access_token opcional"""
     try:
         sort_map = {"vendas": "sold_quantity_desc", "preco": "price_asc", "comissao": "sold_quantity_desc"}
         sort = sort_map.get(ordenar, "sold_quantity_desc")
@@ -482,7 +476,10 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
         if categoria:
             params["category"] = categoria
 
-        headers_req = {"Authorization": f"Bearer {cfg.access_token}"}
+        headers_req = {}
+        if cfg and cfg.access_token:
+            headers_req["Authorization"] = f"Bearer {cfg.access_token}"
+
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
                 "https://api.mercadolibre.com/sites/MLB/search",

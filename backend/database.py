@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./maxx_vendas.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/nexus_varejo.db")
 
 # Railway fornece postgres://, SQLAlchemy precisa de postgresql://
 if DATABASE_URL.startswith("postgres://"):

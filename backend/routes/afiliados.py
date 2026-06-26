@@ -381,6 +381,24 @@ async def buscar_produtos(
     cfg = db.query(AfiliadoConfig).filter_by(plataforma=plataforma).first()
 
     if plataforma == "ML_AFILIADOS":
+        # Refresh token antes de buscar
+        if cfg and cfg.refresh_token:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(ML_TOKEN_URL, data={
+                        "grant_type": "refresh_token",
+                        "client_id": cfg.client_id,
+                        "client_secret": cfg.client_secret,
+                        "refresh_token": cfg.refresh_token,
+                    })
+                    if r.status_code == 200:
+                        d = r.json()
+                        if "access_token" in d:
+                            cfg.access_token = d["access_token"]
+                            cfg.refresh_token = d.get("refresh_token", cfg.refresh_token)
+                            db.commit()
+            except Exception:
+                pass
         return await _buscar_ml(q, categoria, ordenar, limit, cfg)
     elif plataforma == "SHOPEE":
         return await _buscar_shopee(q, categoria, limit, cfg)

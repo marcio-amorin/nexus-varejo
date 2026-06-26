@@ -102,66 +102,21 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
-    const log: string[] = []
     try {
-      const token = await getMLToken()
-      log.push(`token:${token ? 'ok' : 'null'}`)
-
-      // 1ª tentativa: browser direto (simples GET sem auth)
-      const url = `https://api.mercadolibre.com/sites/MLB/search?q=smartphone%20samsung&limit=20&sort=sold_quantity_desc`
-      let browserOk = false
-      try {
-        const r = await fetch(url)
-        log.push(`browser_status:${r.status}`)
-        if (r.ok) {
-          const data = await r.json()
-          const results = data.results || []
-          log.push(`browser_results:${results.length}`)
-          if (results.length > 0) {
-            setRes(results.map((item:any) => montarProduto(item, 'ML_AFILIADOS')))
-            setLoadingAuto(false); return
-          }
-        }
-      } catch(e:any) {
-        log.push(`browser_err:${e?.message||'CORS'}`)
-      }
-
-      // 1b: com token (caso browser precise auth)
-      if (token && !browserOk) {
-        try {
-          const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-          log.push(`browser_auth_status:${r.status}`)
-          if (r.ok) {
-            const data = await r.json()
-            const results = data.results || []
-            log.push(`browser_auth_results:${results.length}`)
-            if (results.length > 0) {
-              setRes(results.map((item:any) => montarProduto(item, 'ML_AFILIADOS')))
-              setLoadingAuto(false); return
-            }
-          }
-        } catch(e:any) {
-          log.push(`browser_auth_err:${e?.message||'CORS'}`)
+      // Backend usa token OAuth armazenado para buscar ML server-side (sem CORS, sem bloqueio)
+      const rd = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
+      if (rd.ok) {
+        const dd = await rd.json()
+        const prods: any[] = dd.resultados || []
+        if (prods.length > 0) {
+          setRes(prods)
+          setLoadingAuto(false)
+          return
         }
       }
-
-      // 2ª tentativa: backend /ml-destaques
-      try {
-        const rd = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
-        log.push(`backend_status:${rd.status}`)
-        if (rd.ok) {
-          const dd = await rd.json()
-          const prods = dd.resultados || []
-          log.push(`backend_results:${prods.length},fonte:${dd.fonte}`)
-          if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
-        }
-      } catch(e:any) {
-        log.push(`backend_err:${e?.message}`)
-      }
-
-      setErro(`[${log.join(' | ')}]`)
+      setErro('Produtos não carregaram. Verifique a conexão com o Mercado Livre nas Configurações.')
     } catch (e:any) {
-      setErro(`Erro: ${e?.message || String(e)} | log:${log.join(',')}`)
+      setErro(`Erro de conexão: ${e?.message || String(e)}`)
     }
     setLoadingAuto(false)
   }
@@ -169,19 +124,12 @@ export default function Catalogo() {
   async function buscar() {
     setLoading(true); setRes([]); setErro('')
     try {
-      if (plat === 'ML_AFILIADOS') {
-        const token = await getMLToken()
-        const prods = await buscarMLDireto(query || 'smartphone', 20, token)
-        setRes(prods)
-        if (prods.length === 0) setErro('Nenhum produto encontrado')
-      } else {
-        // Outras plataformas via backend
-        const p = new URLSearchParams({ q:query, plataforma:plat, ordenar, limit:'20' })
-        const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
-        const d = await r.json()
-        setRes(d.resultados||[])
-        if (d.erro) setErro(d.erro)
-      }
+      const p = new URLSearchParams({ q: query || 'smartphone samsung', plataforma: plat, ordenar, limit: '20' })
+      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+      const d = await r.json()
+      setRes(d.resultados || [])
+      if (d.erro) setErro(d.erro)
+      else if ((d.resultados || []).length === 0) setErro('Nenhum produto encontrado')
     } catch { setErro('Erro ao buscar produtos') }
     setLoading(false)
   }

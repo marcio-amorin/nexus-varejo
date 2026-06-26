@@ -13,7 +13,7 @@ const PLATS = [
 ]
 
 function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('nexus_token')}` } }
-function fmtR(v:number) { return v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) }
+function fmtR(v:any) { return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) }
 
 const COM_ML: Record<string,number> = {
   'MLB1000':8,'MLB1055':10,'MLB1051':9,'MLB1648':12,'MLB1499':11,'MLB1574':10,'MLB1459':8,'MLB12':7
@@ -68,7 +68,19 @@ export default function Catalogo() {
   }
 
   async function buscarMLDireto(q: string, limit: number, token: string|null) {
-    // Usa proxy Vercel /api/ml-search (evita CORS e bloqueio IP do ML)
+    // 1ª tentativa: chamada direta ML do browser (IP do usuário não é bloqueado)
+    if (token) {
+      try {
+        const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } })
+        const data = await r.json()
+        if (r.ok) return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+        // 401/403 → token inválido/expirado, tenta proxy abaixo
+      } catch {
+        // CORS ou rede → tenta proxy abaixo
+      }
+    }
+    // 2ª tentativa: proxy Vercel (com token se disponível)
     const p = new URLSearchParams({ q, limit: String(limit), sort: 'sold_quantity_desc' })
     if (token) p.set('token', token)
     const r = await fetch(`/api/ml-search?${p}`)
@@ -81,7 +93,7 @@ export default function Catalogo() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
       const token = await getMLToken()
-      if (!token) { setErro('Token ML não configurado. Vá em Config. Afiliados → Salvar.'); setLoadingAuto(false); return }
+      // Continua mesmo sem token — proxy busca publicamente
       const todos: any[] = []
       let ultimoErro = ''
       for (const termo of TERMOS_AUTO.slice(0,2)) {

@@ -6,7 +6,7 @@ import { Target, TrendingUp, DollarSign, Clock, Image, ShoppingBag, ArrowRight, 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 
-function fmtR(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
+function fmtR(v: any) { return (Number(v)||0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
 function hdr() { return { Authorization: `Bearer ${localStorage.getItem('nexus_token')}` } }
 
 export default function AfiliadosPainel() {

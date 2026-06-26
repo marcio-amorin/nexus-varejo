@@ -15,6 +15,28 @@ const PLATS = [
 function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('nexus_token')}` } }
 function fmtR(v:number) { return v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) }
 
+const COM_ML: Record<string,number> = {
+  'MLB1000':8,'MLB1055':10,'MLB1051':9,'MLB1648':12,'MLB1499':11,'MLB1574':10,'MLB1459':8,'MLB12':7
+}
+function comissaoML(catId:string) {
+  for (const [k,v] of Object.entries(COM_ML)) { if (catId.startsWith(k)) return v }
+  return 6
+}
+function montarProduto(item:any, plat:string, comPct?:number) {
+  const preco = parseFloat(item.price || 0)
+  const pct = comPct ?? comissaoML(item.category_id || '')
+  return {
+    produto_ext_id: item.id, titulo: item.title, preco,
+    preco_original: item.original_price,
+    comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
+    imagem_url: (item.thumbnail||'').replace('I.jpg','O.jpg'),
+    url_produto: item.permalink, vendas_mes: item.sold_quantity||0,
+    avaliacao:0, total_avaliacoes:0, categoria: item.category_id, plataforma: plat,
+  }
+}
+
+const TERMOS_AUTO = ['smartphone samsung','notebook gamer','smartwatch','fone bluetooth','perfume importado','air fryer','tênis nike','kit skincare']
+
 export default function Catalogo() {
   const [aba, setAba]             = useState<'buscar'|'catalogo'>('buscar')
   const [plat, setPlat]           = useState('ML_AFILIADOS')
@@ -37,20 +59,33 @@ export default function Catalogo() {
     } catch { setCat([]) }
   }
 
+  async function buscarMLDireto(q: string, limit: number) {
+    const sort = 'sold_quantity_desc'
+    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=${sort}`
+    const r = await fetch(url)
+    const data = await r.json()
+    return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+  }
+
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
-      const ctrl = new AbortController()
-      const tid = setTimeout(() => ctrl.abort(), 15000)
-      const p = new URLSearchParams({ q:'', plataforma:'ML_AFILIADOS', ordenar:'vendas', limit:'30' })
-      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr(), signal: ctrl.signal })
-      clearTimeout(tid)
-      const d = await r.json()
-      setRes(d.resultados||[])
-      if (d.erro) setErro(d.erro)
+      // Chama ML API direto do browser (sem passar pelo backend — evita bloqueio 403)
+      const todos: any[] = []
+      for (const termo of TERMOS_AUTO.slice(0,4)) {
+        try {
+          const prods = await buscarMLDireto(termo, 8)
+          todos.push(...prods)
+        } catch {}
+      }
+      // Remove duplicatas por produto_ext_id
+      const vistos = new Set<string>()
+      const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
+      unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
+      setRes(unicos.slice(0,30))
+      if (unicos.length === 0) setErro('Nenhum produto encontrado')
     } catch (e:any) {
-      if (e?.name === 'AbortError') setErro('Tempo esgotado — use o campo de busca acima')
-      else setErro('Erro ao carregar produtos')
+      setErro('Erro ao carregar produtos')
     }
     setLoadingAuto(false)
   }
@@ -58,11 +93,19 @@ export default function Catalogo() {
   async function buscar() {
     setLoading(true); setRes([]); setErro('')
     try {
-      const p = new URLSearchParams({ q:query, plataforma:plat, ordenar, limit:'20' })
-      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
-      const d = await r.json()
-      setRes(d.resultados||[])
-      if (d.erro) setErro(d.erro)
+      if (plat === 'ML_AFILIADOS') {
+        // Busca direto no ML pelo browser
+        const prods = await buscarMLDireto(query || 'produto', 20)
+        setRes(prods)
+        if (prods.length === 0) setErro('Nenhum produto encontrado')
+      } else {
+        // Outras plataformas via backend
+        const p = new URLSearchParams({ q:query, plataforma:plat, ordenar, limit:'20' })
+        const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+        const d = await r.json()
+        setRes(d.resultados||[])
+        if (d.erro) setErro(d.erro)
+      }
     } catch { setErro('Erro ao buscar produtos') }
     setLoading(false)
   }

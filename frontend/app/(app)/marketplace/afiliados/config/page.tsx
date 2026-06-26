@@ -92,13 +92,17 @@ export default function ConfigAfiliados() {
     if (form.client_secret) body.client_secret = form.client_secret
     if (form.access_token)  body.access_token  = form.access_token
     if (form.extra_json)    body.extra_json    = form.extra_json
-    await fetch(`${API}/afiliados/configs`, { method:'POST', headers:hdr(), body:JSON.stringify(body) })
-    setSalvando(false); setOk(true); carregar(); setTimeout(() => setOk(false), 2500)
+    const r = await fetch(`${API}/afiliados/configs`, { method:'POST', headers:hdr(), body:JSON.stringify(body) })
+    setSalvando(false)
+    if (r.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; return }
+    if (!r.ok) { alert('Erro ao salvar. Tente novamente.'); return }
+    setOk(true); carregar(); setTimeout(() => setOk(false), 2500)
   }
 
   async function conectarML() {
     if (form.client_id && form.client_secret) await salvar()
     const r = await fetch(`${API}/afiliados/ml-auth-url`, { headers:hdr() })
+    if (r.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; return }
     const d = await r.json()
     if (d.url) { window.open(d.url,'_blank','width=600,height=700'); setTimeout(()=>carregar(),10000) }
     else alert(d.detail||'Erro ao gerar URL')

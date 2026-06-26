@@ -39,7 +39,7 @@ router = APIRouter(prefix="/afiliados", tags=["afiliados"])
 
 class ConfigIn(BaseModel):
     plataforma:    str
-    ativo:         bool = False
+    ativo:         Optional[bool] = None   # None = não altera
     client_id:     Optional[str] = None
     client_secret: Optional[str] = None
     access_token:  Optional[str] = None
@@ -333,7 +333,8 @@ def salvar_config(body: ConfigIn, db: Session = Depends(get_db), _=Depends(get_c
     if not cfg:
         cfg = AfiliadoConfig(plataforma=body.plataforma)
         db.add(cfg)
-    cfg.ativo         = body.ativo
+    if body.ativo is not None:
+        cfg.ativo = body.ativo
     if body.client_id:     cfg.client_id     = body.client_id
     if body.client_secret: cfg.client_secret = body.client_secret
     if body.access_token:  cfg.access_token  = body.access_token

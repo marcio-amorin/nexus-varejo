@@ -16,17 +16,20 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true); setErro('')
     try {
+      // Acorda o servidor (cold start Render ~60s)
+      try { await api.get('/health', { timeout: 90000 }) } catch {}
       const form = new FormData()
       form.append('username', usuario)
       form.append('password', senha)
       const { data } = await api.post('/auth/login', form, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 90000,
       })
       localStorage.setItem('nexus_token', data.access_token)
       localStorage.setItem('nexus_user', JSON.stringify({ nome: data.nome, perfil: data.perfil }))
       router.push('/dashboard')
     } catch {
-      setErro('Usuário ou senha incorretos')
+      setErro('Usuário ou senha incorretos. Se for o primeiro acesso, aguarde 60s e tente novamente.')
     }
     setLoading(false)
   }
@@ -246,7 +249,7 @@ export default function LoginPage() {
           />
           {erro && <p style={S.erro}>{erro}</p>}
           <button type="submit" disabled={loading} style={{ ...S.btn, opacity: loading ? 0.7 : 1 }}>
-            {loading ? 'AGUARDE...' : 'ENTRAR'}
+            {loading ? '⏳ CONECTANDO... (até 60s)' : 'ENTRAR'}
           </button>
         </form>
 

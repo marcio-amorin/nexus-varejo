@@ -68,12 +68,13 @@ export default function Catalogo() {
   }
 
   async function buscarMLDireto(q: string, limit: number, token: string|null) {
-    // Usa rota proxy do Vercel (evita bloqueio 403 do ML em IPs de cloud)
-    const p = new URLSearchParams({ q, limit: String(limit), sort: 'sold_quantity_desc' })
-    if (token) p.set('token', token)
-    const r = await fetch(`/api/ml-search?${p}`)
+    // Chama ML API direto do browser com token (browser IP não é bloqueado pelo ML)
+    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
+    const headers: Record<string,string> = { 'Accept': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const r = await fetch(url, { headers })
     const data = await r.json()
-    if (data.error && !data.results) throw new Error(`ML: ${data.message || data.error}`)
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${data.message || data.error || JSON.stringify(data).slice(0,80)}`)
     return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
   }
 
@@ -81,21 +82,20 @@ export default function Catalogo() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
       const token = await getMLToken()
+      if (!token) { setErro('Token ML não configurado. Vá em Config. Afiliados → Salvar.'); setLoadingAuto(false); return }
       const todos: any[] = []
-      for (const termo of TERMOS_AUTO.slice(0,4)) {
+      let ultimoErro = ''
+      for (const termo of TERMOS_AUTO.slice(0,2)) {
         try {
-          const prods = await buscarMLDireto(termo, 8, token)
+          const prods = await buscarMLDireto(termo, 15, token)
           todos.push(...prods)
-        } catch {}
+        } catch (e:any) { ultimoErro = e?.message || String(e) }
       }
       const vistos = new Set<string>()
       const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
       unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
       setRes(unicos.slice(0,30))
-      if (unicos.length === 0) {
-        if (!token) setErro('Token ML não configurado. Conecte o Mercado Livre em Configurações.')
-        else setErro('Token expirado. Reconecte o Mercado Livre em Configurações → Conectar.')
-      }
+      if (unicos.length === 0) setErro(ultimoErro || 'Sem produtos encontrados')
     } catch (e:any) {
       setErro(`Erro: ${e?.message || String(e)}`)
     }

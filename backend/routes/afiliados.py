@@ -286,57 +286,45 @@ button{{margin-top:20px;padding:12px 28px;background:{cor};color:#fff;border:non
 
 @router.get("/ml-token")
 async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Retorna token ML válido: testa user token → tenta refresh → app token (client_credentials)"""
+    """Sempre retorna token fresco via client_credentials (POST ao ML auth funciona do Render).
+    O browser usa esse token para chamar ML API diretamente (browser IP não é bloqueado)."""
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    if not cfg or not cfg.client_id or not cfg.client_secret:
+        return {"access_token": None, "configurado": False, "erro": "Configure Client ID e Secret em Config. Afiliados"}
 
-    if cfg and cfg.access_token:
-        # Valida se o user token ainda é válido
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                test = await client.get(
-                    "https://api.mercadolibre.com/users/me",
-                    headers={"Authorization": f"Bearer {cfg.access_token}"}
-                )
-            if test.status_code == 200:
-                return {"access_token": cfg.access_token, "tipo": "user", "configurado": True}
-        except Exception:
-            pass
-
-        # Token expirado — tenta refresh automático
-        if cfg.refresh_token and cfg.client_id and cfg.client_secret:
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    r = await client.post(ML_TOKEN_URL, data={
-                        "grant_type":    "refresh_token",
-                        "client_id":     cfg.client_id,
-                        "client_secret": cfg.client_secret,
-                        "refresh_token": cfg.refresh_token,
-                    })
-                    data = r.json()
-                if "access_token" in data:
-                    cfg.access_token  = data["access_token"]
-                    cfg.refresh_token = data.get("refresh_token", cfg.refresh_token)
-                    db.commit()
-                    return {"access_token": cfg.access_token, "tipo": "user_refreshed", "configurado": True}
-            except Exception:
-                pass
-
-    # Fallback final: app token via client_credentials
-    if cfg and cfg.client_id and cfg.client_secret:
+    # Tenta refresh do user token primeiro (mais permissivo)
+    if cfg.refresh_token:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.post(ML_TOKEN_URL, data={
-                    "grant_type":    "client_credentials",
+                    "grant_type":    "refresh_token",
                     "client_id":     cfg.client_id,
                     "client_secret": cfg.client_secret,
+                    "refresh_token": cfg.refresh_token,
                 })
                 data = r.json()
             if "access_token" in data:
-                return {"access_token": data["access_token"], "tipo": "app", "configurado": True}
+                cfg.access_token  = data["access_token"]
+                cfg.refresh_token = data.get("refresh_token", cfg.refresh_token)
+                db.commit()
+                return {"access_token": cfg.access_token, "tipo": "refreshed", "configurado": True}
         except Exception:
             pass
 
-    return {"access_token": None, "configurado": False}
+    # App token via client_credentials
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(ML_TOKEN_URL, data={
+                "grant_type":    "client_credentials",
+                "client_id":     cfg.client_id,
+                "client_secret": cfg.client_secret,
+            })
+            data = r.json()
+        if "access_token" in data:
+            return {"access_token": data["access_token"], "tipo": "app", "configurado": True}
+        return {"access_token": None, "configurado": False, "erro": data.get("message","Erro ao obter token"), "raw": data}
+    except Exception as e:
+        return {"access_token": None, "configurado": False, "erro": str(e)}
 
 @router.post("/configs")
 def salvar_config(body: ConfigIn, db: Session = Depends(get_db), _=Depends(get_current_user)):

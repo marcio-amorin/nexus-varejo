@@ -421,8 +421,18 @@ def relatorio_troco(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 # ─── Operadores PDV ──────────────────────────────────────────────────────────
 
-from passlib.context import CryptContext as _CC
-_pwd = _CC(schemes=["bcrypt"], deprecated="auto")
+import bcrypt as _bcrypt_mod
+
+class _pwd:
+    @staticmethod
+    def hash(password: str) -> str:
+        return _bcrypt_mod.hashpw(password.encode('utf-8'), _bcrypt_mod.gensalt()).decode('utf-8')
+    @staticmethod
+    def verify(plain: str, hashed: str) -> bool:
+        try:
+            return _bcrypt_mod.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+        except Exception:
+            return False
 
 @router.get("/operadores")
 def list_operadores(db: Session = Depends(get_db), _=Depends(get_current_user)):

@@ -102,11 +102,18 @@ export default function ConfigAfiliados() {
 
   async function conectarML() {
     if (form.client_id && form.client_secret) await salvar()
+    // Abre janela imediatamente (resposta direta ao click) para não ser bloqueada pelo browser
+    const popup = window.open('about:blank', 'mlauth', 'width=640,height=720,left=200,top=100')
     const r = await fetch(`${API}/afiliados/ml-auth-url`, { headers:hdr() })
-    if (r.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; return }
+    if (r.status === 401) { if (popup) popup.close(); localStorage.removeItem('nexus_token'); window.location.href = '/login'; return }
     const d = await r.json()
-    if (d.url) { window.open(d.url,'_blank','width=600,height=700'); setTimeout(()=>carregar(),10000) }
-    else alert(d.detail||'Erro ao gerar URL')
+    if (d.url && popup) {
+      popup.location.href = d.url
+      setTimeout(() => carregar(), 10000)
+    } else {
+      if (popup) popup.close()
+      alert(d.detail || 'Erro ao gerar URL de autenticação')
+    }
   }
 
   async function renovarML() {

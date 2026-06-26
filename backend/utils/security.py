@@ -1,4 +1,4 @@
-import bcrypt as _bcrypt
+import hashlib, hmac, secrets, base64
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
@@ -13,14 +13,21 @@ SECRET_KEY = os.getenv("SECRET_KEY", "maxx-vendas-secret-key")
 ALGORITHM  = os.getenv("ALGORITHM", "HS256")
 EXPIRE_MIN = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
+_ITERS = 260_000
+
 
 def get_password_hash(password: str) -> str:
-    return _bcrypt.hashpw(password.encode('utf-8'), _bcrypt.gensalt()).decode('utf-8')
+    salt = secrets.token_bytes(32)
+    key  = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, _ITERS)
+    return base64.b64encode(salt + key).decode('utf-8')
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return _bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+        data = base64.b64decode(hashed.encode('utf-8'))
+        salt, stored = data[:32], data[32:]
+        key = hashlib.pbkdf2_hmac('sha256', plain.encode('utf-8'), salt, _ITERS)
+        return hmac.compare_digest(key, stored)
     except Exception:
         return False
 

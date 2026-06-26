@@ -333,6 +333,27 @@ def root():
 def health():
     return {"status": "ok"}
 
+@app.get("/debug")
+def debug():
+    import sys
+    from database import SessionLocal
+    from models import Usuario
+    from utils.security import get_password_hash, verify_password
+    resultado = {"python": sys.version, "usuarios": [], "hash_ok": False, "erro": None}
+    try:
+        h = get_password_hash("teste123")
+        resultado["hash_ok"] = verify_password("teste123", h)
+    except Exception as e:
+        resultado["erro"] = str(e)
+    try:
+        db = SessionLocal()
+        users = db.query(Usuario).all()
+        resultado["usuarios"] = [{"id": u.id, "nome": u.nome, "email": u.email, "ativo": u.is_active} for u in users]
+        db.close()
+    except Exception as e:
+        resultado["erro"] = str(e)
+    return resultado
+
 @app.get("/admin/seed-usuarios")
 def seed_usuarios():
     import json

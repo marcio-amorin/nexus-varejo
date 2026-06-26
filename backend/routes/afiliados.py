@@ -204,7 +204,7 @@ def ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
         f"{ML_AUTH_URL}?response_type=code"
         f"&client_id={urllib.parse.quote(cfg.client_id)}"
         f"&redirect_uri={urllib.parse.quote(ML_REDIRECT_URI)}"
-        f"&scope=offline_access"
+        f"&scope=offline_access+read_items+read_orders"
     )
     return {"url": url}
 

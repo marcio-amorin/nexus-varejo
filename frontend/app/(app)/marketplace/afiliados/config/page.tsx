@@ -51,7 +51,7 @@ export default function ConfigAfiliados() {
   useEffect(() => {
     carregar(); carregarIA()
     if (typeof window !== 'undefined' && window.location.search.includes('ml_ok=1')) {
-      setOk(true); setSel('ML_AFILIADOS')
+      setOk(true); setSel('ML_AFILIADOS'); setAtivo(true)
       setTimeout(() => setOk(false), 5000)
       window.history.replaceState({}, '', window.location.pathname)
     }

@@ -285,12 +285,31 @@ button{{margin-top:20px;padding:12px 28px;background:{cor};color:#fff;border:non
 <script>if({'true' if sucesso else 'false'}){{setTimeout(()=>window.close(),3000)}}</script></body></html>"""
 
 @router.get("/ml-token")
-def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Retorna o access_token do ML para uso no frontend (chamadas diretas ao ML API)"""
+async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Retorna token ML para o frontend usar nas chamadas diretas ao ML API.
+    Tenta: 1) token OAuth do usuário, 2) app token via client_credentials"""
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    if not cfg or not cfg.access_token:
-        return {"access_token": None, "configurado": False}
-    return {"access_token": cfg.access_token, "configurado": True}
+
+    # Tenta token OAuth do usuário primeiro
+    if cfg and cfg.access_token:
+        return {"access_token": cfg.access_token, "tipo": "user", "configurado": True}
+
+    # Fallback: app token via client_credentials (não precisa de OAuth do usuário)
+    if cfg and cfg.client_id and cfg.client_secret:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(ML_TOKEN_URL, data={
+                    "grant_type":    "client_credentials",
+                    "client_id":     cfg.client_id,
+                    "client_secret": cfg.client_secret,
+                })
+                data = r.json()
+            if "access_token" in data:
+                return {"access_token": data["access_token"], "tipo": "app", "configurado": True}
+        except Exception:
+            pass
+
+    return {"access_token": None, "configurado": False}
 
 @router.post("/configs")
 def salvar_config(body: ConfigIn, db: Session = Depends(get_db), _=Depends(get_current_user)):

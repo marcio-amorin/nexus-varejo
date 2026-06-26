@@ -9,6 +9,12 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'NexusVarejo',
+    startupImage: '/apple-icon',
+  },
+  icons: {
+    icon: '/icon',
+    apple: '/apple-icon',
+    shortcut: '/icon',
   },
 }
 

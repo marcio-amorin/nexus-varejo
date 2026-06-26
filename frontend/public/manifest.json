@@ -4,21 +4,21 @@
   "description": "Sistema de Gestão Comercial Completo",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#0F172A",
+  "background_color": "#EA580C",
   "theme_color": "#F97316",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
+      "src": "/apple-icon",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
+      "src": "/apple-icon",
+      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

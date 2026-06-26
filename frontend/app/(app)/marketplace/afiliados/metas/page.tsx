@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Target, Zap, ShoppingBag, CheckCircle, RefreshCw, Settings, ArrowRight, TrendingUp } from 'lucide-react'
@@ -7,12 +7,12 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 
 function fmtR(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
-function hdr() { return { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` } }
+function hdr() { return { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('nexus_token')}` } }
 
 const CATS_COR: Record<string, string> = {
-  'Eletrônicos': '#3b82f6', 'Celulares': '#8b5cf6', 'Computadores': '#0891b2',
+  'EletrÃ´nicos': '#3b82f6', 'Celulares': '#8b5cf6', 'Computadores': '#0891b2',
   'Moda': '#ec4899', 'Beleza': '#f43f5e', 'Esportes': '#22c55e',
-  'Casa': '#f59e0b', 'Bebês': '#a78bfa', 'Ferramentas': '#94a3b8', 'Jogos': '#06b6d4',
+  'Casa': '#f59e0b', 'BebÃªs': '#a78bfa', 'Ferramentas': '#94a3b8', 'Jogos': '#06b6d4',
 }
 
 export default function MetaVendas() {
@@ -88,7 +88,7 @@ export default function MetaVendas() {
             className="w-32 text-sm font-black px-3 py-2 rounded-lg" placeholder="20000" />
         </div>
         <div>
-          <p className="text-[10px] font-bold mb-1" style={{ color: 'var(--muted)' }}>MÊS</p>
+          <p className="text-[10px] font-bold mb-1" style={{ color: 'var(--muted)' }}>MÃŠS</p>
           <input type="month" value={mesAno} onChange={e => setMesAno(e.target.value)}
             className="text-sm px-3 py-2 rounded-lg" />
         </div>
@@ -111,7 +111,7 @@ export default function MetaVendas() {
           <Settings size={16} color="#f59e0b"/>
           <div className="flex-1">
             <p className="text-xs font-bold" style={{ color: '#f59e0b' }}>Conecte o Mercado Livre para ver as oportunidades</p>
-            <p className="text-[10px]" style={{ color: 'var(--muted)' }}>Clique → Configurações → Conectar ML (3 minutos)</p>
+            <p className="text-[10px]" style={{ color: 'var(--muted)' }}>Clique â†’ ConfiguraÃ§Ãµes â†’ Conectar ML (3 minutos)</p>
           </div>
           <ArrowRight size={13} color="#f59e0b"/>
         </div>
@@ -120,7 +120,7 @@ export default function MetaVendas() {
       {/* Abas */}
       {(opors.length > 0 || estrategia) && (
         <div className="pg-stats flex gap-1">
-          {([['estrategia','🎯 Plano'],['oportunidades',`🛍️ Top ${opors.length}`],['historico','📊 Histórico']] as [string,string][]).map(([v,l]) => (
+          {([['estrategia','ðŸŽ¯ Plano'],['oportunidades',`ðŸ›ï¸ Top ${opors.length}`],['historico','ðŸ“Š HistÃ³rico']] as [string,string][]).map(([v,l]) => (
             <button key={v} onClick={() => setAba(v as any)}
               className="px-4 py-1.5 rounded-lg text-xs font-bold"
               style={{ background: aba===v ? GRAD : 'var(--card2)', color: aba===v ? '#fff' : 'var(--muted)', border: aba===v ? 'none' : '1px solid var(--border)' }}>
@@ -130,7 +130,7 @@ export default function MetaVendas() {
         </div>
       )}
 
-      {/* Corpo scrollável */}
+      {/* Corpo scrollÃ¡vel */}
       <div className="pg-body p-3 space-y-3">
 
         {/* Loading */}
@@ -142,13 +142,13 @@ export default function MetaVendas() {
           </div>
         )}
 
-        {/* ESTRATÉGIA */}
+        {/* ESTRATÃ‰GIA */}
         {!loadingOp && aba === 'estrategia' && estrategia && (
           <>
             {/* KPIs */}
             <div className="grid grid-cols-4 gap-2">
               {[
-                { label: 'Meta / Mês',   value: fmtR(estrategia.meta),             cor: '#f97316' },
+                { label: 'Meta / MÃªs',   value: fmtR(estrategia.meta),             cor: '#f97316' },
                 { label: 'Vendas / Dia', value: String(estrategia.vendas_dia),      cor: '#3b82f6' },
                 { label: 'Cliques / Dia',value: estrategia.cliques_dia?.toLocaleString('pt-BR'), cor: '#8b5cf6' },
                 { label: 'Posts / Dia',  value: String(estrategia.posts_dia),       cor: '#ec4899' },
@@ -160,9 +160,9 @@ export default function MetaVendas() {
               ))}
             </div>
 
-            {/* Fórmula */}
+            {/* FÃ³rmula */}
             <div className="rounded-xl p-4" style={{ background:'var(--card)', border:'1px solid #f97316' }}>
-              <p className="text-[10px] font-black mb-2" style={{ color:'var(--muted)', letterSpacing:'0.08em' }}>📈 FÓRMULA DA META</p>
+              <p className="text-[10px] font-black mb-2" style={{ color:'var(--muted)', letterSpacing:'0.08em' }}>ðŸ“ˆ FÃ“RMULA DA META</p>
               <div className="flex items-center justify-around text-center">
                 <div>
                   <p className="text-lg font-black" style={{ color:'#fbbf24' }}>{fmtR(estrategia.meta/30)}</p>
@@ -171,7 +171,7 @@ export default function MetaVendas() {
                 <p className="text-xl" style={{ color:'var(--muted)' }}>=</p>
                 <div>
                   <p className="text-lg font-black" style={{ color:'#60a5fa' }}>{estrategia.vendas_dia} vendas</p>
-                  <p className="text-[10px]" style={{ color:'var(--muted)' }}>× {fmtR(estrategia.ticket_medio_com)}</p>
+                  <p className="text-[10px]" style={{ color:'var(--muted)' }}>Ã— {fmtR(estrategia.ticket_medio_com)}</p>
                 </div>
               </div>
             </div>
@@ -179,7 +179,7 @@ export default function MetaVendas() {
             {/* Produtos foco */}
             <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
               <div className="px-4 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
-                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>🛍️ TOP PRODUTOS PARA FOCAR</p>
+                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>ðŸ›ï¸ TOP PRODUTOS PARA FOCAR</p>
               </div>
               {(estrategia.plano_produtos||[]).map((p:any, i:number) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
@@ -192,21 +192,21 @@ export default function MetaVendas() {
                         style={{ background:(CATS_COR[p.categoria]||'#94a3b8')+'20', color:CATS_COR[p.categoria]||'#94a3b8' }}>
                         {p.categoria}
                       </span>
-                      <span className="text-[9px]" style={{ color:'var(--muted)' }}>{p.vendas_necessarias} vendas/mês</span>
+                      <span className="text-[9px]" style={{ color:'var(--muted)' }}>{p.vendas_necessarias} vendas/mÃªs</span>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-xs font-black" style={{ color:'#22c55e' }}>{fmtR(p.comissao)}</p>
-                    <p className="text-[9px]" style={{ color:'var(--muted)' }}>{fmtR(p.renda_gerada)}/mês</p>
+                    <p className="text-[9px]" style={{ color:'var(--muted)' }}>{fmtR(p.renda_gerada)}/mÃªs</p>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Ações diárias */}
+            {/* AÃ§Ãµes diÃ¡rias */}
             <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
               <div className="px-4 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
-                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>✅ ROTINA DIÁRIA</p>
+                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>âœ… ROTINA DIÃRIA</p>
               </div>
               <div className="p-3 space-y-1.5">
                 {(estrategia.acoes_diarias||[]).map((a:string, i:number) => (
@@ -245,7 +245,7 @@ export default function MetaVendas() {
                     </div>
                     <div className="rounded-lg p-1 text-center" style={{ background:'var(--card2)' }}>
                       <p className="text-xs font-black" style={{ color:'#3b82f6' }}>{p.comissao_pct}%</p>
-                      <p className="text-[9px]" style={{ color:'var(--muted)' }}>comissão</p>
+                      <p className="text-[9px]" style={{ color:'var(--muted)' }}>comissÃ£o</p>
                     </div>
                   </div>
                   {p.ganho_mensal_pot > 0 && (
@@ -264,7 +264,7 @@ export default function MetaVendas() {
           </div>
         )}
 
-        {/* HISTÓRICO */}
+        {/* HISTÃ“RICO */}
         {!loadingOp && aba === 'historico' && (
           <div className="space-y-2">
             {metas.length === 0 ? (
@@ -295,10 +295,11 @@ export default function MetaVendas() {
           <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color:'var(--muted)' }}>
             <Target size={40}/>
             <p className="text-sm font-bold text-white">Configure o ML e clique em Escanear</p>
-            <p className="text-xs text-center">A IA varre 10 categorias e monta seu plano para R$20.000/mês</p>
+            <p className="text-xs text-center">A IA varre 10 categorias e monta seu plano para R$20.000/mÃªs</p>
           </div>
         )}
       </div>
     </div>
   )
 }
+

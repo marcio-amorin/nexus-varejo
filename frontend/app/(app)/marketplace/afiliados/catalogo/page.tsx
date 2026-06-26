@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState, useRef } from 'react'
 import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw } from 'lucide-react'
 
@@ -6,12 +6,12 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 
 const PLATS = [
-  { value:'ML_AFILIADOS', label:'Mercado Livre', cor:'#f59e0b', icone:'🟡' },
-  { value:'SHOPEE',       label:'Shopee',        cor:'#ef4444', icone:'🟠' },
-  { value:'AMAZON',       label:'Amazon',        cor:'#f97316', icone:'📦' },
+  { value:'ML_AFILIADOS', label:'Mercado Livre', cor:'#f59e0b', icone:'ðŸŸ¡' },
+  { value:'SHOPEE',       label:'Shopee',        cor:'#ef4444', icone:'ðŸŸ ' },
+  { value:'AMAZON',       label:'Amazon',        cor:'#f97316', icone:'ðŸ“¦' },
 ]
 
-function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('token')}` } }
+function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('nexus_token')}` } }
 function fmtR(v:number) { return v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) }
 
 export default function Catalogo() {
@@ -78,8 +78,8 @@ export default function Catalogo() {
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
         <div className="px-5 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-base font-black text-white flex items-center gap-2"><ShoppingBag size={16}/> Catálogo Produtos</h1>
-            <p className="text-xs text-white/75 mt-0.5">Busque e salve produtos com maiores comissões</p>
+            <h1 className="text-base font-black text-white flex items-center gap-2"><ShoppingBag size={16}/> CatÃ¡logo Produtos</h1>
+            <p className="text-xs text-white/75 mt-0.5">Busque e salve produtos com maiores comissÃµes</p>
           </div>
           <span className="text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
             {catalogo.length} salvos
@@ -96,7 +96,7 @@ export default function Catalogo() {
 
       {/* Abas */}
       <div className="pg-stats flex gap-1">
-        {[['buscar','🔍 Buscar'],['catalogo',`📦 Meu Catálogo (${catalogo.length})`]].map(([v,l]) => (
+        {[['buscar','ðŸ” Buscar'],['catalogo',`ðŸ“¦ Meu CatÃ¡logo (${catalogo.length})`]].map(([v,l]) => (
           <button key={v} onClick={() => setAba(v as any)}
             className="px-4 py-1.5 rounded-lg text-xs font-bold"
             style={{ background:aba===v?GRAD:'var(--card2)', color:aba===v?'#fff':'var(--muted)', border:aba===v?'none':'1px solid var(--border)' }}>
@@ -125,13 +125,13 @@ export default function Catalogo() {
                 <Search size={14} color="var(--muted)" className="absolute left-3 top-1/2 -translate-y-1/2"/>
                 <input value={query} onChange={e => setQuery(e.target.value)}
                   onKeyDown={e => e.key==='Enter' && buscar()}
-                  placeholder="Ex: fone bluetooth, tênis, perfume..."
+                  placeholder="Ex: fone bluetooth, tÃªnis, perfume..."
                   className="w-full pl-8 pr-3 py-2 text-xs rounded-lg"/>
               </div>
               <select value={ordenar} onChange={e => setOrdenar(e.target.value)} className="px-2 py-2 rounded-lg text-xs">
                 <option value="vendas">+ Vendidos</option>
-                <option value="comissao">+ Comissão</option>
-                <option value="preco">Menor Preço</option>
+                <option value="comissao">+ ComissÃ£o</option>
+                <option value="preco">Menor PreÃ§o</option>
               </select>
               <button onClick={buscar} disabled={loading} className="btn-primary px-4 py-2 flex items-center gap-1.5 text-xs">
                 {loading ? <RefreshCw size={13} className="animate-spin"/> : <Search size={13}/>} Buscar
@@ -149,8 +149,8 @@ export default function Catalogo() {
 
             {precisaConfig && (
               <div className="flex flex-col items-center justify-center py-10 gap-3">
-                <div className="text-3xl">⚙️</div>
-                <p className="text-sm font-bold text-white">Configuração necessária</p>
+                <div className="text-3xl">âš™ï¸</div>
+                <p className="text-sm font-bold text-white">ConfiguraÃ§Ã£o necessÃ¡ria</p>
                 <p className="text-xs text-center" style={{ color:'var(--muted)' }}>{erroBusca}</p>
                 <a href="/marketplace/afiliados/config" className="btn-primary text-xs px-5 py-2">
                   Configurar Mercado Livre
@@ -160,9 +160,9 @@ export default function Catalogo() {
 
             {!loading && !precisaConfig && resultados.length === 0 && !query && (
               <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
-                <div className="text-4xl">🔍</div>
+                <div className="text-4xl">ðŸ”</div>
                 <p className="text-sm font-bold text-white">Digite o produto que quer promover</p>
-                <p className="text-xs">Fones, roupas, eletrônicos, cosméticos...</p>
+                <p className="text-xs">Fones, roupas, eletrÃ´nicos, cosmÃ©ticos...</p>
               </div>
             )}
 
@@ -177,7 +177,7 @@ export default function Catalogo() {
                       <p className="text-[10px] font-bold text-white leading-tight mb-1.5" style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.titulo}</p>
                       <div className="flex justify-between mb-1.5">
                         <span className="text-[10px] font-black" style={{ color:'#f97316' }}>{fmtR(p.preco)}</span>
-                        <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}% · {fmtR(p.comissao_valor)}</span>
+                        <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}% Â· {fmtR(p.comissao_valor)}</span>
                       </div>
                       <button onClick={() => salvarProduto(p)} className="w-full py-1.5 rounded-lg text-[10px] font-bold text-white flex items-center justify-center gap-1" style={{ background:GRAD }}>
                         <Plus size={11}/> Salvar
@@ -191,13 +191,13 @@ export default function Catalogo() {
         </>
       )}
 
-      {/* ABA CATÁLOGO */}
+      {/* ABA CATÃLOGO */}
       {aba === 'catalogo' && (
         <div className="pg-body p-2">
           {catalogo.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3" style={{ color:'var(--muted)' }}>
               <ShoppingBag size={36}/>
-              <p className="text-sm font-bold text-white">Catálogo vazio</p>
+              <p className="text-sm font-bold text-white">CatÃ¡logo vazio</p>
               <button onClick={() => setAba('buscar')} className="btn-primary text-xs px-5 py-2">Buscar Produtos</button>
             </div>
           ) : (
@@ -236,3 +236,4 @@ export default function Catalogo() {
     </div>
   )
 }
+

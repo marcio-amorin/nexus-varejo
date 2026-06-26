@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Target, TrendingUp, DollarSign, Clock, Image, ShoppingBag, ArrowRight, Settings, Zap } from 'lucide-react'
@@ -7,7 +7,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 
 function fmtR(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
-function hdr() { return { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+function hdr() { return { Authorization: `Bearer ${localStorage.getItem('nexus_token')}` } }
 
 export default function AfiliadosPainel() {
   const router = useRouter()
@@ -21,18 +21,18 @@ export default function AfiliadosPainel() {
   const meta = dash?.meta_mes
 
   const cards = [
-    { label: 'Comissões do Mês', value: fmtR(kpis.comissao_mes || 0),      icon: DollarSign, cor: '#22c55e' },
+    { label: 'ComissÃµes do MÃªs', value: fmtR(kpis.comissao_mes || 0),      icon: DollarSign, cor: '#22c55e' },
     { label: 'A Receber',        value: fmtR(kpis.comissao_pendente || 0),  icon: Clock,      cor: '#f59e0b' },
     { label: 'Produtos Ativos',  value: String(kpis.total_produtos || 0),   icon: ShoppingBag,cor: '#3b82f6' },
-    { label: 'Conteúdos Pub.',   value: String(kpis.conteudos_publicados||0),icon: Image,     cor: '#8b5cf6' },
+    { label: 'ConteÃºdos Pub.',   value: String(kpis.conteudos_publicados||0),icon: Image,     cor: '#8b5cf6' },
   ]
 
   const atalhos = [
-    { label: 'Meta Vendas',       desc: 'Plano IA para atingir R$20k/mês',  icon: Target,     cor: '#f97316', href: '/marketplace/afiliados/metas'      },
-    { label: 'Catálogo Produtos', desc: 'Buscar e salvar produtos afiliados',icon: ShoppingBag,cor: '#3b82f6', href: '/marketplace/afiliados/catalogo'   },
-    { label: 'Criar Conteúdo IA', desc: 'Posts automáticos para redes',      icon: Image,      cor: '#8b5cf6', href: '/marketplace/afiliados/conteudo'   },
-    { label: 'Financeiro',        desc: 'Comissões e projeções',             icon: DollarSign, cor: '#22c55e', href: '/marketplace/afiliados/financeiro' },
-    { label: 'Configurações',     desc: 'Vincular ML, Shopee, Instagram',    icon: Settings,   cor: '#38bdf8', href: '/marketplace/afiliados/config'     },
+    { label: 'Meta Vendas',       desc: 'Plano IA para atingir R$20k/mÃªs',  icon: Target,     cor: '#f97316', href: '/marketplace/afiliados/metas'      },
+    { label: 'CatÃ¡logo Produtos', desc: 'Buscar e salvar produtos afiliados',icon: ShoppingBag,cor: '#3b82f6', href: '/marketplace/afiliados/catalogo'   },
+    { label: 'Criar ConteÃºdo IA', desc: 'Posts automÃ¡ticos para redes',      icon: Image,      cor: '#8b5cf6', href: '/marketplace/afiliados/conteudo'   },
+    { label: 'Financeiro',        desc: 'ComissÃµes e projeÃ§Ãµes',             icon: DollarSign, cor: '#22c55e', href: '/marketplace/afiliados/financeiro' },
+    { label: 'ConfiguraÃ§Ãµes',     desc: 'Vincular ML, Shopee, Instagram',    icon: Settings,   cor: '#38bdf8', href: '/marketplace/afiliados/config'     },
   ]
 
   return (
@@ -44,7 +44,7 @@ export default function AfiliadosPainel() {
             <h1 className="text-base font-black text-white flex items-center gap-2">
               <Target size={16} /> Marketing de Afiliados
             </h1>
-            <p className="text-xs text-white/75 mt-0.5">Plataforma completa — ML, Shopee, Amazon</p>
+            <p className="text-xs text-white/75 mt-0.5">Plataforma completa â€” ML, Shopee, Amazon</p>
           </div>
           <button onClick={() => router.push('/marketplace/afiliados/config')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
@@ -54,7 +54,7 @@ export default function AfiliadosPainel() {
         </div>
       </div>
 
-      {/* Meta do mês */}
+      {/* Meta do mÃªs */}
       {meta ? (
         <div className="pg-stats rounded-xl p-4 flex items-center gap-4 cursor-pointer"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
@@ -81,7 +81,7 @@ export default function AfiliadosPainel() {
           onClick={() => router.push('/marketplace/afiliados/metas')}>
           <Zap size={16} color="#f59e0b" className="flex-shrink-0" />
           <p className="text-xs font-bold flex-1" style={{ color: '#f59e0b' }}>
-            Defina sua meta de vendas → receba um plano de IA personalizado
+            Defina sua meta de vendas â†’ receba um plano de IA personalizado
           </p>
           <ArrowRight size={13} color="#f59e0b" />
         </div>
@@ -105,10 +105,10 @@ export default function AfiliadosPainel() {
       {/* Body */}
       <div className="flex-1 grid gap-2 min-h-0" style={{ gridTemplateColumns: '1fr 1fr' }}>
 
-        {/* Acesso rápido */}
+        {/* Acesso rÃ¡pido */}
         <div className="rounded-xl flex flex-col min-h-0" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
-            <p className="text-[10px] font-black tracking-widest" style={{ color: 'var(--muted)' }}>ACESSO RÁPIDO</p>
+            <p className="text-[10px] font-black tracking-widest" style={{ color: 'var(--muted)' }}>ACESSO RÃPIDO</p>
           </div>
           <div className="flex-1 overflow-auto p-2 space-y-1">
             {atalhos.map((a, i) => (
@@ -128,10 +128,10 @@ export default function AfiliadosPainel() {
           </div>
         </div>
 
-        {/* Top produtos + comissões recentes */}
+        {/* Top produtos + comissÃµes recentes */}
         <div className="rounded-xl flex flex-col min-h-0" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
           <div className="px-4 py-3 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
-            <p className="text-[10px] font-black tracking-widest" style={{ color: 'var(--muted)' }}>TOP PRODUTOS — MAIOR COMISSÃO</p>
+            <p className="text-[10px] font-black tracking-widest" style={{ color: 'var(--muted)' }}>TOP PRODUTOS â€” MAIOR COMISSÃƒO</p>
             <button onClick={() => router.push('/marketplace/afiliados/catalogo')}
               className="text-[10px] font-bold flex items-center gap-1" style={{ color: '#f97316' }}>
               Ver todos <ArrowRight size={10} />
@@ -141,7 +141,7 @@ export default function AfiliadosPainel() {
             {(dash?.top_produtos || []).length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2" style={{ color: 'var(--muted)' }}>
                 <ShoppingBag size={28} />
-                <p className="text-xs">Adicione produtos ao catálogo</p>
+                <p className="text-xs">Adicione produtos ao catÃ¡logo</p>
                 <button onClick={() => router.push('/marketplace/afiliados/catalogo')} className="btn-primary text-xs px-4 py-2">
                   Buscar Produtos
                 </button>
@@ -153,7 +153,7 @@ export default function AfiliadosPainel() {
                   : <div className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: 'var(--card2)' }}><ShoppingBag size={14} color="var(--muted)" /></div>}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold truncate text-white">{p.titulo}</p>
-                  <p className="text-[10px]" style={{ color: 'var(--muted)' }}>{p.plataforma} · {p.comissao_pct}%</p>
+                  <p className="text-[10px]" style={{ color: 'var(--muted)' }}>{p.plataforma} Â· {p.comissao_pct}%</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-xs font-black" style={{ color: '#22c55e' }}>R$ {p.comissao_valor?.toFixed(2)}</p>
@@ -167,3 +167,4 @@ export default function AfiliadosPainel() {
     </div>
   )
 }
+

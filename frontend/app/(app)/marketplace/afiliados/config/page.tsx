@@ -6,7 +6,7 @@ const API    = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD   = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 const GRAD_IA = 'linear-gradient(135deg,#7c3aed 0%,#a855f7 50%,#ec4899 100%)'
 
-function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('token')}` } }
+function hdr() { return { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('nexus_token')}` } }
 
 const GUIAS: Record<string,{campos:{key:string;label:string;tipo:string;dica:string}[];tutorial:string}> = {
   ML_AFILIADOS: {

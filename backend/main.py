@@ -277,52 +277,33 @@ except Exception as e:
     print(f"[CRITICAL] DB setup error: {e}", file=sys.stderr)
 
 # ─── Rotas ────────────────────────────────────────────────────────────────────
-from routes import (
-    auth, produtos, fornecedores, clientes, nf_entrada, estoque,
-    vendas, contas_pagar, contas_receber, dashboard, relatorios,
-    compras, usuarios, pdv, centros_custo, inventario, devolucoes,
-    marketplace, gestao_precos, fiscal,
-    agenda_compras, verba_compras, nf_saida, trocas, precos_nf,
-    formas_recebimento, campanhas_v2, pedido_venda, impressoras,
-    contas_correntes, convenio, compradores, apis_externas, caixa,
-    afiliados,
-)
+import importlib, traceback as _tb
 
-app.include_router(auth.router)
-app.include_router(usuarios.router)
-app.include_router(produtos.router)
-app.include_router(fornecedores.router)
-app.include_router(clientes.router)
-app.include_router(nf_entrada.router)
-app.include_router(estoque.router)
-app.include_router(vendas.router)
-app.include_router(contas_pagar.router)
-app.include_router(contas_receber.router)
-app.include_router(dashboard.router)
-app.include_router(relatorios.router)
-app.include_router(compras.router)
-app.include_router(pdv.router)
-app.include_router(centros_custo.router)
-app.include_router(inventario.router)
-app.include_router(devolucoes.router)
-app.include_router(marketplace.router)
-app.include_router(gestao_precos.router)
-app.include_router(fiscal.router)
-app.include_router(agenda_compras.router)
-app.include_router(verba_compras.router)
-app.include_router(nf_saida.router)
-app.include_router(trocas.router)
-app.include_router(precos_nf.router)
-app.include_router(formas_recebimento.router)
-app.include_router(campanhas_v2.router)
-app.include_router(pedido_venda.router)
-app.include_router(impressoras.router)
-app.include_router(contas_correntes.router)
-app.include_router(convenio.router)
-app.include_router(compradores.router)
-app.include_router(apis_externas.router)
-app.include_router(caixa.router)
-app.include_router(afiliados.router)
+def _load_route(name: str) -> bool:
+    try:
+        mod = importlib.import_module(f"routes.{name}")
+        app.include_router(mod.router)
+        return True
+    except Exception as _e:
+        print(f"[ERROR] route '{name}' falhou: {_e}\n{_tb.format_exc()}", file=sys.stderr)
+        return False
+
+_ROUTES = [
+    "auth", "usuarios", "produtos", "fornecedores", "clientes",
+    "nf_entrada", "estoque", "vendas", "contas_pagar", "contas_receber",
+    "dashboard", "relatorios", "compras", "pdv", "centros_custo",
+    "inventario", "devolucoes", "marketplace", "gestao_precos", "fiscal",
+    "agenda_compras", "verba_compras", "nf_saida", "trocas", "precos_nf",
+    "formas_recebimento", "campanhas_v2", "pedido_venda", "impressoras",
+    "contas_correntes", "convenio", "compradores", "apis_externas", "caixa",
+    "afiliados",
+]
+
+_failed = [r for r in _ROUTES if not _load_route(r)]
+if _failed:
+    print(f"[WARN] Routes com erro: {_failed}", file=sys.stderr)
+else:
+    print("[OK] Todas as rotas carregadas", file=sys.stderr)
 
 
 @app.get("/")

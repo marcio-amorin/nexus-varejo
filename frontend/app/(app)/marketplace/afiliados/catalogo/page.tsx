@@ -35,7 +35,29 @@ function montarProduto(item:any, plat:string, comPct?:number) {
   }
 }
 
-const TERMOS_AUTO = ['smartphone samsung','notebook gamer','smartwatch','fone bluetooth','perfume importado','air fryer','tênis nike','kit skincare']
+const CATS_ICONE: Record<string,string> = {
+  'Todos':'🏷️','Celulares':'📱','TV & Vídeo':'📺','Informática':'💻','Games':'🎮',
+  'Eletrodomésticos':'🏠','Áudio':'🎧','Calçados':'👟','Roupas':'👗','Smartwatches':'⌚',
+  'Beleza':'💄','Acessórios':'👜','Esporte':'🏋️','Foto & Vídeo':'📷','Outros':'📦'
+}
+
+function detectarCat(titulo: string): string {
+  const t = titulo.toLowerCase()
+  if (/samsung|motorola|iphone|xiaomi|realme|poco|smartphone|celular|moto g|galaxy [as]|redmi/.test(t)) return 'Celulares'
+  if (/smart tv|televisão|\btv\b|qled|oled|4k|android tv|roku|aiwa/.test(t)) return 'TV & Vídeo'
+  if (/notebook|laptop|computador|monitor|\btablet\b|ipad|impressora/.test(t)) return 'Informática'
+  if (/playstation|xbox|nintendo|ps5|ps4|switch|joystick|gamer|gift card/.test(t)) return 'Games'
+  if (/air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador|cafeteira/.test(t)) return 'Eletrodomésticos'
+  if (/fone|headphone|earphone|bluetooth|caixa de som|speaker|soundbar/.test(t)) return 'Áudio'
+  if (/tênis|sapato|bota|sandália|chinelo|sapatênis|mocassim/.test(t)) return 'Calçados'
+  if (/camiseta|camisa|blusa|vestido|calça|jaqueta|moletom|shorts|saia|macacão|conjunto|legging/.test(t)) return 'Roupas'
+  if (/smartwatch|watch|relógio/.test(t)) return 'Smartwatches'
+  if (/perfume|desodorante|shampoo|condicionador|hidratante|creme|protetor solar|maquiagem|skincare|sérum/.test(t)) return 'Beleza'
+  if (/bolsa|mochila|carteira|colar|brinco|anel|óculos|cinto|chapéu/.test(t)) return 'Acessórios'
+  if (/bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação/.test(t)) return 'Esporte'
+  if (/câmera|camera|drone|gopro|ring light|tripé/.test(t)) return 'Foto & Vídeo'
+  return 'Outros'
+}
 
 export default function Catalogo() {
   const [aba, setAba]             = useState<'buscar'|'catalogo'>('buscar')
@@ -48,6 +70,7 @@ export default function Catalogo() {
   const [loadingAuto, setLoadingAuto] = useState(false)
   const [erroBusca, setErro]          = useState('')
   const [msgLink, setMsgLink]         = useState('')
+  const [catSel, setCatSel]           = useState('Todos')
 
   // Modal importar por link
   const [modalLink, setModalLink]       = useState(false)
@@ -270,11 +293,11 @@ export default function Catalogo() {
             </div>
           </div>
 
-          <div className="pg-body p-2">
+          <div className="pg-body p-2 space-y-2">
             {(loading || loadingAuto) && (
               <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
                 <RefreshCw size={28} color="#f97316" className="animate-spin"/>
-                <p className="text-xs">Buscando produtos mais vendidos...</p>
+                <p className="text-xs">Carregando produtos mais vendidos do Mercado Livre...</p>
               </div>
             )}
 
@@ -286,27 +309,80 @@ export default function Catalogo() {
               </div>
             )}
 
-            {!loading && resultados.length > 0 && (
-              <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
-                {resultados.map((p,i) => (
-                  <div key={i} className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
-                    <div className="flex items-center justify-center p-2" style={{ background:'var(--card2)', height:90 }}>
-                      {p.imagem_url ? <img src={p.imagem_url} className="max-h-full object-contain"/> : <ShoppingBag size={28} color="var(--muted)"/>}
-                    </div>
-                    <div className="p-2">
-                      <p className="text-[10px] font-bold text-white leading-tight mb-1.5" style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.titulo}</p>
-                      <div className="flex justify-between mb-1.5">
-                        <span className="text-[10px] font-black" style={{ color:'#f97316' }}>{fmtR(p.preco)}</span>
-                        <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}% · {fmtR(p.comissao_valor)}</span>
-                      </div>
-                      <button onClick={() => salvarProduto(p)} className="w-full py-1.5 rounded-lg text-[10px] font-bold text-white flex items-center justify-center gap-1" style={{ background:GRAD }}>
-                        <Plus size={11}/> Salvar no Catálogo
+            {!loading && !loadingAuto && resultados.length > 0 && (() => {
+              const prodsComCat = resultados.map(p => ({ ...p, categoria: p.categoria || detectarCat(p.titulo) }))
+              const contagem: Record<string,number> = { 'Todos': prodsComCat.length }
+              prodsComCat.forEach(p => { contagem[p.categoria] = (contagem[p.categoria]||0)+1 })
+              const cats = ['Todos', ...Object.keys(contagem).filter(c => c !== 'Todos').sort()]
+              const filtrados = catSel === 'Todos' ? prodsComCat : prodsComCat.filter(p => p.categoria === catSel)
+              return (
+                <>
+                  {/* Abas de categoria */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth:'none' }}>
+                    {cats.map(cat => (
+                      <button key={cat} onClick={() => setCatSel(cat)}
+                        className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all"
+                        style={{
+                          background: catSel===cat ? GRAD : 'var(--card)',
+                          color: catSel===cat ? '#fff' : 'var(--muted)',
+                          border: catSel===cat ? 'none' : '1px solid var(--border)',
+                          whiteSpace:'nowrap'
+                        }}>
+                        {CATS_ICONE[cat]||'📦'} {cat}
+                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black"
+                          style={{ background: catSel===cat?'rgba(255,255,255,0.25)':'var(--card2)' }}>
+                          {contagem[cat]}
+                        </span>
                       </button>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {/* Contador */}
+                  <p className="text-[10px]" style={{ color:'var(--muted)' }}>
+                    {filtrados.length} produtos {catSel !== 'Todos' ? `em ${catSel}` : 'no total'} — ordenados por maior comissão
+                  </p>
+
+                  {/* Grid de produtos */}
+                  <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))' }}>
+                    {filtrados.map((p,i) => (
+                      <div key={i} className="rounded-xl overflow-hidden flex flex-col"
+                        style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+                        {/* Foto */}
+                        <div className="relative flex items-center justify-center" style={{ background:'#fff', height:140 }}>
+                          {p.imagem_url
+                            ? <img src={p.imagem_url} alt={p.titulo} className="w-full h-full object-contain p-2"/>
+                            : <ShoppingBag size={36} color="#ccc"/>}
+                          {/* Badge categoria */}
+                          <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md text-[9px] font-black"
+                            style={{ background:'rgba(0,0,0,0.7)', color:'#fff' }}>
+                            {CATS_ICONE[p.categoria]||'📦'} {p.categoria}
+                          </span>
+                        </div>
+                        {/* Info */}
+                        <div className="p-2 flex flex-col gap-1 flex-1">
+                          <p className="text-[10px] font-bold leading-tight" style={{ color:'var(--fg)', display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                            {p.titulo}
+                          </p>
+                          <div className="mt-auto">
+                            <div className="flex justify-between items-center mb-1.5">
+                              <span className="text-xs font-black" style={{ color:'#f97316' }}>{fmtR(p.preco)}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={{ background:'rgba(34,197,94,0.15)', color:'#22c55e' }}>
+                                +{fmtR(p.comissao_valor)}
+                              </span>
+                            </div>
+                            <button onClick={() => salvarProduto(p)}
+                              className="w-full py-1.5 rounded-lg text-[10px] font-black text-white flex items-center justify-center gap-1"
+                              style={{ background:GRAD }}>
+                              <Plus size={11}/> Salvar no Catálogo
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </>
       )}

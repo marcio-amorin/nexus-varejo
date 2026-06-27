@@ -130,31 +130,23 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
-
-    const termos = [
-      'smartphone samsung motorola xiaomi',
-      'fone bluetooth earphone tws',
-      'smart tv 4k android',
-      'notebook laptop tablet',
-      'air fryer fritadeira eletrodomestico',
-      'tenis calcado corrida',
-      'perfume maquiagem beleza',
-      'playstation xbox nintendo games',
-    ]
-
-    try {
-      const resultados = await Promise.all(termos.map(q => buscarMLBrowser(q, 25)))
-      const todos: any[] = resultados.flat()
-      const vistos = new Set<string>()
-      const unicos = todos.filter(p => {
-        if (vistos.has(p.produto_ext_id)) return false
-        vistos.add(p.produto_ext_id); return true
-      })
-      if (unicos.length > 0) setRes(unicos)
-      else setErro('Nao foi possivel carregar produtos. Use a busca manual.')
-    } catch {
-      setErro('Erro ao carregar produtos. Use a busca manual.')
+    const termos = ['smartphone samsung', 'fone bluetooth', 'smart tv 4k', 'notebook laptop', 'air fryer', 'tenis corrida', 'perfume skincare', 'playstation games']
+    const todos: any[] = []
+    const vistos = new Set<string>()
+    for (const q of termos) {
+      try {
+        const r = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=50&sort=sold_quantity_desc`)
+        if (r.ok) {
+          const d = await r.json()
+          for (const item of (d.results || [])) {
+            if (!vistos.has(item.id)) { vistos.add(item.id); todos.push(montarProduto(item, 'ML_AFILIADOS')) }
+          }
+          if (todos.length >= 50) break
+        }
+      } catch {}
     }
+    if (todos.length > 0) setRes(todos)
+    else setErro('Não foi possível carregar produtos automáticos. Use a busca manual acima.')
     setLoadingAuto(false)
   }
 

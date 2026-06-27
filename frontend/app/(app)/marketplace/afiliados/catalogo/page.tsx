@@ -82,6 +82,7 @@ export default function Catalogo() {
   const [importResult, setImportResult] = useState<any>(null)
   const [importErro, setImportErro]     = useState('')
   const [copiedKey, setCopiedKey]       = useState('')
+  const [precoManual, setPrecoManual]   = useState('')
 
   useEffect(() => { carregarCatalogo(); buscarAuto() }, [])
 
@@ -210,16 +211,26 @@ export default function Catalogo() {
         const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
         if (r.ok) {
           const d = await r.json()
-          // Preço: direto ou menor variação (para produtos com tamanhos/cores)
+          // Preço direto
           let preco = parseFloat(d.price || d.base_price || 0)
+          // Fallback: menor variação
           if (!preco && d.variations?.length) {
-            const precos = d.variations.map((v:any) => parseFloat(v.price || 0)).filter((p:number) => p > 0)
+            const precos = d.variations.map((v:any) => parseFloat(v.price||0)).filter((p:number)=>p>0)
             if (precos.length) preco = Math.min(...precos)
           }
-          if (!preco && d.sale_price?.amount) preco = parseFloat(d.sale_price.amount)
+          // Fallback: produto de catálogo → busca oferta mais barata
+          if (!preco) {
+            try {
+              const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=1`)
+              if (sr.ok) {
+                const sd = await sr.json()
+                if (sd.results?.[0]?.price) preco = parseFloat(sd.results[0].price)
+              }
+            } catch {}
+          }
           const pct = comissaoML(d.category_id || '')
-          // Imagem: tenta pictures[0] se thumbnail falhar
-          const imagem = d.pictures?.[0]?.url || (d.thumbnail || '').replace('I.jpg', 'O.jpg')
+          // Imagem: tenta pictures[0] se thumbnail for vazio
+          const imagem = d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')
           const produto = {
             produto_ext_id: d.id,
             titulo: d.title,
@@ -260,8 +271,13 @@ export default function Catalogo() {
 
   async function salvarImportado() {
     if (!importResult?.produto) return
-    await salvarProduto(importResult.produto)
-    setModalLink(false); setImportResult(null); setInputLink('')
+    const prod = { ...importResult.produto }
+    if (prod.preco === 0 && precoManual && parseFloat(precoManual) > 0) {
+      prod.preco = parseFloat(precoManual)
+      prod.comissao_valor = Math.round(prod.preco * prod.comissao_pct / 100 * 100) / 100
+    }
+    await salvarProduto(prod)
+    setModalLink(false); setImportResult(null); setInputLink(''); setPrecoManual('')
   }
 
   async function toggleFav(id:number) {
@@ -608,12 +624,29 @@ export default function Catalogo() {
                         : <div className="w-14 h-14 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background:'var(--card)' }}><ShoppingBag size={24} color="var(--muted)"/></div>}
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-white leading-tight">{importResult.produto.titulo}</p>
-                        <p className="text-lg font-black mt-1" style={{ color:'#f97316' }}>
-                          {fmtR(importResult.produto.preco)}
-                        </p>
-                        <p className="text-[10px] font-bold" style={{ color:'#22c55e' }}>
-                          Comissão estimada: {importResult.produto.comissao_pct}% = {fmtR(importResult.produto.comissao_valor)}/venda
-                        </p>
+                        {importResult.produto.preco > 0 ? (
+                          <>
+                            <p className="text-lg font-black mt-1" style={{ color:'#f97316' }}>{fmtR(importResult.produto.preco)}</p>
+                            <p className="text-[10px] font-bold" style={{ color:'#22c55e' }}>
+                              Comissão: {importResult.produto.comissao_pct}% = {fmtR(importResult.produto.comissao_valor)}/venda
+                            </p>
+                          </>
+                        ) : (
+                          <div className="mt-1">
+                            <p className="text-[10px] mb-1" style={{ color:'#f59e0b' }}>⚠️ Informe o preço do produto:</p>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-bold text-white">R$</span>
+                              <input type="number" value={precoManual} onChange={e => setPrecoManual(e.target.value)}
+                                placeholder="145,00" className="flex-1 px-2 py-1 rounded-lg text-xs font-bold"
+                                style={{ color:'#f97316' }}/>
+                            </div>
+                            {precoManual && parseFloat(precoManual) > 0 && (
+                              <p className="text-[10px] mt-0.5 font-bold" style={{ color:'#22c55e' }}>
+                                Comissão: {importResult.produto.comissao_pct}% = {fmtR(parseFloat(precoManual) * importResult.produto.comissao_pct / 100)}/venda
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

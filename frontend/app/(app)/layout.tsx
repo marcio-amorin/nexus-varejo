@@ -138,18 +138,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (pathname === '/') { router.push('/dashboard'); return }
     const u = localStorage.getItem('nexus_user')
     if (u) setUser(JSON.parse(u))
-    // abrir grupo e sub-acordeão da rota ativa
+
+    // Achar o item mais específico que casa com a rota atual (maior href)
+    let bestGroup = ''
+    let bestLen = 0
     NAV.forEach(item => {
       if (item.children) {
         const ativo = item.children.some(c => pathname === c.href || pathname.startsWith(c.href + '/'))
         if (ativo) {
-          setGroupOpen(g => ({ ...g, [item.group]: true }))
+          const len = item.children.reduce((max, c) =>
+            (pathname.startsWith(c.href) ? Math.max(max, c.href.length) : max), 0)
+          if (len > bestLen) { bestLen = len; bestGroup = item.group }
           setSubOpen(s => ({ ...s, [item.label.toLowerCase()]: true }))
         }
       } else if (item.href && (pathname === item.href || pathname.startsWith(item.href + '/'))) {
-        setGroupOpen(g => ({ ...g, [item.group]: true }))
+        if (item.href.length > bestLen) { bestLen = item.href.length; bestGroup = item.group }
       }
     })
+
+    // Abre só o grupo correto, fecha os demais (accordion)
+    if (bestGroup) {
+      setGroupOpen(g => {
+        const allClosed = Object.fromEntries(Object.keys(g).map(k => [k, false]))
+        return { ...allClosed, [bestGroup]: true }
+      })
+    }
   }, [router, pathname])
 
   function logout() {

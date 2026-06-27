@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw, ExternalLink, X, Copy, CheckCircle } from 'lucide-react'
+import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw, ExternalLink, X, Copy, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useRef } from 'react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -60,6 +61,7 @@ function detectarCat(titulo: string): string {
 }
 
 export default function Catalogo() {
+  const tabsRef = useRef<HTMLDivElement>(null)
   const [aba, setAba]             = useState<'buscar'|'catalogo'>('buscar')
   const [plat, setPlat]           = useState('ML_AFILIADOS')
   const [query, setQuery]         = useState('')
@@ -317,24 +319,36 @@ export default function Catalogo() {
               const filtrados = catSel === 'Todos' ? prodsComCat : prodsComCat.filter(p => p.categoria === catSel)
               return (
                 <>
-                  {/* Abas de categoria */}
-                  <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth:'none' }}>
-                    {cats.map(cat => (
-                      <button key={cat} onClick={() => setCatSel(cat)}
-                        className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all"
-                        style={{
-                          background: catSel===cat ? GRAD : 'var(--card)',
-                          color: catSel===cat ? '#fff' : 'var(--muted)',
-                          border: catSel===cat ? 'none' : '1px solid var(--border)',
-                          whiteSpace:'nowrap'
-                        }}>
-                        {CATS_ICONE[cat]||'📦'} {cat}
-                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black"
-                          style={{ background: catSel===cat?'rgba(255,255,255,0.25)':'var(--card2)' }}>
-                          {contagem[cat]}
-                        </span>
-                      </button>
-                    ))}
+                  {/* Abas de categoria com setas de scroll */}
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => tabsRef.current?.scrollBy({ left:-150, behavior:'smooth' })}
+                      className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center"
+                      style={{ background:'var(--card)', border:'1px solid var(--border)', color:'var(--muted)' }}>
+                      <ChevronLeft size={12}/>
+                    </button>
+                    <div ref={tabsRef} className="flex gap-1.5 overflow-x-auto pb-1 flex-1" style={{ scrollbarWidth:'none' }}>
+                      {cats.map(cat => (
+                        <button key={cat} onClick={() => setCatSel(cat)}
+                          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all"
+                          style={{
+                            background: catSel===cat ? GRAD : 'var(--card)',
+                            color: catSel===cat ? '#fff' : 'var(--muted)',
+                            border: catSel===cat ? 'none' : '1px solid var(--border)',
+                            whiteSpace:'nowrap'
+                          }}>
+                          {CATS_ICONE[cat]||'📦'} {cat}
+                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black"
+                            style={{ background: catSel===cat?'rgba(255,255,255,0.25)':'var(--card2)' }}>
+                            {contagem[cat]}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => tabsRef.current?.scrollBy({ left:150, behavior:'smooth' })}
+                      className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center"
+                      style={{ background:'var(--card)', border:'1px solid var(--border)', color:'var(--muted)' }}>
+                      <ChevronRight size={12}/>
+                    </button>
                   </div>
 
                   {/* Contador */}

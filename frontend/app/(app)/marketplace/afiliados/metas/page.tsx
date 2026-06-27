@@ -1,7 +1,7 @@
-﻿'use client'
+'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Target, Zap, ShoppingBag, CheckCircle, RefreshCw, Settings, ArrowRight, TrendingUp } from 'lucide-react'
+import { Target, Zap, ShoppingBag, CheckCircle, RefreshCw, Settings, ArrowRight } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -10,9 +10,9 @@ function fmtR(v: number) { return v.toLocaleString('pt-BR', { style: 'currency',
 function hdr() { return { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('nexus_token')}` } }
 
 const CATS_COR: Record<string, string> = {
-  'EletrÃ´nicos': '#3b82f6', 'Celulares': '#8b5cf6', 'Computadores': '#0891b2',
+  'Eletrônicos': '#3b82f6', 'Celulares': '#8b5cf6', 'Computadores': '#0891b2',
   'Moda': '#ec4899', 'Beleza': '#f43f5e', 'Esportes': '#22c55e',
-  'Casa': '#f59e0b', 'BebÃªs': '#a78bfa', 'Ferramentas': '#94a3b8', 'Jogos': '#06b6d4',
+  'Casa': '#f59e0b', 'Bebês': '#a78bfa', 'Ferramentas': '#94a3b8', 'Jogos': '#06b6d4',
 }
 
 export default function MetaVendas() {
@@ -20,47 +20,53 @@ export default function MetaVendas() {
   const hoje = new Date()
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`
 
-  const [metaRenda, setMetaRenda]     = useState('20000')
-  const [mesAno, setMesAno]           = useState(mesAtual)
-  const [metas, setMetas]             = useState<any[]>([])
-  const [opors, setOpors]             = useState<any[]>([])
-  const [estrategia, setEstrategia]   = useState<any>(null)
-  const [loadingOp, setLoadingOp]     = useState(false)
-  const [salvando, setSalvando]       = useState(false)
-  const [precisaConfig, setPrecisa]   = useState(false)
-  const [aba, setAba]                 = useState<'estrategia'|'oportunidades'|'historico'>('estrategia')
-  const [salvou, setSalvou]           = useState(false)
+  const [metaRenda, setMetaRenda]   = useState('20000')
+  const [mesAno, setMesAno]         = useState(mesAtual)
+  const [metas, setMetas]           = useState<any[]>([])
+  const [opors, setOpors]           = useState<any[]>([])
+  const [estrategia, setEstrategia] = useState<any>(null)
+  const [loadingOp, setLoadingOp]   = useState(false)
+  const [salvando, setSalvando]     = useState(false)
+  const [precisaConfig, setPrecisa] = useState(false)
+  const [aba, setAba]               = useState<'estrategia'|'oportunidades'|'historico'>('estrategia')
+  const [salvou, setSalvou]         = useState(false)
 
   useEffect(() => { carregarMetas(); buscarOp() }, [])
 
   async function carregarMetas() {
-    const r = await fetch(`${API}/afiliados/metas`, { headers: hdr() })
-    const d = await r.json()
-    setMetas(d)
-    const ma = d.find((m: any) => m.mes_ano === mesAtual)
-    if (ma) setMetaRenda(String(ma.meta_renda))
+    try {
+      const r = await fetch(`${API}/afiliados/metas`, { headers: hdr() })
+      const d = await r.json()
+      setMetas(d)
+      const ma = d.find((m: any) => m.mes_ano === mesAtual)
+      if (ma) setMetaRenda(String(ma.meta_renda))
+    } catch {}
   }
 
   async function buscarOp(meta?: number) {
     setLoadingOp(true); setPrecisa(false)
     const v = meta || parseFloat(metaRenda) || 20000
-    const r = await fetch(`${API}/afiliados/top-oportunidades?meta_renda=${v}`, { headers: hdr() })
-    const d = await r.json()
-    if (d.precisa_config) { setPrecisa(true); setLoadingOp(false); return }
-    setOpors(d.oportunidades || [])
-    setEstrategia(d.estrategia || null)
+    try {
+      const r = await fetch(`${API}/afiliados/top-oportunidades?meta_renda=${v}`, { headers: hdr() })
+      const d = await r.json()
+      if (d.precisa_config) { setPrecisa(true); setLoadingOp(false); return }
+      setOpors(d.oportunidades || [])
+      setEstrategia(d.estrategia || null)
+    } catch {}
     setLoadingOp(false)
   }
 
   async function salvarMeta() {
     setSalvando(true)
-    await fetch(`${API}/afiliados/metas`, { method: 'POST', headers: hdr(), body: JSON.stringify({ mes_ano: mesAno, meta_renda: parseFloat(metaRenda) }) })
+    try {
+      await fetch(`${API}/afiliados/metas`, { method: 'POST', headers: hdr(), body: JSON.stringify({ mes_ano: mesAno, meta_renda: parseFloat(metaRenda) }) })
+    } catch {}
     setSalvando(false); setSalvou(true); setTimeout(() => setSalvou(false), 2000)
     carregarMetas(); buscarOp(parseFloat(metaRenda))
   }
 
   async function salvarProduto(p: any) {
-    await fetch(`${API}/afiliados/catalogo`, { method: 'POST', headers: hdr(), body: JSON.stringify(p) })
+    try { await fetch(`${API}/afiliados/catalogo`, { method: 'POST', headers: hdr(), body: JSON.stringify(p) }) } catch {}
   }
 
   return (
@@ -88,7 +94,7 @@ export default function MetaVendas() {
             className="w-32 text-sm font-black px-3 py-2 rounded-lg" placeholder="20000" />
         </div>
         <div>
-          <p className="text-[10px] font-bold mb-1" style={{ color: 'var(--muted)' }}>MÃŠS</p>
+          <p className="text-[10px] font-bold mb-1" style={{ color: 'var(--muted)' }}>MÊS</p>
           <input type="month" value={mesAno} onChange={e => setMesAno(e.target.value)}
             className="text-sm px-3 py-2 rounded-lg" />
         </div>
@@ -100,7 +106,9 @@ export default function MetaVendas() {
         </button>
         <button onClick={() => buscarOp(parseFloat(metaRenda))} disabled={loadingOp}
           className="btn-primary flex-1 py-2 flex items-center justify-center gap-1.5 text-xs" style={{ minWidth: 180 }}>
-          {loadingOp ? <><RefreshCw size={13} className="animate-spin"/> Analisando mercado...</> : <><Zap size={13}/> Escanear Melhores Oportunidades</>}
+          {loadingOp
+            ? <><RefreshCw size={13} className="animate-spin"/> Analisando mercado...</>
+            : <><Zap size={13}/> Escanear Melhores Oportunidades</>}
         </button>
       </div>
 
@@ -111,7 +119,7 @@ export default function MetaVendas() {
           <Settings size={16} color="#f59e0b"/>
           <div className="flex-1">
             <p className="text-xs font-bold" style={{ color: '#f59e0b' }}>Conecte o Mercado Livre para ver as oportunidades</p>
-            <p className="text-[10px]" style={{ color: 'var(--muted)' }}>Clique â†’ ConfiguraÃ§Ãµes â†’ Conectar ML (3 minutos)</p>
+            <p className="text-[10px]" style={{ color: 'var(--muted)' }}>Clique &rarr; Configurações &rarr; Conectar ML (3 minutos)</p>
           </div>
           <ArrowRight size={13} color="#f59e0b"/>
         </div>
@@ -120,7 +128,7 @@ export default function MetaVendas() {
       {/* Abas */}
       {(opors.length > 0 || estrategia) && (
         <div className="pg-stats flex gap-1">
-          {([['estrategia','ðŸŽ¯ Plano'],['oportunidades',`ðŸ›ï¸ Top ${opors.length}`],['historico','ðŸ“Š HistÃ³rico']] as [string,string][]).map(([v,l]) => (
+          {([['estrategia','🎯 Plano'],['oportunidades',`🛍️ Top ${opors.length}`],['historico','📊 Histórico']] as [string,string][]).map(([v,l]) => (
             <button key={v} onClick={() => setAba(v as any)}
               className="px-4 py-1.5 rounded-lg text-xs font-bold"
               style={{ background: aba===v ? GRAD : 'var(--card2)', color: aba===v ? '#fff' : 'var(--muted)', border: aba===v ? 'none' : '1px solid var(--border)' }}>
@@ -130,7 +138,7 @@ export default function MetaVendas() {
         </div>
       )}
 
-      {/* Corpo scrollÃ¡vel */}
+      {/* Corpo scrollável */}
       <div className="pg-body p-3 space-y-3">
 
         {/* Loading */}
@@ -142,16 +150,16 @@ export default function MetaVendas() {
           </div>
         )}
 
-        {/* ESTRATÃ‰GIA */}
+        {/* ESTRATÉGIA */}
         {!loadingOp && aba === 'estrategia' && estrategia && (
           <>
             {/* KPIs */}
             <div className="grid grid-cols-4 gap-2">
               {[
-                { label: 'Meta / MÃªs',   value: fmtR(estrategia.meta),             cor: '#f97316' },
-                { label: 'Vendas / Dia', value: String(estrategia.vendas_dia),      cor: '#3b82f6' },
-                { label: 'Cliques / Dia',value: estrategia.cliques_dia?.toLocaleString('pt-BR'), cor: '#8b5cf6' },
-                { label: 'Posts / Dia',  value: String(estrategia.posts_dia),       cor: '#ec4899' },
+                { label: 'Meta / Mês',    value: fmtR(estrategia.meta),                          cor: '#f97316' },
+                { label: 'Vendas / Dia',  value: String(estrategia.vendas_dia),                  cor: '#3b82f6' },
+                { label: 'Cliques / Dia', value: estrategia.cliques_dia?.toLocaleString('pt-BR'), cor: '#8b5cf6' },
+                { label: 'Posts / Dia',   value: String(estrategia.posts_dia),                   cor: '#ec4899' },
               ].map((k,i) => (
                 <div key={i} className="rounded-xl p-3 text-center" style={{ background:'var(--card)', border:`1px solid ${k.cor}30` }}>
                   <p className="text-xl font-black" style={{ color: k.cor }}>{k.value}</p>
@@ -160,9 +168,9 @@ export default function MetaVendas() {
               ))}
             </div>
 
-            {/* FÃ³rmula */}
+            {/* Fórmula */}
             <div className="rounded-xl p-4" style={{ background:'var(--card)', border:'1px solid #f97316' }}>
-              <p className="text-[10px] font-black mb-2" style={{ color:'var(--muted)', letterSpacing:'0.08em' }}>ðŸ“ˆ FÃ“RMULA DA META</p>
+              <p className="text-[10px] font-black mb-2" style={{ color:'var(--muted)', letterSpacing:'0.08em' }}>📈 FÓRMULA DA META</p>
               <div className="flex items-center justify-around text-center">
                 <div>
                   <p className="text-lg font-black" style={{ color:'#fbbf24' }}>{fmtR(estrategia.meta/30)}</p>
@@ -171,7 +179,7 @@ export default function MetaVendas() {
                 <p className="text-xl" style={{ color:'var(--muted)' }}>=</p>
                 <div>
                   <p className="text-lg font-black" style={{ color:'#60a5fa' }}>{estrategia.vendas_dia} vendas</p>
-                  <p className="text-[10px]" style={{ color:'var(--muted)' }}>Ã— {fmtR(estrategia.ticket_medio_com)}</p>
+                  <p className="text-[10px]" style={{ color:'var(--muted)' }}>&times; {fmtR(estrategia.ticket_medio_com)}</p>
                 </div>
               </div>
             </div>
@@ -179,7 +187,7 @@ export default function MetaVendas() {
             {/* Produtos foco */}
             <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
               <div className="px-4 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
-                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>ðŸ›ï¸ TOP PRODUTOS PARA FOCAR</p>
+                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>🛍️ TOP PRODUTOS PARA FOCAR</p>
               </div>
               {(estrategia.plano_produtos||[]).map((p:any, i:number) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
@@ -192,21 +200,21 @@ export default function MetaVendas() {
                         style={{ background:(CATS_COR[p.categoria]||'#94a3b8')+'20', color:CATS_COR[p.categoria]||'#94a3b8' }}>
                         {p.categoria}
                       </span>
-                      <span className="text-[9px]" style={{ color:'var(--muted)' }}>{p.vendas_necessarias} vendas/mÃªs</span>
+                      <span className="text-[9px]" style={{ color:'var(--muted)' }}>{p.vendas_necessarias} vendas/mês</span>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-xs font-black" style={{ color:'#22c55e' }}>{fmtR(p.comissao)}</p>
-                    <p className="text-[9px]" style={{ color:'var(--muted)' }}>{fmtR(p.renda_gerada)}/mÃªs</p>
+                    <p className="text-[9px]" style={{ color:'var(--muted)' }}>{fmtR(p.renda_gerada)}/mês</p>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* AÃ§Ãµes diÃ¡rias */}
+            {/* Ações diárias */}
             <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
               <div className="px-4 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
-                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>âœ… ROTINA DIÃRIA</p>
+                <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>✅ ROTINA DIÁRIA</p>
               </div>
               <div className="p-3 space-y-1.5">
                 {(estrategia.acoes_diarias||[]).map((a:string, i:number) => (
@@ -235,7 +243,8 @@ export default function MetaVendas() {
                   </span>
                 </div>
                 <div className="p-2">
-                  <p className="text-[10px] font-bold leading-tight mb-1.5 text-white" style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                  <p className="text-[10px] font-bold leading-tight mb-1.5 text-white"
+                    style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
                     {p.titulo}
                   </p>
                   <div className="grid grid-cols-2 gap-1 mb-1.5">
@@ -245,11 +254,12 @@ export default function MetaVendas() {
                     </div>
                     <div className="rounded-lg p-1 text-center" style={{ background:'var(--card2)' }}>
                       <p className="text-xs font-black" style={{ color:'#3b82f6' }}>{p.comissao_pct}%</p>
-                      <p className="text-[9px]" style={{ color:'var(--muted)' }}>comissÃ£o</p>
+                      <p className="text-[9px]" style={{ color:'var(--muted)' }}>comissão</p>
                     </div>
                   </div>
                   {p.ganho_mensal_pot > 0 && (
-                    <div className="rounded-lg px-2 py-1 text-center mb-1.5" style={{ background:'rgba(249,115,22,0.1)', border:'1px solid rgba(249,115,22,0.2)' }}>
+                    <div className="rounded-lg px-2 py-1 text-center mb-1.5"
+                      style={{ background:'rgba(249,115,22,0.1)', border:'1px solid rgba(249,115,22,0.2)' }}>
                       <p className="text-[9px]" style={{ color:'var(--muted)' }}>Potencial mensal</p>
                       <p className="text-xs font-black" style={{ color:'#f97316' }}>{fmtR(p.ganho_mensal_pot)}</p>
                     </div>
@@ -264,7 +274,7 @@ export default function MetaVendas() {
           </div>
         )}
 
-        {/* HISTÃ“RICO */}
+        {/* HISTÓRICO */}
         {!loadingOp && aba === 'historico' && (
           <div className="space-y-2">
             {metas.length === 0 ? (
@@ -291,15 +301,14 @@ export default function MetaVendas() {
         )}
 
         {/* Vazio */}
-        {!loadingOp && opors.length===0 && !precisaConfig && (
+        {!loadingOp && opors.length===0 && !precisaConfig && !estrategia && (
           <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color:'var(--muted)' }}>
             <Target size={40}/>
             <p className="text-sm font-bold text-white">Configure o ML e clique em Escanear</p>
-            <p className="text-xs text-center">A IA varre 10 categorias e monta seu plano para R$20.000/mÃªs</p>
+            <p className="text-xs text-center">A IA varre 10 categorias e monta seu plano para R$20.000/mês</p>
           </div>
         )}
       </div>
     </div>
   )
 }
-

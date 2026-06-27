@@ -61,7 +61,7 @@ export default function FinanceiroAfiliados() {
       <div className="pg-header rounded-xl overflow-hidden" style={{ background:GRAD }}>
         <div className="px-5 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-base font-black text-white flex items-center gap-2"><DollarSign size={16}/> Financeiro â€” ComissÃµes</h1>
+            <h1 className=”text-base font-black text-white flex items-center gap-2”><DollarSign size={16}/> Financeiro — Comissões</h1>
             <p className="text-xs text-white/75 mt-0.5">Acompanhe seus ganhos com marketing de afiliados</p>
           </div>
           <button onClick={() => setShowForm(true)}
@@ -76,7 +76,7 @@ export default function FinanceiroAfiliados() {
       <div className="pg-stats grid grid-cols-4 gap-2">
         {[
           { label:'A Receber',       value:fmtR(projecao?.a_receber||0),     cor:'#f59e0b', icon:Clock },
-          { label:'ProjeÃ§Ã£o PrÃ³x. MÃªs', value:fmtR(projecao?.projecao_mes||0), cor:'#3b82f6', icon:TrendingUp },
+          { label:'Projeção Próx. Mês', value:fmtR(projecao?.projecao_mes||0), cor:'#3b82f6', icon:TrendingUp },
           { label:'Total Filtrado',  value:fmtR(totalFiltro),                cor:'#22c55e', icon:DollarSign },
           { label:'Registros',       value:String(comissoes.length),         cor:'#8b5cf6', icon:BarChart2 },
         ].map((k,i) => (
@@ -93,7 +93,7 @@ export default function FinanceiroAfiliados() {
       {/* GrÃ¡fico histÃ³rico */}
       {projecao?.historico && (
         <div className="pg-stats rounded-xl p-3" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
-          <p className="text-[10px] font-black tracking-widest mb-2" style={{ color:'var(--muted)' }}>EVOLUÃ‡ÃƒO 6 MESES</p>
+          <p className="text-[10px] font-black tracking-widest mb-2" style={{ color:'var(--muted)' }}>EVOLUÇÃO 6 MESES</p>
           <div className="flex items-end gap-1.5 h-16">
             {projecao.historico.map((h:any, i:number) => {
               const max = Math.max(...projecao.historico.map((x:any)=>x.valor),1)
@@ -127,12 +127,12 @@ export default function FinanceiroAfiliados() {
       <div className="pg-body">
         {comissoes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
-            <DollarSign size={32}/><p className="text-xs">Nenhuma comissÃ£o registrada</p>
+            <DollarSign size={32}/><p className="text-xs">Nenhuma comissão registrada</p>
           </div>
         ) : (
           <table className="tbl">
             <thead>
-              <tr><th>Produto</th><th>Plataforma</th><th>Data</th><th>Vl. Venda</th><th>ComissÃ£o</th><th>Status</th><th>AÃ§Ãµes</th></tr>
+              <tr><th>Produto</th><th>Plataforma</th><th>Data</th><th>Vl. Venda</th><th>Comissão</th><th>Status</th><th>Ações</th></tr>
             </thead>
             <tbody>
               {comissoes.map((c:any, i:number) => {
@@ -164,7 +164,7 @@ export default function FinanceiroAfiliados() {
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background:'rgba(0,0,0,0.7)' }}>
           <form onSubmit={registrar} className="rounded-2xl overflow-hidden w-full max-w-md mx-4" style={{ background:'var(--card)', border:'1px solid #f97316' }}>
             <div className="px-5 py-3" style={{ background:GRAD }}>
-              <p className="font-black text-white text-sm">Registrar ComissÃ£o</p>
+              <p className="font-black text-white text-sm">Registrar Comissão</p>
             </div>
             <div className="p-4 space-y-2.5">
               {[
@@ -172,7 +172,7 @@ export default function FinanceiroAfiliados() {
                 { label:'Produto', key:'titulo_produto', type:'text', ph:'Nome do produto' },
                 { label:'Data da Venda', key:'data_venda', type:'date' },
                 { label:'Valor da Venda (R$)', key:'valor_venda', type:'number', ph:'0.00' },
-                { label:'ComissÃ£o %', key:'comissao_pct', type:'number', ph:'0' },
+                { label:'Comissão %', key:'comissao_pct', type:'number', ph:'0' },
                 { label:'ComissÃ£o R$', key:'comissao_valor', type:'number', ph:'0.00' },
               ].map(f => (
                 <div key={f.key}>

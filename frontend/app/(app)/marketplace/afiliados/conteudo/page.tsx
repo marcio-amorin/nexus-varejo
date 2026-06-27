@@ -1,17 +1,16 @@
-﻿'use client'
+'use client'
 import { useEffect, useState } from 'react'
-import { Image, Zap, Send, Copy, Check, RefreshCw, ShoppingBag, Sparkles } from 'lucide-react'
+import { Image, Zap, Send, Copy, Check, RefreshCw, Sparkles } from 'lucide-react'
 
 const API      = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD     = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
-const GRAD_GEM = 'linear-gradient(135deg,#1a73e8 0%,#34a853 100%)'
 const GRAD_CLA = 'linear-gradient(135deg,#7c3aed 0%,#a855f7 50%,#ec4899 100%)'
 
 const REDES = [
-  { value:'INSTAGRAM', label:'Instagram', cor:'#E1306C', icone:'ðŸ“¸' },
-  { value:'FACEBOOK',  label:'Facebook',  cor:'#1877F2', icone:'ðŸ‘¤' },
-  { value:'TIKTOK',    label:'TikTok',    cor:'#38bdf8', icone:'ðŸŽµ' },
-  { value:'TODOS',     label:'Todas',     cor:'#f97316', icone:'ðŸŒ' },
+  { value:'INSTAGRAM', label:'Instagram', cor:'#E1306C', icone:'📸' },
+  { value:'FACEBOOK',  label:'Facebook',  cor:'#1877F2', icone:'👤' },
+  { value:'TIKTOK',    label:'TikTok',    cor:'#38bdf8', icone:'🎵' },
+  { value:'TODOS',     label:'Todas',     cor:'#f97316', icone:'🌐' },
 ]
 const TIPOS = ['POST','STORIES','REELS','VIDEO']
 
@@ -39,38 +38,45 @@ export default function CriadorConteudo() {
 
   async function carregarLista() {
     const p = filtroRede ? `?rede_social=${filtroRede}` : ''
-    const r = await fetch(`${API}/afiliados/conteudos${p}`, { headers: hdr() })
-    setLista(await r.json())
+    try {
+      const r = await fetch(`${API}/afiliados/conteudos${p}`, { headers: hdr() })
+      setLista(await r.json())
+    } catch {}
   }
 
   async function gerar(forcar_ia?: string) {
-    // Claude nÃ£o configurado â€” redireciona para config
     if (forcar_ia === 'claude' && !iaStatus?.claude_ok) {
       window.location.href = '/marketplace/afiliados/config'
       return
     }
     setGerando(forcar_ia || 'auto')
-    const r = await fetch(`${API}/afiliados/conteudo/gerar`, {
-      method:'POST', headers:hdr(),
-      body:JSON.stringify({ produto_id:prodId, rede_social:rede, tipo_conteudo:tipo, forcar_ia: forcar_ia || null })
-    })
-    const d = await r.json()
-    setConteudos(d.conteudos||[])
+    try {
+      const r = await fetch(`${API}/afiliados/conteudo/gerar`, {
+        method:'POST', headers:hdr(),
+        body:JSON.stringify({ produto_id:prodId, rede_social:rede, tipo_conteudo:tipo, forcar_ia: forcar_ia || null })
+      })
+      const d = await r.json()
+      setConteudos(d.conteudos||[])
+    } catch {}
     setGerando(null); carregarLista()
-    // Atualiza status da IA
-    fetch(`${API}/afiliados/ia-config`, { headers: hdr() }).then(r=>r.json()).then(setIaStatus)
+    try {
+      const r = await fetch(`${API}/afiliados/ia-config`, { headers: hdr() })
+      setIaStatus(await r.json())
+    } catch {}
   }
 
   async function publicar(id:number) {
     setPublicando(id)
-    const r = await fetch(`${API}/afiliados/conteudos/${id}/publicar`, { method:'PATCH', headers:hdr() })
-    const d = await r.json()
-    if (!d.ok) alert(`Erro: ${d.detail||'Erro ao publicar'}`)
+    try {
+      const r = await fetch(`${API}/afiliados/conteudos/${id}/publicar`, { method:'PATCH', headers:hdr() })
+      const d = await r.json()
+      if (!d.ok) alert(`Erro: ${d.detail||'Erro ao publicar'}`)
+    } catch {}
     setPublicando(null); carregarLista()
   }
 
   async function copiar(c:any) {
-    await navigator.clipboard.writeText(`${c.texto_post}\n\n${c.hashtags}\n\nðŸ”— ${c.link_afiliado}`)
+    await navigator.clipboard.writeText(`${c.texto_post}\n\n${c.hashtags}\n\n🔗 ${c.link_afiliado}`)
     setCopiado(c.id); setTimeout(() => setCopiado(null), 2000)
   }
 
@@ -81,8 +87,8 @@ export default function CriadorConteudo() {
       {/* Header */}
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
         <div className="px-5 py-4">
-          <h1 className="text-base font-black text-white flex items-center gap-2"><Image size={16}/> Criador de ConteÃºdo IA</h1>
-          <p className="text-xs text-white/75 mt-0.5">Gera posts automÃ¡ticos para Instagram, Facebook e TikTok</p>
+          <h1 className="text-base font-black text-white flex items-center gap-2"><Image size={16}/> Criador de Conteúdo IA</h1>
+          <p className="text-xs text-white/75 mt-0.5">Gera posts automáticos para Instagram, Facebook e TikTok</p>
         </div>
       </div>
 
@@ -127,26 +133,23 @@ export default function CriadorConteudo() {
             {prodSel.imagem_url && <img src={prodSel.imagem_url} className="w-8 h-8 object-contain rounded-md"/>}
             <div>
               <p className="text-xs font-bold text-white">{prodSel.titulo.slice(0,60)}</p>
-              <p className="text-[10px]" style={{ color:'#22c55e' }}>ComissÃ£o: {prodSel.comissao_pct}% â€” R$ {prodSel.comissao_valor?.toFixed(2)}</p>
+              <p className="text-[10px]" style={{ color:'#22c55e' }}>Comissão: {prodSel.comissao_pct}% — R$ {prodSel.comissao_valor?.toFixed(2)}</p>
             </div>
           </div>
         )}
 
-        {/* BotÃµes â€” Gemini automÃ¡tico + Claude opcional */}
         <div className="flex gap-2">
-          {/* BotÃ£o principal â€” Groq automÃ¡tico (grÃ¡tis, 14.400 req/dia) */}
           <button onClick={() => gerar('groq')} disabled={!!gerando}
             className="flex-1 py-3 rounded-lg font-black text-white flex items-center justify-center gap-2 text-sm"
             style={{ background: GRAD }}>
             {gerando==='groq'
               ? <><RefreshCw size={15} className="animate-spin"/> Gerando...</>
-              : <><Zap size={15}/> Gerar ConteÃºdo</>}
+              : <><Zap size={15}/> Gerar Conteúdo</>}
           </button>
 
-          {/* BotÃ£o Claude â€” redireciona para config se nÃ£o ativo */}
           <button onClick={() => gerar('claude')} disabled={!!gerando}
             title={iaStatus?.claude_ok ? 'Gerar com Claude (Anthropic)' : 'Clique para configurar o Claude'}
-            className="px-5 py-3 rounded-lg font-black flex items-center justify-center gap-1.5 text-xs flex-shrink-0 relative"
+            className="px-5 py-3 rounded-lg font-black flex items-center justify-center gap-1.5 text-xs flex-shrink-0"
             style={{ background: iaStatus?.claude_ok ? 'rgba(124,58,237,0.2)' : 'rgba(124,58,237,0.08)', border:`2px solid ${iaStatus?.claude_ok ? 'rgba(168,85,247,0.7)' : 'rgba(168,85,247,0.3)'}`, color: iaStatus?.claude_ok ? '#a855f7' : 'rgba(168,85,247,0.5)' }}>
             {gerando==='claude'
               ? <><RefreshCw size={13} className="animate-spin"/> Gerando...</>
@@ -155,7 +158,7 @@ export default function CriadorConteudo() {
         </div>
       </div>
 
-      {/* ConteÃºdos gerados */}
+      {/* Conteúdos gerados */}
       {conteudos.length > 0 && (
         <div className="pg-stats space-y-2">
           {conteudos.map((c,i) => {
@@ -164,10 +167,10 @@ export default function CriadorConteudo() {
               <div key={i} className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:`1px solid ${r?.cor||'var(--border)'}40` }}>
                 <div className="px-3 py-2 flex items-center justify-between" style={{ background:r?.cor+'20', borderBottom:`1px solid ${r?.cor}30` }}>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold flex items-center gap-1.5" style={{ color:r?.cor }}>{r?.icone} {r?.label} â€” {c.tipo_conteudo}</span>
-                    {c.gerado_por==='groq'   && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background:'rgba(34,197,94,0.2)', color:'#22c55e' }}>âš¡ Groq</span>}
-                    {c.gerado_por==='gemini' && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background:'rgba(26,115,232,0.2)', color:'#34a853' }}>ðŸ”µ Gemini</span>}
-                    {c.gerado_por==='claude' && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background:'rgba(124,58,237,0.2)', color:'#a855f7' }}>âœ¦ Claude</span>}
+                    <span className="text-xs font-bold flex items-center gap-1.5" style={{ color:r?.cor }}>{r?.icone} {r?.label} — {c.tipo_conteudo}</span>
+                    {c.gerado_por==='groq'   && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background:'rgba(34,197,94,0.2)', color:'#22c55e' }}>⚡ Groq</span>}
+                    {c.gerado_por==='gemini' && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background:'rgba(26,115,232,0.2)', color:'#34a853' }}>🔵 Gemini</span>}
+                    {c.gerado_por==='claude' && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background:'rgba(124,58,237,0.2)', color:'#a855f7' }}>✦ Claude</span>}
                   </div>
                   <div className="flex gap-1.5">
                     <button onClick={() => copiar(c)}
@@ -185,7 +188,7 @@ export default function CriadorConteudo() {
                 <div className="p-3">
                   <p className="text-xs whitespace-pre-wrap text-white mb-1.5">{c.texto_post}</p>
                   <p className="text-[10px]" style={{ color:'var(--muted)' }}>{c.hashtags}</p>
-                  {c.link_afiliado && <p className="text-[10px] mt-1 font-medium" style={{ color:'#38bdf8' }}>ðŸ”— {c.link_afiliado.slice(0,60)}...</p>}
+                  {c.link_afiliado && <p className="text-[10px] mt-1 font-medium" style={{ color:'#38bdf8' }}>🔗 {c.link_afiliado.slice(0,60)}...</p>}
                 </div>
               </div>
             )
@@ -193,10 +196,10 @@ export default function CriadorConteudo() {
         </div>
       )}
 
-      {/* Lista histÃ³rico */}
+      {/* Lista histórico */}
       <div className="flex-1 flex flex-col min-h-0 rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
         <div className="px-4 py-2.5 flex items-center justify-between flex-shrink-0" style={{ borderBottom:'1px solid var(--border)' }}>
-          <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>HISTÃ“RICO</p>
+          <p className="text-[10px] font-black tracking-widest" style={{ color:'var(--muted)' }}>HISTÓRICO</p>
           <div className="flex gap-1">
             <button onClick={() => setFiltroRede('')}
               className="px-2 py-1 rounded-lg text-[10px] font-bold"
@@ -215,7 +218,7 @@ export default function CriadorConteudo() {
         <div className="flex-1 overflow-auto">
           {lista.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 gap-2" style={{ color:'var(--muted)' }}>
-              <Image size={28}/><p className="text-xs">Nenhum conteÃºdo gerado ainda</p>
+              <Image size={28}/><p className="text-xs">Nenhum conteúdo gerado ainda</p>
             </div>
           ) : lista.map((c,i) => {
             const r = REDES.find(r=>r.value===c.rede_social)
@@ -247,4 +250,3 @@ export default function CriadorConteudo() {
     </div>
   )
 }
-

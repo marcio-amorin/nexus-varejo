@@ -1303,3 +1303,63 @@ class AfiliadoConteudo(Base):
     engajamento     = Column(Integer, default=0)
     cliques_link    = Column(Integer, default=0)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── MÓDULO VENDEDOR ──────────────────────────────────────────────────────────
+
+class VendedorConfig(Base):
+    """Credenciais das contas de vendedor em cada plataforma"""
+    __tablename__ = "vendedor_configs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    plataforma    = Column(String(40), unique=True, nullable=False)  # ML_VENDEDOR | SHOPEE_VENDEDOR | TIKTOK_VENDEDOR
+    ativo         = Column(Boolean, default=False)
+    seller_id     = Column(String(200), nullable=True)   # ID do vendedor na plataforma
+    client_id     = Column(String(500), nullable=True)
+    client_secret = Column(String(500), nullable=True)
+    access_token  = Column(String(2000), nullable=True)
+    refresh_token = Column(String(2000), nullable=True)
+    token_expiry  = Column(DateTime(timezone=True), nullable=True)
+    extra_json    = Column(Text, nullable=True)
+    updated_at    = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class VendedorAnuncio(Base):
+    """Anúncios publicados nas contas de vendedor"""
+    __tablename__ = "vendedor_anuncios"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    produto_afiliado_id = Column(Integer, ForeignKey("afiliado_produtos.id"), nullable=True)
+    plataforma          = Column(String(40), nullable=False)   # ML_VENDEDOR | SHOPEE_VENDEDOR
+    listing_id          = Column(String(200), nullable=True)   # ID na plataforma
+    titulo              = Column(String(500), nullable=False)
+    preco_custo         = Column(Float, default=0)   # preço afiliado (custo referência)
+    preco_venda         = Column(Float, default=0)   # preço que você cobra
+    margem_pct          = Column(Float, default=0)
+    categoria_ml        = Column(String(200), nullable=True)
+    imagem_url          = Column(String(1000), nullable=True)
+    url_anuncio         = Column(String(1000), nullable=True)
+    status              = Column(String(30), default="PENDENTE")  # PENDENTE | ATIVO | PAUSADO | VENDIDO | ERRO
+    erro_msg            = Column(Text, nullable=True)
+    vendas_count        = Column(Integer, default=0)
+    faturamento         = Column(Float, default=0)
+    link_afiliado       = Column(String(1000), nullable=True)  # link afiliado gerado junto
+    publicado_em        = Column(DateTime(timezone=True), nullable=True)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class VendedorPedido(Base):
+    """Pedidos recebidos na conta vendedor"""
+    __tablename__ = "vendedor_pedidos"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    anuncio_id      = Column(Integer, ForeignKey("vendedor_anuncios.id"), nullable=True)
+    plataforma      = Column(String(40), nullable=False)
+    pedido_ext_id   = Column(String(200), nullable=True)  # ID na plataforma
+    titulo_produto  = Column(String(500), nullable=True)
+    valor_venda     = Column(Float, default=0)
+    lucro_estimado  = Column(Float, default=0)
+    status          = Column(String(30), default="NOVO")  # NOVO | PAGO | ENVIADO | ENTREGUE | CANCELADO
+    data_pedido     = Column(DateTime(timezone=True), nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())

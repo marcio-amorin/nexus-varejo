@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw, ExternalLink, X, Copy, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Plus, Star, StarOff, Trash2, Link2, ShoppingBag, RefreshCw, ExternalLink, X, Copy, CheckCircle, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -72,6 +72,8 @@ export default function Catalogo() {
   const [erroBusca, setErro]          = useState('')
   const [msgLink, setMsgLink]         = useState('')
   const [catSel, setCatSel]           = useState('Todos')
+  const [publicandoId, setPublicandoId] = useState<number|null>(null)
+  const [resultadoPublicar, setResultadoPublicar] = useState<any>(null)
 
   // Modal importar por link
   const [modalLink, setModalLink]       = useState(false)
@@ -175,6 +177,24 @@ export default function Catalogo() {
     const d = await r.json()
     if (d.duplicado) return
     carregarCatalogo(); setAba('catalogo')
+  }
+
+  async function publicarTudo(p: any) {
+    const rs = await fetch(`${API}/afiliados/catalogo`, { method:'POST', headers:hdr(), body:JSON.stringify(p) })
+    const ds = await rs.json()
+    const prodId = ds.id || ds.produto_id
+    if (!prodId) { alert('Erro ao salvar produto'); return }
+    setPublicandoId(prodId)
+    setResultadoPublicar(null)
+    try {
+      const r = await fetch(`${API}/vendedor/publicar-tudo`, {
+        method:'POST', headers:hdr(),
+        body:JSON.stringify({ produto_id:prodId, publicar_redes:true })
+      })
+      setResultadoPublicar(await r.json())
+      carregarCatalogo()
+    } catch(e:any) { setResultadoPublicar({ erro: e.message }) }
+    setPublicandoId(null)
   }
 
   async function importarLink() {
@@ -383,10 +403,17 @@ export default function Catalogo() {
                                 +{fmtR(p.comissao_valor)}
                               </span>
                             </div>
+                            {/* Botão Publicar Tudo — ação principal */}
+                            <button onClick={() => publicarTudo(p)} disabled={publicandoId !== null}
+                              className="w-full py-2 rounded-lg text-[10px] font-black text-white flex items-center justify-center gap-1 mb-1"
+                              style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)', opacity: publicandoId!==null?0.6:1 }}>
+                              {publicandoId !== null ? <RefreshCw size={10} className="animate-spin"/> : <Zap size={10}/>}
+                              Publicar Tudo
+                            </button>
                             <button onClick={() => salvarProduto(p)}
-                              className="w-full py-1.5 rounded-lg text-[10px] font-black text-white flex items-center justify-center gap-1"
-                              style={{ background:GRAD }}>
-                              <Plus size={11}/> Salvar no Catálogo
+                              className="w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1"
+                              style={{ background:'var(--card2)', color:'var(--muted)', border:'1px solid var(--border)' }}>
+                              <Plus size={10}/> Só Catálogo
                             </button>
                           </div>
                         </div>
@@ -443,6 +470,50 @@ export default function Catalogo() {
           )}
         </div>
       )}
+      {/* ── Modal Resultado Publicar Tudo ────────────────────────────────── */}
+      {resultadoPublicar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:'rgba(0,0,0,0.75)' }}
+          onClick={e => { if (e.target===e.currentTarget) setResultadoPublicar(null) }}>
+          <div className="w-full max-w-md mx-4 rounded-2xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid #f97316' }}>
+            <div className="px-4 py-3 flex items-center justify-between" style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)' }}>
+              <p className="font-black text-white text-sm flex items-center gap-2"><Zap size={14}/> Resultado — Publicar Tudo</p>
+              <button onClick={() => setResultadoPublicar(null)} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background:'rgba(255,255,255,0.2)' }}>
+                <X size={12} color="#fff"/>
+              </button>
+            </div>
+            <div className="p-4 space-y-2">
+              {resultadoPublicar.erro ? (
+                <p className="text-xs text-red-400">{resultadoPublicar.erro}</p>
+              ) : (
+                <>
+                  <p className="text-xs font-bold text-white truncate">{resultadoPublicar.produto}</p>
+                  {(resultadoPublicar.passos||[]).map((s:any,i:number) => (
+                    <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{ background:'var(--card2)' }}>
+                      <span className="text-sm">{s.status?.startsWith('✅') ? '✅' : s.status?.startsWith('⚠️') ? '⚠️' : '❌'}</span>
+                      <div>
+                        <p className="text-[10px] font-black text-white">{s.passo}</p>
+                        <p className="text-[9px]" style={{ color:'var(--muted)' }}>{s.status?.replace(/^[✅⚠️❌]\s*/,'')}</p>
+                        {s.url && <a href={s.url} target="_blank" className="text-[9px] text-blue-400 underline">Ver anúncio ↗</a>}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex gap-2 pt-1">
+                    <div className="flex-1 rounded-lg p-2 text-center" style={{ background:'rgba(249,115,22,0.1)', border:'1px solid rgba(249,115,22,0.2)' }}>
+                      <p className="text-xs font-black" style={{ color:'#f97316' }}>R$ {resultadoPublicar.preco_venda?.toFixed(2)}</p>
+                      <p className="text-[9px]" style={{ color:'var(--muted)' }}>Preço de venda</p>
+                    </div>
+                    <div className="flex-1 rounded-lg p-2 text-center" style={{ background:'rgba(34,197,94,0.1)', border:'1px solid rgba(34,197,94,0.2)' }}>
+                      <p className="text-xs font-black" style={{ color:'#22c55e' }}>{resultadoPublicar.margem_pct}%</p>
+                      <p className="text-[9px]" style={{ color:'var(--muted)' }}>Margem</p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal Importar por Link ───────────────────────────────────────── */}
       {modalLink && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:'rgba(0,0,0,0.7)' }}

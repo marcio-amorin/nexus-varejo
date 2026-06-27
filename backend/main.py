@@ -158,7 +158,7 @@ _ROUTES = [
     "agenda_compras", "verba_compras", "nf_saida", "trocas", "precos_nf",
     "formas_recebimento", "campanhas_v2", "pedido_venda", "impressoras",
     "contas_correntes", "convenio", "compradores", "apis_externas", "caixa",
-    "afiliados",
+    "afiliados", "vendedor",
 ]
 
 def _background_init():

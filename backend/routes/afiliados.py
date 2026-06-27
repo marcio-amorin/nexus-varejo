@@ -1072,12 +1072,27 @@ def listar_catalogo(
 
 @router.post("/catalogo")
 def salvar_produto(body: ProdutoIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    # Evita duplicata
+    # Evita duplicata ativo — se existir inativo, reativa com dados novos
     existe = db.query(AfiliadoProduto).filter_by(
         plataforma=body.plataforma, produto_ext_id=body.produto_ext_id
     ).first()
     if existe:
-        return {"ok": True, "id": existe.id, "duplicado": True}
+        if existe.ativo:
+            return {"ok": True, "id": existe.id, "duplicado": True}
+        # Reativa produto removido com dados atualizados
+        existe.ativo = True
+        existe.titulo = body.titulo
+        existe.preco = body.preco
+        existe.preco_original = body.preco_original
+        existe.comissao_pct = body.comissao_pct
+        existe.comissao_valor = round(body.preco * body.comissao_pct / 100, 2)
+        existe.imagem_url = body.imagem_url
+        existe.url_produto = body.url_produto
+        existe.vendas_mes = body.vendas_mes
+        existe.categoria = body.categoria
+        db.commit()
+        db.refresh(existe)
+        return {"ok": True, "id": existe.id}
 
     p = AfiliadoProduto(
         plataforma=body.plataforma, produto_ext_id=body.produto_ext_id,

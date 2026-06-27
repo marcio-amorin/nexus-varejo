@@ -559,33 +559,67 @@ def _estrategia_top(meta: float, top_prods: list) -> dict:
     }
 
 async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
-    """Busca produtos no Mercado Livre — usa access_token OAuth para evitar bloqueio de IP"""
-    headers_req = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    if cfg and cfg.access_token:
-        headers_req["Authorization"] = f"Bearer {cfg.access_token}"
+    """Busca produtos ML via scraping da página de resultados (API bloqueada no servidor)"""
+    import re as _re
 
-    if not q and not categoria:
+    if not q:
         q = "smartphone samsung"
 
+    _HEADERS_BROWSER = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    }
+
+    def _decode_esc(s: str) -> str:
+        return _re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
+
     try:
-        sort_map = {"vendas": "sold_quantity_desc", "preco": "price_asc", "comissao": "sold_quantity_desc"}
-        sort = sort_map.get(ordenar, "sold_quantity_desc")
-        params = {"q": q, "limit": limit, "sort": sort}
-        if categoria:
-            params["category"] = categoria
+        busca_url = f"https://lista.mercadolivre.com.br/{urllib.parse.quote(q)}"
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(busca_url, headers=_HEADERS_BROWSER)
 
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get("https://api.mercadolibre.com/sites/MLB/search", params=params, headers=headers_req)
+        if resp.status_code != 200:
+            return {"resultados": [], "total": 0, "erro": f"Site ML retornou {resp.status_code}"}
 
-        if resp.status_code == 403:
-            return {"resultados": [], "total": 0, "erro": "ML API bloqueou o servidor (403). Reconecte o Mercado Livre em Configurações para usar o token OAuth."}
-
-        data = resp.json()
+        html = resp.text
         resultados = []
-        for item in data.get("results", []):
-            preco   = float(item.get("price", 0))
-            com_pct = _estimar_comissao_ml(item.get("category_id", ""))
-            resultados.append(_montar_produto_ml(item, preco, com_pct))
+        seen_ids: set = set()
+
+        for m in _re.finditer(
+            r'"title"\s*:\s*"([^"]{3,200})","permalink"\s*:\s*"(https[^"]+?)","thumbnail"\s*:\s*"(https[^"]+?)","image_id"\s*:\s*"[^"]*","price"\s*:\s*(\d+(?:\.\d+)?)',
+            html
+        ):
+            titulo    = m.group(1)
+            permalink = _decode_esc(m.group(2))
+            thumbnail = _decode_esc(m.group(3))
+            preco     = float(m.group(4))
+            id_m = _re.search(r'/(MLB\d{7,12})', permalink)
+            if not id_m:
+                continue
+            prod_id = id_m.group(1)
+            if prod_id in seen_ids:
+                continue
+            seen_ids.add(prod_id)
+            pct = 6.0
+            resultados.append({
+                "produto_ext_id": prod_id,
+                "titulo":         titulo,
+                "preco":          preco,
+                "preco_original": None,
+                "comissao_pct":   pct,
+                "comissao_valor": round(preco * pct / 100, 2),
+                "imagem_url":     thumbnail.replace("I.jpg", "O.jpg"),
+                "url_produto":    permalink.split("#")[0],
+                "vendas_mes":     0,
+                "avaliacao":      0,
+                "total_avaliacoes": 0,
+                "categoria":      "",
+                "plataforma":     "ML_AFILIADOS",
+            })
+            if len(resultados) >= limit:
+                break
+
         return {"resultados": resultados, "total": len(resultados)}
     except Exception as e:
         return {"resultados": [], "total": 0, "erro": str(e)}
@@ -651,7 +685,7 @@ async def ml_destaques(
                 continue
         return resultados
 
-    # ── Estratégia 1: scraping de páginas públicas do ML ──────────────────
+    # ── Estratégia 1: scraping completo do HTML do ML (extrai dados sem API) ──
     _HEADERS_BROWSER = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -660,30 +694,73 @@ async def ml_destaques(
     _PAGINAS_ML = [
         "https://www.mercadolivre.com.br/mais-vendidos",
         "https://www.mercadolivre.com.br/mais-vendidos/eletronicos-audio-e-video",
+        "https://www.mercadolivre.com.br/mais-vendidos/celulares-e-telefones",
         "https://lista.mercadolivre.com.br/mais-vendidos",
     ]
-    item_ids: list[str] = []
-    for url_pag in _PAGINAS_ML:
-        if item_ids:
-            break
-        try:
-            async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
-                r = await client.get(url_pag, headers=_HEADERS_BROWSER)
-                if r.status_code == 200:
-                    ids_raw = _re.findall(r'\bMLB\d{8,12}\b', r.text)
-                    seen: dict[str, int] = {}
-                    for iid in ids_raw:
-                        seen[iid] = seen.get(iid, 0) + 1
-                    # ordenar por frequência (produtos mais citados na página)
-                    item_ids = [k for k, _ in sorted(seen.items(), key=lambda x: -x[1])][:limit]
-        except Exception:
-            continue
 
-    if item_ids:
-        resultados = await _buscar_por_ids(item_ids)
-        if resultados:
-            resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)
-            return {"resultados": resultados[:limit], "total": len(resultados), "fonte": "scraping"}
+    def _decode_esc(s: str) -> str:
+        return _re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
+
+    async def _scrape_pagina(url_pag: str) -> list[dict]:
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                r = await client.get(url_pag, headers=_HEADERS_BROWSER)
+                if r.status_code != 200:
+                    return []
+                html = r.text
+                produtos: list[dict] = []
+                seen_ids: set[str] = set()
+                # Extrai blocos com title + permalink + thumbnail + price do JSON embedded no HTML
+                for m in _re.finditer(
+                    r'"title"\s*:\s*"([^"]{3,200})","permalink"\s*:\s*"(https[^"]+?)","thumbnail"\s*:\s*"(https[^"]+?)","image_id"\s*:\s*"[^"]*","price"\s*:\s*(\d+(?:\.\d+)?)',
+                    html
+                ):
+                    titulo    = m.group(1)
+                    permalink = _decode_esc(m.group(2))
+                    thumbnail = _decode_esc(m.group(3))
+                    preco     = float(m.group(4))
+                    # Extrair ID MLB do permalink
+                    id_m = _re.search(r'/(MLB\d{7,12})', permalink)
+                    if not id_m:
+                        continue
+                    prod_id = id_m.group(1)
+                    if prod_id in seen_ids:
+                        continue
+                    seen_ids.add(prod_id)
+                    pct = 6.0
+                    produtos.append({
+                        "produto_ext_id": prod_id,
+                        "titulo":         titulo,
+                        "preco":          preco,
+                        "preco_original": None,
+                        "comissao_pct":   pct,
+                        "comissao_valor": round(preco * pct / 100, 2),
+                        "imagem_url":     thumbnail.replace("I.jpg", "O.jpg"),
+                        "url_produto":    permalink.split("#")[0],
+                        "vendas_mes":     0,
+                        "avaliacao":      0,
+                        "total_avaliacoes": 0,
+                        "categoria":      "",
+                        "plataforma":     "ML_AFILIADOS",
+                    })
+                return produtos
+        except Exception:
+            return []
+
+    resultados: list[dict] = []
+    seen_global: set[str] = set()
+    for url_pag in _PAGINAS_ML:
+        if len(resultados) >= limit:
+            break
+        prods = await _scrape_pagina(url_pag)
+        for p in prods:
+            if p["produto_ext_id"] not in seen_global:
+                seen_global.add(p["produto_ext_id"])
+                resultados.append(p)
+
+    if resultados:
+        resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)
+        return {"resultados": resultados[:limit], "total": len(resultados), "fonte": "scraping"}
 
     # ── Estratégia 2: OAuth search ─────────────────────────────────────────
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()

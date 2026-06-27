@@ -103,32 +103,35 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
-    const token = await getMLToken()
-    const todos: any[] = []
-    for (const termo of TERMOS_AUTO.slice(0, 5)) {
-      try {
-        const prods = await buscarMLBrowser(termo, 8, token)
-        todos.push(...prods)
-        if (todos.length >= 32) break
-      } catch {}
+    try {
+      const r = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
+      if (r.ok) {
+        const d = await r.json()
+        const prods: any[] = d.resultados || []
+        setRes(prods)
+        if (prods.length === 0)
+          setErro('Não foi possível carregar produtos do Mercado Livre. Tente buscar manualmente.')
+      } else {
+        setErro('Erro ao carregar produtos do Mercado Livre.')
+      }
+    } catch {
+      setErro('Erro ao carregar produtos do Mercado Livre.')
     }
-    const vistos = new Set<string>()
-    const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
-    unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
-    setRes(unicos.slice(0, 30))
-    if (unicos.length === 0)
-      setErro('Não foi possível carregar produtos do Mercado Livre. Configure o OAuth em Config. Afiliados.')
     setLoadingAuto(false)
   }
 
   async function buscar() {
     setLoading(true); setRes([]); setErro('')
     if (plat === 'ML_AFILIADOS') {
-      // ML: chama direto do browser (não passa pelo Railway)
-      const token = await getMLToken()
-      const prods = await buscarMLBrowser(query || 'smartphone samsung', 24, token)
-      setRes(prods)
-      if (prods.length === 0) setErro('Nenhum produto encontrado. Tente outro termo ou configure o OAuth do Mercado Livre.')
+      try {
+        const p = new URLSearchParams({ q: query || 'smartphone samsung', plataforma: 'ML_AFILIADOS', ordenar, limit: '24' })
+        const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+        const d = await r.json()
+        const prods: any[] = d.resultados || []
+        setRes(prods)
+        if (d.erro) setErro(d.erro)
+        else if (prods.length === 0) setErro('Nenhum produto encontrado. Tente outro termo.')
+      } catch { setErro('Erro ao buscar produtos') }
     } else {
       // Outras plataformas via backend
       try {

@@ -559,11 +559,8 @@ def _estrategia_top(meta: float, top_prods: list) -> dict:
     }
 
 async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
-    """Busca produtos ML via scraping da página de resultados (API bloqueada no servidor)"""
+    """Busca produtos ML via scraping da página mais-vendidos (única com JSON embedded disponível no servidor)"""
     import re as _re
-
-    if not q:
-        q = "smartphone samsung"
 
     _HEADERS_BROWSER = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -575,22 +572,21 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
         return _re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
 
     try:
-        busca_url = f"https://lista.mercadolivre.com.br/{urllib.parse.quote(q)}"
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(busca_url, headers=_HEADERS_BROWSER)
+            resp = await client.get("https://www.mercadolivre.com.br/mais-vendidos", headers=_HEADERS_BROWSER)
 
         if resp.status_code != 200:
             return {"resultados": [], "total": 0, "erro": f"Site ML retornou {resp.status_code}"}
 
-        html = resp.text
-        resultados = []
+        html = resp.content.decode('utf-8', errors='replace')
+        todos: list[dict] = []
         seen_ids: set = set()
 
         for m in _re.finditer(
             r'"title"\s*:\s*"([^"]{3,200})","permalink"\s*:\s*"(https[^"]+?)","thumbnail"\s*:\s*"(https[^"]+?)","image_id"\s*:\s*"[^"]*","price"\s*:\s*(\d+(?:\.\d+)?)',
             html
         ):
-            titulo    = m.group(1)
+            titulo    = _decode_esc(m.group(1))
             permalink = _decode_esc(m.group(2))
             thumbnail = _decode_esc(m.group(3))
             preco     = float(m.group(4))
@@ -602,7 +598,7 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
                 continue
             seen_ids.add(prod_id)
             pct = 6.0
-            resultados.append({
+            todos.append({
                 "produto_ext_id": prod_id,
                 "titulo":         titulo,
                 "preco":          preco,
@@ -617,10 +613,18 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
                 "categoria":      "",
                 "plataforma":     "ML_AFILIADOS",
             })
-            if len(resultados) >= limit:
-                break
 
-        return {"resultados": resultados, "total": len(resultados)}
+        # Filtrar por termo de busca (case-insensitive)
+        if q:
+            termos = q.lower().split()
+            resultados = [p for p in todos if any(t in p["titulo"].lower() for t in termos)]
+            if not resultados:
+                resultados = todos  # sem filtro se nenhum resultado
+        else:
+            resultados = todos
+
+        resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)
+        return {"resultados": resultados[:limit], "total": len(resultados[:limit])}
     except Exception as e:
         return {"resultados": [], "total": 0, "erro": str(e)}
 
@@ -707,7 +711,7 @@ async def ml_destaques(
                 r = await client.get(url_pag, headers=_HEADERS_BROWSER)
                 if r.status_code != 200:
                     return []
-                html = r.text
+                html = r.content.decode('utf-8', errors='replace')
                 produtos: list[dict] = []
                 seen_ids: set[str] = set()
                 # Extrai blocos com title + permalink + thumbnail + price do JSON embedded no HTML
@@ -715,7 +719,7 @@ async def ml_destaques(
                     r'"title"\s*:\s*"([^"]{3,200})","permalink"\s*:\s*"(https[^"]+?)","thumbnail"\s*:\s*"(https[^"]+?)","image_id"\s*:\s*"[^"]*","price"\s*:\s*(\d+(?:\.\d+)?)',
                     html
                 ):
-                    titulo    = m.group(1)
+                    titulo    = _decode_esc(m.group(1))
                     permalink = _decode_esc(m.group(2))
                     thumbnail = _decode_esc(m.group(3))
                     preco     = float(m.group(4))

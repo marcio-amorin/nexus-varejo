@@ -1641,36 +1641,51 @@ async def importar_link_produto(
     if ml_match:
         item_id = f"MLB{ml_match.group(1)}"
         try:
-            cfg_ml = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-            ml_headers = {"Accept": "application/json"}
-            if cfg_ml and cfg_ml.access_token:
-                ml_headers["Authorization"] = f"Bearer {cfg_ml.access_token}"
-            async with httpx.AsyncClient(timeout=12) as client:
-                r = await client.get(
-                    f"https://api.mercadolibre.com/items/{item_id}",
-                    headers=ml_headers,
-                )
+            from models import VendedorConfig as _VC
+            cfg_ml  = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+            cfg_vnd = db.query(_VC).filter_by(plataforma="ML_VENDEDOR").first()
+
+            # Tenta tokens em ordem: afiliado → vendedor → sem token
+            tokens = []
+            if cfg_ml  and cfg_ml.access_token:  tokens.append(cfg_ml.access_token)
+            if cfg_vnd and cfg_vnd.access_token:  tokens.append(cfg_vnd.access_token)
+            tokens.append(None)
+
+            ml_resp = None
+            for tok in tokens:
+                ml_headers = {"Accept": "application/json"}
+                if tok:
+                    ml_headers["Authorization"] = f"Bearer {tok}"
+                async with httpx.AsyncClient(timeout=12) as client:
+                    r = await client.get(
+                        f"https://api.mercadolibre.com/items/{item_id}",
+                        headers=ml_headers,
+                    )
                 if r.status_code == 200:
-                    d = r.json()
-                    preco = float(d.get("price") or 0)
-                    cat   = d.get("category_id", "")
-                    pct   = _comissao_ml_by_cat(cat)
-                    imagem = (d.get("thumbnail") or "").replace("I.jpg", "O.jpg")
-                    produto = {
-                        "produto_ext_id": d.get("id", item_id),
-                        "titulo":         d.get("title", ""),
-                        "preco":          preco,
-                        "preco_original": d.get("original_price"),
-                        "comissao_pct":   pct,
-                        "comissao_valor": round(preco * pct / 100, 2),
-                        "imagem_url":     imagem,
-                        "url_produto":    d.get("permalink", texto),
-                        "vendas_mes":     d.get("sold_quantity", 0),
-                        "avaliacao":      0,
-                        "total_avaliacoes": 0,
-                        "categoria":      cat,
-                        "plataforma":     "ML_AFILIADOS",
-                    }
+                    ml_resp = r.json()
+                    break
+
+            if ml_resp:
+                d = ml_resp
+                preco = float(d.get("price") or 0)
+                cat   = d.get("category_id", "")
+                pct   = _comissao_ml_by_cat(cat)
+                imagem = (d.get("thumbnail") or "").replace("I.jpg", "O.jpg")
+                produto = {
+                    "produto_ext_id": d.get("id", item_id),
+                    "titulo":         d.get("title", ""),
+                    "preco":          preco,
+                    "preco_original": d.get("original_price"),
+                    "comissao_pct":   pct,
+                    "comissao_valor": round(preco * pct / 100, 2),
+                    "imagem_url":     imagem,
+                    "url_produto":    d.get("permalink", texto),
+                    "vendas_mes":     d.get("sold_quantity", 0),
+                    "avaliacao":      0,
+                    "total_avaliacoes": 0,
+                    "categoria":      cat,
+                    "plataforma":     "ML_AFILIADOS",
+                }
         except Exception:
             pass
 
@@ -1718,7 +1733,7 @@ async def importar_link_produto(
     if not produto:
         raise HTTPException(
             status_code=400,
-            detail="Cole o link de um produto do Mercado Livre (ex: mercadolivre.com.br/MLB123...) ou texto com título e preço."
+            detail="Produto não encontrado. Verifique se o link do ML é válido e tente novamente."
         )
 
     # Gera copies com IA para Instagram e TikTok

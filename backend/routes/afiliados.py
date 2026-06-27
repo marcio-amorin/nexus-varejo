@@ -1059,6 +1059,57 @@ def salvar_produto(body: ProdutoIn, db: Session = Depends(get_db), _=Depends(get
     db.refresh(p)
     return {"ok": True, "id": p.id}
 
+@router.post("/importar-ml/{item_id}")
+async def importar_ml_por_id(item_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Importa um produto do ML pelo ID (ex: MLB5532075156) usando o token de afiliado."""
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    token = cfg.access_token if cfg else None
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"https://api.mercadolibre.com/items/{item_id}", headers=headers)
+        if r.status_code != 200:
+            raise HTTPException(400, f"Produto não encontrado no ML: {r.text[:200]}")
+        d = r.json()
+
+        # Calcula comissão estimada (ML afiliados ~4-8%)
+        preco = float(d.get("price") or 0)
+        comissao_pct = 5.0
+
+        # Imagem em alta resolução
+        pics = d.get("pictures") or []
+        imagem = pics[0].get("url") if pics else d.get("thumbnail", "")
+        if imagem and "-I.jpg" not in imagem:
+            imagem = imagem.replace("-O.jpg", "-O.jpg").replace("http://", "https://")
+
+        produto_ext_id = d.get("id", item_id)
+        existe = db.query(AfiliadoProduto).filter_by(plataforma="ML_AFILIADOS", produto_ext_id=produto_ext_id).first()
+        if existe:
+            return {"ok": True, "id": existe.id, "duplicado": True, "titulo": existe.titulo}
+
+        p = AfiliadoProduto(
+            plataforma="ML_AFILIADOS",
+            produto_ext_id=produto_ext_id,
+            titulo=d.get("title", "")[:200],
+            preco=preco,
+            preco_original=float(d.get("original_price") or preco),
+            comissao_pct=comissao_pct,
+            comissao_valor=round(preco * comissao_pct / 100, 2),
+            categoria=d.get("category_id", "Outros"),
+            imagem_url=imagem,
+            url_produto=d.get("permalink", ""),
+            vendas_mes=int(d.get("sold_quantity") or 0),
+            avaliacao=float((d.get("reviews") or {}).get("rating_average") or 0),
+            total_avaliacoes=int((d.get("reviews") or {}).get("total") or 0),
+        )
+        db.add(p); db.commit(); db.refresh(p)
+        return {"ok": True, "id": p.id, "titulo": p.titulo, "preco": p.preco, "imagem": p.imagem_url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 @router.patch("/catalogo/{id}/favorito")
 def toggle_favorito(id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     p = db.query(AfiliadoProduto).get(id)
@@ -1590,10 +1641,14 @@ async def importar_link_produto(
     if ml_match:
         item_id = f"MLB{ml_match.group(1)}"
         try:
+            cfg_ml = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+            ml_headers = {"Accept": "application/json"}
+            if cfg_ml and cfg_ml.access_token:
+                ml_headers["Authorization"] = f"Bearer {cfg_ml.access_token}"
             async with httpx.AsyncClient(timeout=12) as client:
                 r = await client.get(
                     f"https://api.mercadolibre.com/items/{item_id}",
-                    headers={"Accept": "application/json"},
+                    headers=ml_headers,
                 )
                 if r.status_code == 200:
                     d = r.json()

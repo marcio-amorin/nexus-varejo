@@ -631,7 +631,7 @@ async def _buscar_ml(q: str, categoria: str, ordenar: str, limit: int, cfg):
 
 @router.get("/ml-destaques")
 async def ml_destaques(
-    limit: int = 30,
+    limit: int = 300,
     db: Session = Depends(get_db),
     _=Depends(get_current_user)
 ):
@@ -696,10 +696,8 @@ async def ml_destaques(
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
     }
     _PAGINAS_ML = [
-        "https://www.mercadolivre.com.br/mais-vendidos",
-        "https://www.mercadolivre.com.br/mais-vendidos/eletronicos-audio-e-video",
-        "https://www.mercadolivre.com.br/mais-vendidos/celulares-e-telefones",
-        "https://lista.mercadolivre.com.br/mais-vendidos",
+        "https://www.mercadolivre.com.br/mais-vendidos",   # ~150 produtos (eletrônicos, games, casa)
+        "https://www.mercadolivre.com.br/moda",            # ~120 produtos (roupas, calçados, acessórios)
     ]
 
     def _decode_esc(s: str) -> str:

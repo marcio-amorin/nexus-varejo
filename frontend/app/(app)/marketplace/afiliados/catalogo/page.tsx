@@ -104,7 +104,7 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
-      const r = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
+      const r = await fetch(`${API}/afiliados/ml-destaques?limit=300`, { headers: hdr() })
       if (r.ok) {
         const d = await r.json()
         const prods: any[] = d.resultados || []

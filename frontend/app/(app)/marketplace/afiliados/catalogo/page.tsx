@@ -130,20 +130,46 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
-    // Tenta backend primeiro, fallback direto no browser
-    let prods: any[] = []
+
+    // Busca em paralelo várias categorias direto do browser (IP residencial, não bloqueado)
+    const categorias = [
+      { cat: 'MLB1055', label: 'Celulares' },
+      { cat: 'MLB1000', label: 'TV e Audio' },
+      { cat: 'MLB1648', label: 'Informatica' },
+      { cat: 'MLB1574', label: 'Eletrodomesticos' },
+      { cat: 'MLB1430', label: 'Moda' },
+      { cat: 'MLB1144', label: 'Games' },
+      { cat: 'MLB1276', label: 'Esporte' },
+      { cat: 'MLB1246', label: 'Beleza' },
+    ]
+
     try {
-      const r = await fetch(`${API}/afiliados/ml-destaques?limit=300`, { headers: hdr() })
-      if (r.ok) {
-        const d = await r.json()
-        prods = d.resultados || []
-      }
-    } catch {}
-    if (prods.length === 0) {
-      prods = await buscarMLBrowser('smartphone fone tênis notebook', 48)
+      const resultados = await Promise.all(
+        categorias.map(async ({ cat }) => {
+          try {
+            const r = await fetch(
+              `https://api.mercadolibre.com/sites/MLB/search?category=${cat}&sort=sold_quantity_desc&limit=25`
+            )
+            if (!r.ok) return []
+            const d = await r.json()
+            return (d.results || []).map((item: any) => montarProduto(item, 'ML_AFILIADOS'))
+          } catch { return [] }
+        })
+      )
+
+      // Junta tudo, remove duplicatas por produto_ext_id
+      const todos: any[] = resultados.flat()
+      const vistos = new Set<string>()
+      const unicos = todos.filter(p => {
+        if (vistos.has(p.produto_ext_id)) return false
+        vistos.add(p.produto_ext_id); return true
+      })
+
+      if (unicos.length > 0) setRes(unicos)
+      else setErro('Não foi possível carregar produtos. Use a busca manual.')
+    } catch {
+      setErro('Erro ao carregar produtos. Use a busca manual.')
     }
-    if (prods.length > 0) setRes(prods)
-    else setErro('Não foi possível carregar produtos. Use a busca manual ou Importar Link ML.')
     setLoadingAuto(false)
   }
 

@@ -129,25 +129,9 @@ export default function Catalogo() {
   }
 
   async function buscarAuto() {
-    setLoadingAuto(true); setRes([]); setErro('')
-    const termos = ['smartphone samsung', 'fone bluetooth', 'smart tv 4k', 'notebook laptop', 'air fryer', 'tenis corrida', 'perfume skincare', 'playstation games']
-    const todos: any[] = []
-    const vistos = new Set<string>()
-    for (const q of termos) {
-      try {
-        const r = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=50&sort=sold_quantity_desc`)
-        if (r.ok) {
-          const d = await r.json()
-          for (const item of (d.results || [])) {
-            if (!vistos.has(item.id)) { vistos.add(item.id); todos.push(montarProduto(item, 'ML_AFILIADOS')) }
-          }
-          if (todos.length >= 50) break
-        }
-      } catch {}
-    }
-    if (todos.length > 0) setRes(todos)
-    else setErro('Não foi possível carregar produtos automáticos. Use a busca manual acima.')
-    setLoadingAuto(false)
+    // Auto-load desativado — ML bloqueia busca automática do browser
+    // Usuário usa campo de busca manual ou "Importar Link ML"
+    setErro('')
   }
 
   async function buscar() {
@@ -383,11 +367,12 @@ export default function Catalogo() {
               </div>
             )}
 
-            {erroBusca && !loadingAuto && !loading && (
-              <div className="rounded-xl p-4 flex flex-col gap-2" style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)' }}>
-                <p className="text-xs font-bold" style={{ color:'#ef4444' }}>Erro ao carregar produtos:</p>
-                <p className="text-xs" style={{ color:'#fca5a5' }}>{erroBusca}</p>
-                <p className="text-xs" style={{ color:'var(--muted)' }}>Use o campo de busca acima para pesquisar manualmente.</p>
+            {!loading && !loadingAuto && resultados.length === 0 && (
+              <div className="rounded-xl p-6 flex flex-col items-center gap-3 text-center" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+                <span className="text-4xl">🔍</span>
+                <p className="text-sm font-black text-white">Busque produtos para promover</p>
+                <p className="text-xs" style={{ color:'var(--muted)' }}>Digite no campo acima: <strong style={{color:'#f97316'}}>tênis, fone bluetooth, smartphone...</strong></p>
+                <p className="text-xs" style={{ color:'var(--muted)' }}>Ou importe direto pelo link com o botão <strong style={{color:'#f97316'}}>"Importar Link ML"</strong></p>
               </div>
             )}
 

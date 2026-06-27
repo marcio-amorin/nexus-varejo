@@ -159,13 +159,12 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
             "currency_id": "BRL",
             "available_quantity": data.quantidade,
             "buying_mode": "buy_it_now",
-            "listing_type_id": "gold_special",
+            "listing_type_id": "free",
             "condition": "new",
-            "description": {"plain_text": produto.descricao or f"Produto: {produto.titulo}. Qualidade garantida."},
             "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
         }
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
+            async with httpx.AsyncClient(timeout=20) as client:
                 r = await client.post(
                     "https://api.mercadolibre.com/items",
                     headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
@@ -175,9 +174,24 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 rd = r.json()
                 ml_listing_id = rd.get("id")
                 ml_url = rd.get("permalink")
+                # Envia descrição separadamente
+                if ml_listing_id and (produto.descricao or produto.titulo):
+                    try:
+                        async with httpx.AsyncClient(timeout=10) as client2:
+                            await client2.post(
+                                f"https://api.mercadolibre.com/items/{ml_listing_id}/description",
+                                headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
+                                json={"plain_text": produto.descricao or f"Produto: {produto.titulo}. Qualidade garantida."}
+                            )
+                    except Exception:
+                        pass
                 resultado["passos"].append({"passo": "ML Vendedor", "status": "✅ Publicado", "url": ml_url, "listing_id": ml_listing_id})
             else:
-                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                try:
+                    err_detail = r.json()
+                except Exception:
+                    err_detail = r.text[:300]
+                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": str(err_detail)[:300]})
         except Exception as e:
             resultado["passos"].append({"passo": "ML Vendedor", "status": f"❌ Erro: {str(e)[:100]}"})
     else:

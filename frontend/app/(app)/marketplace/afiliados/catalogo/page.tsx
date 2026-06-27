@@ -75,62 +75,73 @@ export default function Catalogo() {
     } catch { return null }
   }
 
-  async function buscarMLDireto(q: string, limit: number, _token: string|null) {
+  // ── Chama ML direto do BROWSER do usuário (IP residencial → não bloqueado pelo ML)
+  // Railway/Vercel têm IPs de datacenter que o ML bloqueia com 403.
+  // O browser roda no notebook/celular do usuário com IP residencial → funciona.
+  async function buscarMLBrowser(q: string, limit: number, token?: string|null): Promise<any[]> {
     const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
-    // Requisição simples sem Authorization — sem CORS preflight, ML permite de qualquer IP de usuário
+    // 1ª: sem auth (funciona de IPs residenciais)
     try {
-      const r = await fetch(url)
+      const r = await fetch(url, { headers: { Accept: 'application/json' } })
       if (r.ok) {
-        const data = await r.json()
-        const results = data.results || []
-        if (results.length > 0) return results.map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+        const d = await r.json()
+        if ((d.results || []).length > 0)
+          return d.results.map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
       }
-    } catch { /* CORS bloqueado — tenta com token abaixo */ }
-
-    // Tentativa com token (pode falhar CORS preflight, mas vale tentar)
-    if (_token) {
+    } catch {}
+    // 2ª: com token OAuth (para quando o usuário tiver configurado)
+    const tok = token !== undefined ? token : await getMLToken()
+    if (tok) {
       try {
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${_token}` } })
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${tok}`, Accept: 'application/json' } })
         if (r.ok) {
-          const data = await r.json()
-          return (data.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+          const d = await r.json()
+          return (d.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
         }
-      } catch { /* ignora */ }
+      } catch {}
     }
     return []
   }
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
-    try {
-      // Backend usa token OAuth armazenado para buscar ML server-side (sem CORS, sem bloqueio)
-      const rd = await fetch(`${API}/afiliados/ml-destaques?limit=30`, { headers: hdr() })
-      if (rd.ok) {
-        const dd = await rd.json()
-        const prods: any[] = dd.resultados || []
-        if (prods.length > 0) {
-          setRes(prods)
-          setLoadingAuto(false)
-          return
-        }
-      }
-      setErro('Produtos não carregaram. Verifique a conexão com o Mercado Livre nas Configurações.')
-    } catch (e:any) {
-      setErro(`Erro de conexão: ${e?.message || String(e)}`)
+    const token = await getMLToken()
+    const todos: any[] = []
+    for (const termo of TERMOS_AUTO.slice(0, 5)) {
+      try {
+        const prods = await buscarMLBrowser(termo, 8, token)
+        todos.push(...prods)
+        if (todos.length >= 32) break
+      } catch {}
     }
+    const vistos = new Set<string>()
+    const unicos = todos.filter(p => { if (vistos.has(p.produto_ext_id)) return false; vistos.add(p.produto_ext_id); return true })
+    unicos.sort((a,b) => b.comissao_valor - a.comissao_valor)
+    setRes(unicos.slice(0, 30))
+    if (unicos.length === 0)
+      setErro('Não foi possível carregar produtos do Mercado Livre. Configure o OAuth em Config. Afiliados.')
     setLoadingAuto(false)
   }
 
   async function buscar() {
     setLoading(true); setRes([]); setErro('')
-    try {
-      const p = new URLSearchParams({ q: query || 'smartphone samsung', plataforma: plat, ordenar, limit: '20' })
-      const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
-      const d = await r.json()
-      setRes(d.resultados || [])
-      if (d.erro) setErro(d.erro)
-      else if ((d.resultados || []).length === 0) setErro('Nenhum produto encontrado')
-    } catch { setErro('Erro ao buscar produtos') }
+    if (plat === 'ML_AFILIADOS') {
+      // ML: chama direto do browser (não passa pelo Railway)
+      const token = await getMLToken()
+      const prods = await buscarMLBrowser(query || 'smartphone samsung', 24, token)
+      setRes(prods)
+      if (prods.length === 0) setErro('Nenhum produto encontrado. Tente outro termo ou configure o OAuth do Mercado Livre.')
+    } else {
+      // Outras plataformas via backend
+      try {
+        const p = new URLSearchParams({ q: query || '', plataforma: plat, ordenar, limit: '20' })
+        const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
+        const d = await r.json()
+        setRes(d.resultados || [])
+        if (d.erro) setErro(d.erro)
+        else if ((d.resultados || []).length === 0) setErro('Nenhum produto encontrado')
+      } catch { setErro('Erro ao buscar produtos') }
+    }
     setLoading(false)
   }
 

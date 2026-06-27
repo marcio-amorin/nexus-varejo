@@ -393,8 +393,15 @@ export default function PDVPage() {
     if (pendingFirstItem) {
       const { prod, qty, peso_kg } = pendingFirstItem
       setPendingFirstItem(null)
-      // Produto já foi escaneado — adiciona direto, sem abrir tela de peso
-      setTimeout(() => addItem(prod, qty || 1, peso_kg), 50)
+      if (prod.pesavel && peso_kg === undefined) {
+        // Produto pesável: abre modal de peso após o fluxo de CPF
+        setTimeout(() => {
+          setProdPesavel(prod); setInputQtd(''); setModoQtd(true)
+          setTimeout(() => qtdRef.current?.focus(), 80)
+        }, 50)
+      } else {
+        setTimeout(() => addItem(prod, qty || 1, peso_kg), 50)
+      }
     } else {
       setTimeout(() => buscaRef.current?.focus(), 100)
     }
@@ -1548,8 +1555,6 @@ export default function PDVPage() {
                     setPendingFirstItem({ prod: exato, qty: 1, peso_kg: undefined })
                     setCpfInicioInput(''); setCpfInicioStep('pergunta'); setCpfInicioSel('sim')
                     setShowCpfInicio(true)
-                  } else if (params?.solicitar_cpf_inicio) {
-                    addItem(exato, qtdPendente); setQtdPendente(1)
                   } else {
                     setProdPesavel(exato); setInputQtd(''); setModoQtd(true)
                     setTimeout(() => qtdRef.current?.focus(), 80)

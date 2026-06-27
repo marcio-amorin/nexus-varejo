@@ -151,6 +151,7 @@ class ProdutoUpdate(BaseModel):
     controla_validade: Optional[bool] = None
     dias_validade_alerta: Optional[int] = None
     imagem_url: Optional[str] = None
+    insumo_producao: Optional[bool] = None
 
 class FornecedorLink(BaseModel):
     fornecedor_id: int
@@ -199,6 +200,7 @@ def _prod_dict(p: Produto, db: Session) -> dict:
         "controla_validade": getattr(p, "controla_validade", False) or False,
         "dias_validade_alerta": getattr(p, "dias_validade_alerta", 30) or 30,
         "imagem_url": getattr(p, "imagem_url", None),
+        "insumo_producao": getattr(p, "insumo_producao", False) or False,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
 

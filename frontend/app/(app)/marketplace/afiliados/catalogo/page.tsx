@@ -198,11 +198,51 @@ export default function Catalogo() {
     setLoadingImport(true); setImportErro(''); setImportResult(null)
     const texto = inputLink.trim()
 
-    // Extrai MLB ID e chama ML direto do browser (sem depender do backend)
+    // Detecta se é catálogo (/p/MLB) ou item direto
+    const isCatalog = /\/p\/MLB/i.test(texto)
     const mlMatch = texto.match(/MLB-?(\d+)/i)
     if (mlMatch) {
       const itemId = `MLB${mlMatch[1]}`
       try {
+        // Para catálogo: usa /products/ para dados + search para preço
+        if (isCatalog) {
+          const [prodR, searchR] = await Promise.all([
+            fetch(`https://api.mercadolibre.com/products/${itemId}`),
+            fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
+          ])
+          if (prodR.ok) {
+            const pd = await prodR.json()
+            let preco = 0
+            let catId = pd.domain_id || ''
+            if (searchR.ok) {
+              const sd = await searchR.json()
+              const results = (sd.results || []).filter((r:any) => parseFloat(r.price) > 0)
+              if (results.length) preco = parseFloat(results[0].price)
+              if (!catId && results[0]?.category_id) catId = results[0].category_id
+            }
+            const imagem = pd.pictures?.[0]?.url || pd.pictures?.[0]?.secure_url || ''
+            const pct = comissaoML(catId)
+            const produto = {
+              produto_ext_id: itemId,
+              titulo: pd.name || pd.title || itemId,
+              preco,
+              preco_original: null,
+              comissao_pct: pct,
+              comissao_valor: Math.round(preco * pct / 100 * 100) / 100,
+              imagem_url: imagem,
+              url_produto: texto,
+              vendas_mes: 0,
+              avaliacao: 0, total_avaliacoes: 0,
+              categoria: catId,
+              plataforma: 'ML_AFILIADOS',
+            }
+            setImportResult({ produto, copies: {} })
+            setLoadingImport(false)
+            return
+          }
+        }
+
+        // Item direto (não catálogo)
         const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
         if (r.ok) {
           const d = await r.json()
@@ -213,18 +253,7 @@ export default function Catalogo() {
             const precos = d.variations.map((v:any) => parseFloat(v.price||0)).filter((p:number)=>p>0)
             if (precos.length) preco = Math.min(...precos)
           }
-          // Fallback: produto de catálogo → busca oferta mais barata
-          if (!preco) {
-            try {
-              const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=1`)
-              if (sr.ok) {
-                const sd = await sr.json()
-                if (sd.results?.[0]?.price) preco = parseFloat(sd.results[0].price)
-              }
-            } catch {}
-          }
           const pct = comissaoML(d.category_id || '')
-          // Imagem: tenta pictures[0] se thumbnail for vazio
           const imagem = d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')
           const produto = {
             produto_ext_id: d.id,

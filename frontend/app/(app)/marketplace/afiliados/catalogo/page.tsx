@@ -210,8 +210,16 @@ export default function Catalogo() {
         const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
         if (r.ok) {
           const d = await r.json()
-          const preco = parseFloat(d.price || 0)
+          // Preço: direto ou menor variação (para produtos com tamanhos/cores)
+          let preco = parseFloat(d.price || d.base_price || 0)
+          if (!preco && d.variations?.length) {
+            const precos = d.variations.map((v:any) => parseFloat(v.price || 0)).filter((p:number) => p > 0)
+            if (precos.length) preco = Math.min(...precos)
+          }
+          if (!preco && d.sale_price?.amount) preco = parseFloat(d.sale_price.amount)
           const pct = comissaoML(d.category_id || '')
+          // Imagem: tenta pictures[0] se thumbnail falhar
+          const imagem = d.pictures?.[0]?.url || (d.thumbnail || '').replace('I.jpg', 'O.jpg')
           const produto = {
             produto_ext_id: d.id,
             titulo: d.title,
@@ -219,7 +227,7 @@ export default function Catalogo() {
             preco_original: d.original_price || null,
             comissao_pct: pct,
             comissao_valor: Math.round(preco * pct / 100 * 100) / 100,
-            imagem_url: (d.thumbnail || '').replace('I.jpg', 'O.jpg'),
+            imagem_url: imagem,
             url_produto: d.permalink || texto,
             vendas_mes: d.sold_quantity || 0,
             avaliacao: 0, total_avaliacoes: 0,

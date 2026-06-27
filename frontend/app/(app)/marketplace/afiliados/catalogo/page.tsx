@@ -129,20 +129,20 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
+    // Tenta backend primeiro, fallback direto no browser
+    let prods: any[] = []
     try {
       const r = await fetch(`${API}/afiliados/ml-destaques?limit=300`, { headers: hdr() })
       if (r.ok) {
         const d = await r.json()
-        const prods: any[] = d.resultados || []
-        setRes(prods)
-        if (prods.length === 0)
-          setErro('Não foi possível carregar produtos do Mercado Livre. Tente buscar manualmente.')
-      } else {
-        setErro('Erro ao carregar produtos do Mercado Livre.')
+        prods = d.resultados || []
       }
-    } catch {
-      setErro('Erro ao carregar produtos do Mercado Livre.')
+    } catch {}
+    if (prods.length === 0) {
+      prods = await buscarMLBrowser('smartphone fone tênis notebook', 48)
     }
+    if (prods.length > 0) setRes(prods)
+    else setErro('Não foi possível carregar produtos. Use a busca manual ou Importar Link ML.')
     setLoadingAuto(false)
   }
 
@@ -200,12 +200,46 @@ export default function Catalogo() {
   async function importarLink() {
     if (!inputLink.trim()) return
     setLoadingImport(true); setImportErro(''); setImportResult(null)
+    const texto = inputLink.trim()
+
+    // Extrai MLB ID e chama ML direto do browser (sem depender do backend)
+    const mlMatch = texto.match(/MLB-?(\d+)/i)
+    if (mlMatch) {
+      const itemId = `MLB${mlMatch[1]}`
+      try {
+        const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
+        if (r.ok) {
+          const d = await r.json()
+          const preco = parseFloat(d.price || 0)
+          const pct = comissaoML(d.category_id || '')
+          const produto = {
+            produto_ext_id: d.id,
+            titulo: d.title,
+            preco,
+            preco_original: d.original_price || null,
+            comissao_pct: pct,
+            comissao_valor: Math.round(preco * pct / 100 * 100) / 100,
+            imagem_url: (d.thumbnail || '').replace('I.jpg', 'O.jpg'),
+            url_produto: d.permalink || texto,
+            vendas_mes: d.sold_quantity || 0,
+            avaliacao: 0, total_avaliacoes: 0,
+            categoria: d.category_id || '',
+            plataforma: 'ML_AFILIADOS',
+          }
+          setImportResult({ produto, copies: {} })
+          setLoadingImport(false)
+          return
+        }
+      } catch {}
+    }
+
+    // Fallback: backend
     try {
       const r = await fetch(`${API}/afiliados/importar-link`, {
-        method:'POST', headers:hdr(), body:JSON.stringify({ url_ou_texto: inputLink.trim() })
+        method:'POST', headers:hdr(), body:JSON.stringify({ url_ou_texto: texto })
       })
       const d = await r.json()
-      if (!r.ok) { setImportErro(d.detail || 'Erro ao processar'); setLoadingImport(false); return }
+      if (!r.ok) { setImportErro(d.detail || 'Produto não encontrado. Verifique o link.'); setLoadingImport(false); return }
       setImportResult(d)
     } catch { setImportErro('Erro de conexão com o servidor') }
     setLoadingImport(false)

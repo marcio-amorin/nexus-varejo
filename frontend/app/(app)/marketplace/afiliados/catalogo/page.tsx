@@ -490,9 +490,10 @@ export default function Catalogo() {
                   {(resultadoPublicar.passos||[]).map((s:any,i:number) => (
                     <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{ background:'var(--card2)' }}>
                       <span className="text-sm">{s.status?.startsWith('✅') ? '✅' : s.status?.startsWith('⚠️') ? '⚠️' : '❌'}</span>
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-black text-white">{s.passo}</p>
                         <p className="text-[9px]" style={{ color:'var(--muted)' }}>{s.status?.replace(/^[✅⚠️❌]\s*/,'')}</p>
+                        {s.detalhe && <p className="text-[9px] mt-1 break-all" style={{ color:'#ef4444' }}>{typeof s.detalhe === 'object' ? JSON.stringify(s.detalhe) : s.detalhe}</p>}
                         {s.url && <a href={s.url} target="_blank" className="text-[9px] text-blue-400 underline">Ver anúncio ↗</a>}
                       </div>
                     </div>

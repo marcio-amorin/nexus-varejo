@@ -48,18 +48,36 @@ class AnuncioUpdateIn(BaseModel):
     preco_venda: Optional[float] = None
     status:      Optional[str] = None
 
-# ─── Mapeamento de categoria → ML category_id ─────────────────────────────────
+# ─── Preditor de categoria via API do ML (retorna leaf category) ──────────────
 
+async def _predict_cat_ml(titulo: str, token: str) -> str:
+    """Usa domain_discovery do ML para obter category_id folha correto."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                "https://api.mercadolibre.com/sites/MLB/domain_discovery/search",
+                params={"q": titulo[:100], "limit": 3},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    return data[0].get("category_id", "")
+    except Exception:
+        pass
+    return ""
+
+# Fallback com categorias folha conhecidas
 _CAT_ML: dict = {
     "Celulares":       "MLB1055",   # Celulares e Smartphones
-    "TV & Vídeo":      "MLB1000",   # TV e Áudio
+    "TV & Vídeo":      "MLB432",    # Televisores
     "Informática":     "MLB1648",   # Computação
     "Games":           "MLB1144",   # Video Games
     "Eletrodomésticos":"MLB1574",   # Eletrodomésticos
-    "Áudio":           "MLB1000",   # TV e Áudio
-    "Calçados":        "MLB1430",   # Moda
-    "Roupas":          "MLB1430",   # Moda
-    "Smartwatches":    "MLB1055",   # Celulares
+    "Áudio":           "MLB109285", # Fones de Ouvido e Headphones
+    "Calçados":        "MLB108562", # Tênis
+    "Roupas":          "MLB1248",   # Camisetas e Polos
+    "Smartwatches":    "MLB7195",   # Smartwatches
     "Beleza":          "MLB1246",   # Beleza e Cuidado Pessoal
     "Acessórios":      "MLB1430",   # Moda
     "Esporte":         "MLB1276",   # Esportes e Fitness
@@ -150,8 +168,11 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
     ml_url = None
 
     if cfg_vendedor and cfg_vendedor.access_token:
-        categoria = _detectar_cat(produto.titulo)
-        cat_id = _CAT_ML.get(categoria, "MLB1459")
+        # Prediz categoria folha via API do ML (evita item.category_id.invalid)
+        cat_id = await _predict_cat_ml(produto.titulo, cfg_vendedor.access_token)
+        if not cat_id:
+            categoria = _detectar_cat(produto.titulo)
+            cat_id = _CAT_ML.get(categoria, "MLB1459")
         payload = {
             "title": produto.titulo[:60],
             "category_id": cat_id,

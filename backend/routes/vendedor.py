@@ -85,6 +85,18 @@ _CAT_ML: dict = {
     "Outros":          "MLB1459",   # Eletrônicos
 }
 
+def _extrair_brand_model(titulo: str):
+    """Extrai BRAND e MODEL do título para atributos obrigatórios do ML."""
+    words = titulo.split()
+    # Tenta achar código de modelo (ex: D981, MTO30, MLB123, K500)
+    model_pat = re.compile(r'\b([A-Z]{1,5}\d{2,}[-_]?\w*|\d{3,}[A-Z]{1,5})\b')
+    model_m = model_pat.search(titulo)
+    model = model_m.group(1) if model_m else (words[1][:20] if len(words) > 1 else titulo[:20])
+    # Marca: primeira palavra que parece nome próprio (não é artigo/preposição)
+    stopwords = {'com','sem','fio','para','de','do','da','e','em','o','a','os','as','por'}
+    brand = next((w for w in words if w.lower() not in stopwords and len(w) > 2), 'Outro')
+    return brand[:60], model[:60]
+
 def _detectar_cat(titulo: str) -> str:
     t = titulo.lower()
     if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|redmi', t): return 'Celulares'
@@ -173,16 +185,21 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         if not cat_id:
             categoria = _detectar_cat(produto.titulo)
             cat_id = _CAT_ML.get(categoria, "MLB1459")
+        brand, model = _extrair_brand_model(produto.titulo)
         payload = {
             "title": produto.titulo[:60],
             "category_id": cat_id,
             "price": preco_venda,
             "currency_id": "BRL",
-            "available_quantity": data.quantidade,
+            "available_quantity": 1,  # free listing: max 1 por categoria
             "buying_mode": "buy_it_now",
             "listing_type_id": "free",
             "condition": "new",
             "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+            "attributes": [
+                {"id": "BRAND", "value_name": brand},
+                {"id": "MODEL", "value_name": model},
+            ],
         }
         try:
             async with httpx.AsyncClient(timeout=20) as client:

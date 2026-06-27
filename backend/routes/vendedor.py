@@ -6,9 +6,25 @@ from utils.security import get_current_user
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, date
-import json, httpx, asyncio, re
+import json, httpx, asyncio, re, os, urllib.parse
 
 router = APIRouter(prefix="/vendedor", tags=["vendedor"])
+
+ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onrender.com/afiliados/ml-callback")
+ML_AUTH_URL     = "https://auth.mercadolivre.com.br/authorization"
+
+@router.get("/ml-auth-url")
+def vendedor_ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    if not cfg or not cfg.client_id:
+        raise HTTPException(400, "Configure o Client ID do ML em Config. Afiliados primeiro")
+    url = (
+        f"{ML_AUTH_URL}?response_type=code"
+        f"&client_id={urllib.parse.quote(cfg.client_id)}"
+        f"&redirect_uri={urllib.parse.quote(ML_REDIRECT_URI)}"
+        f"&state=vendedor"
+    )
+    return {"url": url}
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 

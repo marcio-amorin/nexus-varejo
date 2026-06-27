@@ -211,11 +211,14 @@ def ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
     return {"url": url}
 
 @router.get("/ml-callback")
-async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get_db)):
+async def ml_callback(code: str = "", error: str = "", state: str = "", db: Session = Depends(get_db)):
     if error:
         return HTMLResponse(_html_resultado(False, f"Autorização negada: {error}"))
     if not code:
         return HTMLResponse(_html_resultado(False, "Código de autorização não recebido"))
+
+    # Determina se é fluxo de vendedor ou afiliado pelo state
+    is_vendedor = (state == "vendedor")
 
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
     if not cfg or not cfg.client_id or not cfg.client_secret:
@@ -231,7 +234,6 @@ async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get
                 "redirect_uri":  ML_REDIRECT_URI,
             })
 
-        # Verifica se tem corpo antes de tentar parsear JSON
         body_text = r.text.strip()
         if not body_text:
             return HTMLResponse(_html_resultado(False,
@@ -247,19 +249,35 @@ async def ml_callback(code: str = "", error: str = "", db: Session = Depends(get
         if "access_token" not in data:
             return HTMLResponse(_html_resultado(False, f"Erro: {data.get('message', str(data))}"))
 
-        cfg.access_token  = data["access_token"]
-        cfg.refresh_token = data.get("refresh_token", "")
-        cfg.ativo         = True
-        try:
-            extra = json.loads(cfg.extra_json or "{}")
-        except Exception:
-            extra = {}
-        extra["user_id"] = data.get("user_id", "")
-        cfg.extra_json = json.dumps(extra)
-        db.commit()
-        # Redireciona de volta para a página de config
         frontend_url = os.getenv("FRONTEND_URL", "https://nexus-varejo.vercel.app")
-        return RedirectResponse(url=f"{frontend_url}/marketplace/afiliados/config?ml_ok=1", status_code=302)
+
+        if is_vendedor:
+            # Salva como VendedorConfig (importado via vendedor routes)
+            from models import VendedorConfig as _VC
+            vcfg = db.query(_VC).filter_by(plataforma="ML_VENDEDOR").first()
+            if not vcfg:
+                vcfg = _VC(plataforma="ML_VENDEDOR")
+                db.add(vcfg)
+            vcfg.access_token  = data["access_token"]
+            vcfg.refresh_token = data.get("refresh_token", "")
+            vcfg.seller_id     = str(data.get("user_id", ""))
+            vcfg.client_id     = cfg.client_id
+            vcfg.client_secret = cfg.client_secret
+            vcfg.ativo         = True
+            db.commit()
+            return RedirectResponse(url=f"{frontend_url}/marketplace/vendedor/config?ml_ok=1", status_code=302)
+        else:
+            cfg.access_token  = data["access_token"]
+            cfg.refresh_token = data.get("refresh_token", "")
+            cfg.ativo         = True
+            try:
+                extra = json.loads(cfg.extra_json or "{}")
+            except Exception:
+                extra = {}
+            extra["user_id"] = data.get("user_id", "")
+            cfg.extra_json = json.dumps(extra)
+            db.commit()
+            return RedirectResponse(url=f"{frontend_url}/marketplace/afiliados/config?ml_ok=1", status_code=302)
     except Exception as e:
         return HTMLResponse(_html_resultado(False, str(e)))
 
@@ -689,6 +707,36 @@ async def ml_destaques(
                 continue
         return resultados
 
+    def _detectar_categoria(titulo: str) -> str:
+        t = titulo.lower()
+        if any(k in t for k in ['samsung', 'motorola', 'iphone', 'xiaomi', 'realme', 'poco', 'smartphone', 'celular', 'moto g', 'galaxy a', 'galaxy s', 'redmi']):
+            return 'Celulares'
+        if any(k in t for k in ['smart tv', 'tv ', 'televisão', 'qled', 'oled', '4k', 'android tv', 'roku', 'aiwa']):
+            return 'TV & Vídeo'
+        if any(k in t for k in ['notebook', 'laptop', 'computador', 'monitor', 'tablet', 'ipad', 'impressora', 'teclado', 'mouse']):
+            return 'Informática'
+        if any(k in t for k in ['playstation', 'xbox', 'nintendo', 'ps5', 'ps4', 'switch', 'joystick', 'controle gamer', 'gamer', 'gift card']):
+            return 'Games'
+        if any(k in t for k in ['air fryer', 'fritadeira', 'geladeira', 'máquina de lavar', 'fogão', 'micro-ondas', 'liquidificador', 'aspirador', 'cafeteira', 'panela', 'eletrodoméstico']):
+            return 'Eletrodomésticos'
+        if any(k in t for k in ['fone', 'headphone', 'earphone', 'bluetooth', 'caixa de som', 'speaker', 'amplificador', 'soundbar']):
+            return 'Áudio'
+        if any(k in t for k in ['tênis', 'sapato', 'bota', 'sandália', 'chinelo', 'calçado', 'sapatênis', 'mocassim']):
+            return 'Calçados'
+        if any(k in t for k in ['camiseta', 'camisa', 'blusa', 'vestido', 'calça', 'jaqueta', 'moletom', 'shorts', 'saia', 'macacão', 'conjunto', 'legging']):
+            return 'Roupas'
+        if any(k in t for k in ['smartwatch', 'watch', 'relógio', 'pulseira inteligente', 'fitness band']):
+            return 'Smartwatches'
+        if any(k in t for k in ['perfume', 'desodorante', 'shampoo', 'condicionador', 'hidratante', 'creme', 'protetor solar', 'maquiagem', 'batom', 'base', 'skincare', 'sérum']):
+            return 'Beleza'
+        if any(k in t for k in ['bolsa', 'mochila', 'carteira', 'colar', 'brinco', 'anel', 'óculos', 'acessório', 'cinto', 'chapéu']):
+            return 'Acessórios'
+        if any(k in t for k in ['bicicleta', 'esteira', 'haltere', 'kettlebell', 'academia', 'yoga', 'fitness', 'musculação']):
+            return 'Esporte'
+        if any(k in t for k in ['câmera', 'camera', 'drone', 'gopro', 'ring light', 'tripé', 'lente']):
+            return 'Foto & Vídeo'
+        return 'Outros'
+
     # ── Estratégia 1: scraping completo do HTML do ML (extrai dados sem API) ──
     _HEADERS_BROWSER = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -742,7 +790,7 @@ async def ml_destaques(
                         "vendas_mes":     0,
                         "avaliacao":      0,
                         "total_avaliacoes": 0,
-                        "categoria":      "",
+                        "categoria":      _detectar_categoria(titulo),
                         "plataforma":     "ML_AFILIADOS",
                     })
                 return produtos

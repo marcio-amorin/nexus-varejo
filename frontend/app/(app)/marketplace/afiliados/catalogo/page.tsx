@@ -129,9 +129,17 @@ export default function Catalogo() {
   }
 
   async function buscarAuto() {
-    // Auto-load desativado — ML bloqueia busca automática do browser
-    // Usuário usa campo de busca manual ou "Importar Link ML"
+    setLoadingAuto(true); setRes([]); setErro('')
+    try {
+      const r = await fetch(`${API}/afiliados/ml-destaques?limit=200`, { headers: hdr() })
+      if (r.ok) {
+        const d = await r.json()
+        const prods: any[] = d.resultados || []
+        if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
+      }
+    } catch {}
     setErro('')
+    setLoadingAuto(false)
   }
 
   async function buscar() {
@@ -265,6 +273,7 @@ export default function Catalogo() {
     }
     await salvarProduto(prod)
     setModalLink(false); setImportResult(null); setInputLink(''); setPrecoManual('')
+    setAba('catalogo')  // vai direto para Meu Catálogo após salvar
   }
 
   async function toggleFav(id:number) {

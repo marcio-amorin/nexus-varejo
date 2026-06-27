@@ -797,6 +797,41 @@ async def ml_destaques(
         except Exception:
             return []
 
+    # ── Estratégia principal: token do Vendedor ML (sempre ativo) ─────────────
+    from models import VendedorConfig as _VC
+    vcfg = db.query(_VC).filter_by(plataforma="ML_VENDEDOR").first()
+    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    token = (vcfg.access_token if vcfg and vcfg.access_token else None) or \
+            (acfg.access_token if acfg and acfg.access_token else None)
+
+    if token:
+        termos = [
+            "smartphone samsung motorola", "fone bluetooth earphone tws",
+            "smart tv 4k android", "notebook laptop gamer",
+            "air fryer fritadeira", "tenis corrida calçado",
+            "perfume maquiagem skincare", "playstation xbox nintendo",
+        ]
+        todos: list[dict] = []
+        seen_tok: set[str] = set()
+        for termo in termos:
+            try:
+                async with httpx.AsyncClient(timeout=12) as client:
+                    r = await client.get(
+                        "https://api.mercadolibre.com/sites/MLB/search",
+                        params={"q": termo, "limit": 25, "sort": "sold_quantity_desc"},
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    if r.status_code == 200:
+                        for item in r.json().get("results", []):
+                            if item.get("id") not in seen_tok:
+                                seen_tok.add(item["id"])
+                                todos.append(_formatar(item))
+            except Exception:
+                pass
+        if todos:
+            return {"resultados": todos[:limit], "total": len(todos), "fonte": "oauth"}
+
+    # ── Fallback: scraping HTML do ML ─────────────────────────────────────────
     resultados: list[dict] = []
     seen_global: set[str] = set()
     for url_pag in _PAGINAS_ML:

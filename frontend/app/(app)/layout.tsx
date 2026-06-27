@@ -109,7 +109,7 @@ const NAV: NavItem[] = [
 
 const GROUPS = [
   { key: 'pdv',           label: 'PDV'           },
-  { key: 'vendedor',      label: 'VENDEDOR'      },
+  { key: 'vendedor',      label: 'VENDEDOR / PLATAFORMAS' },
   { key: 'corporativos',  label: 'MARKETING AFILIADOS' },
   { key: 'marketplace',   label: 'MARKETPLACE'   },
   { key: 'compras',       label: 'COMPRAS'       },
@@ -387,8 +387,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
           <span className="font-black text-white text-sm">NexusVarejo</span>
         </div>
-        <main className="flex-1 overflow-hidden" style={{ background: 'var(--bg)' }}>
-          <div className="h-full">
+        <main className="flex-1 md:overflow-hidden overflow-y-auto" style={{ background: 'var(--bg)' }}>
+          <div className="md:h-full">
             {children}
           </div>
         </main>

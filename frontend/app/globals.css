@@ -113,17 +113,38 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 
 /* ── Mobile responsivo ───────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .pg { padding: 8px; gap: 8px; }
+  /* Layout base — pg vira scrollavel no mobile */
+  .pg {
+    padding: 8px; gap: 8px;
+    height: auto; min-height: 100%;
+    overflow-y: auto; overflow-x: hidden;
+  }
+  .pg-body {
+    overflow: visible !important;
+    flex: none !important;
+    height: auto !important;
+    min-height: 120px;
+  }
+  .pg-stats { flex-shrink: 0; }
 
   /* Grids adaptativos */
-  .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
-  .grid-cols-3 { grid-template-columns: repeat(2, 1fr) !important; }
-  .grid-cols-2 { grid-template-columns: 1fr !important; }
+  .grid-cols-2  { grid-template-columns: 1fr !important; }
+  .grid-cols-3  { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-cols-4  { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-cols-6  { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-cols-12 { grid-template-columns: 1fr !important; }
+
+  /* col-span-* viram largura total no mobile */
+  .col-span-8, .col-span-7, .col-span-6,
+  .col-span-5, .col-span-4, .col-span-3 { grid-column: span 1 !important; }
+
+  /* Flex-1 dentro de .pg nao trava altura no mobile */
+  .pg > .flex-1 { flex: none !important; }
 
   /* Textos menores em mobile */
   .text-base { font-size: 13px !important; }
 
-  /* Botões com tap target maior */
+  /* Botoes com tap target maior */
   button { min-height: 36px; }
 
   /* Tabelas em mobile — scroll horizontal */

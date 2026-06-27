@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Settings, Store, CheckCircle, RefreshCw, Link2, Zap } from 'lucide-react'
+import { Settings, Store, CheckCircle, RefreshCw, Zap } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#7c3aed 0%,#f97316 100%)'
@@ -15,15 +14,19 @@ const PLATS = [
 ]
 
 export default function ConfigVendedor() {
-  const params = useSearchParams()
   const [configs, setConfigs]   = useState<any>({})
   const [form, setForm]         = useState<Record<string,any>>({})
   const [salvando, setSalvando] = useState<string|null>(null)
   const [salvo, setSalvo]       = useState<string|null>(null)
   const [conectando, setConectando] = useState(false)
-  const [sucesso, setSucesso]   = useState(params.get('ml_ok') === '1')
+  const [sucesso, setSucesso]   = useState(false)
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setSucesso(new URLSearchParams(window.location.search).get('ml_ok') === '1')
+    }
+    carregar()
+  }, [])
 
   async function carregar() {
     try {

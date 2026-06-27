@@ -76,24 +76,22 @@ export default function Catalogo() {
   }
 
   // ── Chama ML direto do BROWSER do usuário (IP residencial → não bloqueado pelo ML)
-  // Railway/Vercel têm IPs de datacenter que o ML bloqueia com 403.
-  // O browser roda no notebook/celular do usuário com IP residencial → funciona.
   async function buscarMLBrowser(q: string, limit: number, token?: string|null): Promise<any[]> {
     const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
-    // 1ª: sem auth (funciona de IPs residenciais)
+    // 1ª: simples sem headers (sem CORS preflight, mais compatível)
     try {
-      const r = await fetch(url, { headers: { Accept: 'application/json' } })
+      const r = await fetch(url)
       if (r.ok) {
         const d = await r.json()
         if ((d.results || []).length > 0)
           return d.results.map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
       }
     } catch {}
-    // 2ª: com token OAuth (para quando o usuário tiver configurado)
+    // 2ª: com token OAuth / client_credentials (backend auto-gera se expirado)
     const tok = token !== undefined ? token : await getMLToken()
     if (tok) {
       try {
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${tok}`, Accept: 'application/json' } })
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${tok}` } })
         if (r.ok) {
           const d = await r.json()
           return (d.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))

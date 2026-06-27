@@ -334,6 +334,23 @@ async def get_ml_token(db: Session = Depends(get_db), _=Depends(get_current_user
     if cfg.access_token:
         return {"access_token": cfg.access_token, "tipo": "stored", "configurado": True}
 
+    # Último recurso: client_credentials (não exige user OAuth, só client_id + secret)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(ML_TOKEN_URL, data={
+                "grant_type":    "client_credentials",
+                "client_id":     cfg.client_id,
+                "client_secret": cfg.client_secret,
+            })
+            if r.status_code == 200:
+                data = r.json()
+                if "access_token" in data:
+                    cfg.access_token = data["access_token"]
+                    db.commit()
+                    return {"access_token": cfg.access_token, "tipo": "client_credentials", "configurado": True}
+    except Exception:
+        pass
+
     return {"access_token": None, "configurado": False}
 
 @router.post("/configs")

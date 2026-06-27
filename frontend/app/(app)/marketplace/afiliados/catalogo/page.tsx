@@ -131,42 +131,27 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
 
-    // Busca em paralelo várias categorias direto do browser (IP residencial, não bloqueado)
-    const categorias = [
-      { cat: 'MLB1055', label: 'Celulares' },
-      { cat: 'MLB1000', label: 'TV e Audio' },
-      { cat: 'MLB1648', label: 'Informatica' },
-      { cat: 'MLB1574', label: 'Eletrodomesticos' },
-      { cat: 'MLB1430', label: 'Moda' },
-      { cat: 'MLB1144', label: 'Games' },
-      { cat: 'MLB1276', label: 'Esporte' },
-      { cat: 'MLB1246', label: 'Beleza' },
+    const termos = [
+      'smartphone samsung motorola xiaomi',
+      'fone bluetooth earphone tws',
+      'smart tv 4k android',
+      'notebook laptop tablet',
+      'air fryer fritadeira eletrodomestico',
+      'tenis calcado corrida',
+      'perfume maquiagem beleza',
+      'playstation xbox nintendo games',
     ]
 
     try {
-      const resultados = await Promise.all(
-        categorias.map(async ({ cat }) => {
-          try {
-            const r = await fetch(
-              `https://api.mercadolibre.com/sites/MLB/search?category=${cat}&sort=sold_quantity_desc&limit=25`
-            )
-            if (!r.ok) return []
-            const d = await r.json()
-            return (d.results || []).map((item: any) => montarProduto(item, 'ML_AFILIADOS'))
-          } catch { return [] }
-        })
-      )
-
-      // Junta tudo, remove duplicatas por produto_ext_id
+      const resultados = await Promise.all(termos.map(q => buscarMLBrowser(q, 25)))
       const todos: any[] = resultados.flat()
       const vistos = new Set<string>()
       const unicos = todos.filter(p => {
         if (vistos.has(p.produto_ext_id)) return false
         vistos.add(p.produto_ext_id); return true
       })
-
       if (unicos.length > 0) setRes(unicos)
-      else setErro('Não foi possível carregar produtos. Use a busca manual.')
+      else setErro('Nao foi possivel carregar produtos. Use a busca manual.')
     } catch {
       setErro('Erro ao carregar produtos. Use a busca manual.')
     }

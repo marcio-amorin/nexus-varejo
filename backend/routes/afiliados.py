@@ -581,11 +581,12 @@ async def ml_destaques(
     _=Depends(get_current_user)
 ):
     """
-    Produtos em destaque do ML.
-    Estratégia 1: busca autenticada via token OAuth (funciona de qualquer IP).
-    Estratégia 2: /highlights/MLB (público) → IDs → /items?ids=...
+    Produtos em destaque do ML — sem dependência da API de search bloqueada.
+    Estratégia 1: scraping do site público do ML → IDs → /items?ids=... (confirmado funciona de qualquer IP)
+    Estratégia 2: busca autenticada via token OAuth salvo no DB
     """
-    # ── helper de comissão ──────────────────────────────────────────────────
+    import re as _re
+
     def _com_pct(cat_id: str) -> float:
         tabela = {'MLB1000':8,'MLB1055':10,'MLB1051':9,'MLB1648':12,
                   'MLB1499':11,'MLB1574':10,'MLB1459':8,'MLB12':7}
@@ -614,21 +615,71 @@ async def ml_destaques(
             "plataforma":     "ML_AFILIADOS",
         }
 
-    # ── Estratégia 1: token OAuth → busca autenticada ──────────────────────
+    async def _buscar_por_ids(ids: list[str]) -> list[dict]:
+        resultados: list[dict] = []
+        for i in range(0, len(ids), 20):
+            lote = ids[i:i+20]
+            try:
+                async with httpx.AsyncClient(timeout=12) as client:
+                    r = await client.get(
+                        "https://api.mercadolibre.com/items",
+                        params={"ids": ",".join(lote), "attributes": "id,title,price,original_price,thumbnail,permalink,sold_quantity,category_id"},
+                    )
+                    if r.status_code == 200:
+                        for entry in r.json():
+                            item = entry.get("body") or {}
+                            if entry.get("code") == 200 and item.get("price"):
+                                resultados.append(_formatar(item))
+            except Exception:
+                continue
+        return resultados
+
+    # ── Estratégia 1: scraping de páginas públicas do ML ──────────────────
+    _HEADERS_BROWSER = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    }
+    _PAGINAS_ML = [
+        "https://www.mercadolivre.com.br/mais-vendidos",
+        "https://www.mercadolivre.com.br/mais-vendidos/eletronicos-audio-e-video",
+        "https://lista.mercadolivre.com.br/mais-vendidos",
+    ]
+    item_ids: list[str] = []
+    for url_pag in _PAGINAS_ML:
+        if item_ids:
+            break
+        try:
+            async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+                r = await client.get(url_pag, headers=_HEADERS_BROWSER)
+                if r.status_code == 200:
+                    ids_raw = _re.findall(r'\bMLB\d{8,12}\b', r.text)
+                    seen: dict[str, int] = {}
+                    for iid in ids_raw:
+                        seen[iid] = seen.get(iid, 0) + 1
+                    # ordenar por frequência (produtos mais citados na página)
+                    item_ids = [k for k, _ in sorted(seen.items(), key=lambda x: -x[1])][:limit]
+        except Exception:
+            continue
+
+    if item_ids:
+        resultados = await _buscar_por_ids(item_ids)
+        if resultados:
+            resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)
+            return {"resultados": resultados[:limit], "total": len(resultados), "fonte": "scraping"}
+
+    # ── Estratégia 2: OAuth search ─────────────────────────────────────────
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    access_token = None
+    access_token: str | None = None
     if cfg and cfg.refresh_token:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(
-                    ML_TOKEN_URL,
-                    data={
-                        "grant_type": "refresh_token",
-                        "client_id": cfg.client_id,
-                        "client_secret": cfg.client_secret,
-                        "refresh_token": cfg.refresh_token,
-                    },
-                )
+                r = await client.post(ML_TOKEN_URL, data={
+                    "grant_type": "refresh_token",
+                    "client_id": cfg.client_id,
+                    "client_secret": cfg.client_secret,
+                    "refresh_token": cfg.refresh_token,
+                })
                 if r.status_code == 200:
                     d = r.json()
                     if "access_token" in d:
@@ -638,15 +689,14 @@ async def ml_destaques(
                         db.commit()
         except Exception:
             pass
-
-    if not access_token and cfg and cfg.access_token:
+    if not access_token and cfg:
         access_token = cfg.access_token
 
     if access_token:
-        try:
-            termos = ["smartphone samsung", "fone bluetooth", "smartwatch", "notebook"]
-            todos: list[dict] = []
-            for termo in termos[:2]:
+        termos = ["smartphone samsung", "fone bluetooth", "smartwatch", "notebook gamer"]
+        todos: list[dict] = []
+        for termo in termos[:2]:
+            try:
                 async with httpx.AsyncClient(timeout=12) as client:
                     r = await client.get(
                         "https://api.mercadolibre.com/sites/MLB/search",
@@ -656,54 +706,19 @@ async def ml_destaques(
                     if r.status_code == 200:
                         for item in r.json().get("results", []):
                             todos.append(_formatar(item))
-            if todos:
-                vistos: set[str] = set()
-                unicos = [p for p in todos if not (p["produto_ext_id"] in vistos or vistos.add(p["produto_ext_id"]))]  # type: ignore
-                unicos.sort(key=lambda x: x["comissao_valor"], reverse=True)
-                return {"resultados": unicos[:limit], "total": len(unicos), "fonte": "oauth_search"}
-        except Exception:
-            pass
+            except Exception:
+                pass
+        if todos:
+            vistos: set[str] = set()
+            unicos = []
+            for p in todos:
+                if p["produto_ext_id"] not in vistos:
+                    vistos.add(p["produto_ext_id"])
+                    unicos.append(p)
+            unicos.sort(key=lambda x: x["comissao_valor"], reverse=True)
+            return {"resultados": unicos[:limit], "total": len(unicos), "fonte": "oauth_search"}
 
-    # ── Estratégia 2: highlights público → IDs → /items?ids=... ───────────
-    item_ids: list[str] = []
-    try:
-        async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(
-                "https://api.mercadolibre.com/highlights/MLB",
-                headers={"Accept": "application/json"},
-            )
-            if r.status_code == 200:
-                data = r.json()
-                if isinstance(data, list):
-                    item_ids = [str(x) for x in data[:limit]]
-                elif isinstance(data, dict):
-                    content = data.get("content") or data.get("items") or data.get("results") or []
-                    item_ids = [str(x.get("id") if isinstance(x, dict) else x) for x in content[:limit]]
-    except Exception:
-        pass
-
-    if not item_ids:
-        return {"resultados": [], "total": 0, "fonte": "vazio"}
-
-    resultados: list[dict] = []
-    for i in range(0, len(item_ids), 20):
-        lote = item_ids[i:i+20]
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
-                    "https://api.mercadolibre.com/items",
-                    params={"ids": ",".join(lote), "attributes": "id,title,price,original_price,thumbnail,permalink,sold_quantity,category_id"},
-                )
-                if r.status_code == 200:
-                    for entry in r.json():
-                        item = entry.get("body", {})
-                        if entry.get("code") == 200 and item.get("price"):
-                            resultados.append(_formatar(item))
-        except Exception:
-            continue
-
-    resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)
-    return {"resultados": resultados[:limit], "total": len(resultados), "fonte": "highlights"}
+    return {"resultados": [], "total": 0, "fonte": "vazio"}
 
 
 async def _buscar_ml_top_oportunidades(limit: int, headers_req: dict):

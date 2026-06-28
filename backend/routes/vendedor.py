@@ -10,17 +10,36 @@ import json, httpx, asyncio, re, os, urllib.parse
 
 router = APIRouter(prefix="/vendedor", tags=["vendedor"])
 
-ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onrender.com/afiliados/ml-callback")
-ML_AUTH_URL     = "https://auth.mercadolivre.com.br/authorization"
+ML_REDIRECT_URI  = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onrender.com/afiliados/ml-callback")
+ML_AUTH_URL      = "https://auth.mercadolivre.com.br/authorization"
+_ML_APP_ID       = os.getenv("ML_CLIENT_ID", "3153350893755305")
+_ML_APP_SECRET   = os.getenv("ML_CLIENT_SECRET", "wCq5uo8Ytbu2AXfzd8fRN8Pa5hwgKFyB")
+
+def _get_ml_client_id(db) -> str:
+    """Retorna o client_id ML: VendedorConfig → AfiliadoConfig → env var padrão"""
+    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+    if vcfg and vcfg.client_id:
+        return vcfg.client_id
+    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    if acfg and acfg.client_id:
+        return acfg.client_id
+    return _ML_APP_ID
+
+def _get_ml_client_secret(db) -> str:
+    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+    if vcfg and vcfg.client_secret:
+        return vcfg.client_secret
+    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    if acfg and acfg.client_secret:
+        return acfg.client_secret
+    return _ML_APP_SECRET
 
 @router.get("/ml-auth-url")
 def vendedor_ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    if not cfg or not cfg.client_id:
-        raise HTTPException(400, "Configure o Client ID do ML em Config. Afiliados primeiro")
+    client_id = _get_ml_client_id(db)
     url = (
         f"{ML_AUTH_URL}?response_type=code"
-        f"&client_id={urllib.parse.quote(cfg.client_id)}"
+        f"&client_id={urllib.parse.quote(client_id)}"
         f"&redirect_uri={urllib.parse.quote(ML_REDIRECT_URI)}"
         f"&state=vendedor"
         f"&scope=offline_access"

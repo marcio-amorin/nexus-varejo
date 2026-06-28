@@ -272,16 +272,23 @@ async def ml_callback(code: str = "", error: str = "", state: str = "", db: Sess
     # Determina se é fluxo de vendedor ou afiliado pelo state
     is_vendedor = (state == "vendedor")
 
-    cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    if not cfg or not cfg.client_id or not cfg.client_secret:
-        return HTMLResponse(_html_resultado(False, "Client ID / Secret não configurados"))
+    # Busca credenciais: VendedorConfig → AfiliadoConfig → env var padrão
+    from models import VendedorConfig as _VC2
+    _ML_APP_ID_FB     = os.getenv("ML_CLIENT_ID", "3153350893755305")
+    _ML_APP_SECRET_FB = os.getenv("ML_CLIENT_SECRET", "wCq5uo8Ytbu2AXfzd8fRN8Pa5hwgKFyB")
+
+    vcfg_tmp = db.query(_VC2).filter_by(plataforma="ML_VENDEDOR").first()
+    acfg_tmp = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    use_client_id     = (vcfg_tmp and vcfg_tmp.client_id) or (acfg_tmp and acfg_tmp.client_id) or _ML_APP_ID_FB
+    use_client_secret = (vcfg_tmp and vcfg_tmp.client_secret) or (acfg_tmp and acfg_tmp.client_secret) or _ML_APP_SECRET_FB
+    cfg = acfg_tmp  # mantém referência para salvar no fluxo afiliado
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(ML_TOKEN_URL, data={
                 "grant_type":    "authorization_code",
-                "client_id":     cfg.client_id,
-                "client_secret": cfg.client_secret,
+                "client_id":     use_client_id,
+                "client_secret": use_client_secret,
                 "code":          code,
                 "redirect_uri":  ML_REDIRECT_URI,
             })
@@ -313,14 +320,19 @@ async def ml_callback(code: str = "", error: str = "", state: str = "", db: Sess
             vcfg.access_token  = data["access_token"]
             vcfg.refresh_token = data.get("refresh_token", "")
             vcfg.seller_id     = str(data.get("user_id", ""))
-            vcfg.client_id     = cfg.client_id
-            vcfg.client_secret = cfg.client_secret
+            vcfg.client_id     = use_client_id
+            vcfg.client_secret = use_client_secret
             vcfg.ativo         = True
             db.commit()
             return RedirectResponse(url=f"{frontend_url}/marketplace/vendedor/config?ml_ok=1", status_code=302)
         else:
+            if not cfg:
+                cfg = AfiliadoConfig(plataforma="ML_AFILIADOS")
+                db.add(cfg)
             cfg.access_token  = data["access_token"]
             cfg.refresh_token = data.get("refresh_token", "")
+            cfg.client_id     = use_client_id
+            cfg.client_secret = use_client_secret
             cfg.ativo         = True
             try:
                 extra = json.loads(cfg.extra_json or "{}")

@@ -197,6 +197,58 @@ ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onr
 ML_AUTH_URL     = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL    = "https://api.mercadolibre.com/oauth/token"
 
+async def _get_fresh_ml_token(db) -> str | None:
+    """Retorna token ML sempre fresco: tenta refresh → stored → client_credentials.
+    Verifica VendedorConfig e AfiliadoConfig automaticamente."""
+    from models import VendedorConfig
+    configs = []
+    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    if vcfg: configs.append(vcfg)
+    if acfg: configs.append(acfg)
+
+    async with httpx.AsyncClient(timeout=10) as c:
+        for cfg in configs:
+            if not cfg.client_id or not cfg.client_secret:
+                continue
+            # 1) Tenta refresh_token
+            if cfg.refresh_token:
+                try:
+                    r = await c.post(ML_TOKEN_URL, data={
+                        "grant_type": "refresh_token",
+                        "client_id": cfg.client_id,
+                        "client_secret": cfg.client_secret,
+                        "refresh_token": cfg.refresh_token,
+                    })
+                    if r.status_code == 200:
+                        d = r.json()
+                        if d.get("access_token"):
+                            cfg.access_token = d["access_token"]
+                            cfg.refresh_token = d.get("refresh_token", cfg.refresh_token)
+                            db.commit()
+                            return cfg.access_token
+                except Exception:
+                    pass
+            # 2) Token armazenado
+            if cfg.access_token:
+                return cfg.access_token
+            # 3) client_credentials
+            try:
+                r = await c.post(ML_TOKEN_URL, data={
+                    "grant_type": "client_credentials",
+                    "client_id": cfg.client_id,
+                    "client_secret": cfg.client_secret,
+                })
+                if r.status_code == 200:
+                    d = r.json()
+                    if d.get("access_token"):
+                        cfg.access_token = d["access_token"]
+                        db.commit()
+                        return cfg.access_token
+            except Exception:
+                pass
+    return None
+
 @router.get("/ml-auth-url")
 def ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
@@ -1121,11 +1173,7 @@ async def resolver_link(url: str, _=Depends(get_current_user)):
 @router.get("/importar-catalogo")
 async def importar_catalogo(catalog_id: str, variation_id: str = None, db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Importa qualquer produto ML (catálogo ou item direto) com preço e imagem via token Vendedor."""
-    from models import VendedorConfig
-    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
-    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    token = (vcfg.access_token if vcfg and vcfg.access_token else None) or \
-            (acfg.access_token if acfg and acfg.access_token else None)
+    token = await _get_fresh_ml_token(db)
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
     titulo, preco, imagem, cat_id, permalink = catalog_id, 0.0, "", "", ""

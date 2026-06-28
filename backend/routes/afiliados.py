@@ -1162,13 +1162,30 @@ def listar_catalogo(
     db: Session = Depends(get_db),
     _=Depends(get_current_user)
 ):
+    from models import VendedorAnuncio
     q = db.query(AfiliadoProduto).filter_by(ativo=True)
     if plataforma:
         q = q.filter_by(plataforma=plataforma)
     if favorito:
         q = q.filter_by(favorito=True)
     prods = q.order_by(AfiliadoProduto.comissao_valor.desc()).all()
-    return [_prod_dict(p) for p in prods]
+    result = []
+    for p in prods:
+        d = _prod_dict(p)
+        anuncio = db.query(VendedorAnuncio).filter_by(
+            produto_afiliado_id=p.id, plataforma="ML_VENDEDOR"
+        ).first()
+        if anuncio and anuncio.listing_id:
+            d["pub_status"] = "ml_vendedor"   # publicado como vendedor no ML
+        elif anuncio and anuncio.link_afiliado:
+            d["pub_status"] = "afiliado"       # só link afiliado
+        elif anuncio:
+            d["pub_status"] = "pendente"
+        else:
+            d["pub_status"] = None             # nunca publicado
+        d["pub_url"] = anuncio.url_anuncio if anuncio else None
+        result.append(d)
+    return result
 
 @router.post("/catalogo")
 def salvar_produto(body: ProdutoIn, db: Session = Depends(get_db), _=Depends(get_current_user)):

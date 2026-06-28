@@ -649,13 +649,27 @@ export default function Catalogo() {
             </div>
           ) : (
             <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
-              {catalogo.map((p,i) => (
-                <div key={i} className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+              {catalogo.map((p,i) => {
+                const pubBadge = p.pub_status === 'ml_vendedor'
+                  ? { label:'✅ No ML',   bg:'rgba(34,197,94,0.2)',  cor:'#22c55e',  border:'rgba(34,197,94,0.5)'  }
+                  : p.pub_status === 'afiliado'
+                  ? { label:'🔗 Afiliado', bg:'rgba(249,115,22,0.2)', cor:'#f97316',  border:'rgba(249,115,22,0.5)' }
+                  : p.pub_status === 'pendente'
+                  ? { label:'⏳ Pendente', bg:'rgba(245,158,11,0.2)', cor:'#f59e0b',  border:'rgba(245,158,11,0.5)' }
+                  : null
+                return (
+                <div key={i} className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:`1px solid ${pubBadge ? pubBadge.border : 'var(--border)'}` }}>
                   <div className="relative flex items-center justify-center p-2" style={{ background:'var(--card2)', height:90 }}>
                     {p.imagem_url ? <img src={p.imagem_url} className="max-h-full object-contain"/> : <ShoppingBag size={28} color="var(--muted)"/>}
                     <button onClick={() => toggleFav(p.id)} className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center" style={{ background:'var(--card)' }}>
                       {p.favorito ? <Star size={12} color="#f59e0b" fill="#f59e0b"/> : <StarOff size={12} color="var(--muted)"/>}
                     </button>
+                    {pubBadge && (
+                      <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-black"
+                        style={{ background: pubBadge.bg, color: pubBadge.cor, border:`1px solid ${pubBadge.border}` }}>
+                        {pubBadge.label}
+                      </span>
+                    )}
                   </div>
                   <div className="p-2">
                     <p className="text-[10px] font-bold text-white leading-tight mb-1" style={{ display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.titulo}</p>
@@ -663,12 +677,20 @@ export default function Catalogo() {
                       <span className="text-[10px] font-black" style={{ color:'#f97316' }}>{fmtR(p.preco)}</span>
                       <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}%</span>
                     </div>
-                    <button onClick={() => publicarTudo(p)}
-                      disabled={publicandoId===p.id}
-                      className="w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white mb-1"
-                      style={{ background: publicandoId===p.id ? 'var(--card2)' : 'linear-gradient(135deg,#7c3aed,#f97316)', opacity: publicandoId===p.id ? 0.6 : 1 }}>
-                      {publicandoId===p.id ? <><RefreshCw size={10} className="animate-spin"/> Publicando...</> : <><Zap size={10}/> Publicar Tudo</>}
-                    </button>
+                    {p.pub_status === 'ml_vendedor' && p.pub_url ? (
+                      <a href={p.pub_url} target="_blank"
+                        className="w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white mb-1"
+                        style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)' }}>
+                        <ExternalLink size={10}/> Ver Anúncio ML
+                      </a>
+                    ) : (
+                      <button onClick={() => publicarTudo(p)}
+                        disabled={publicandoId===p.id}
+                        className="w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white mb-1"
+                        style={{ background: publicandoId===p.id ? 'var(--card2)' : 'linear-gradient(135deg,#7c3aed,#f97316)', opacity: publicandoId===p.id ? 0.6 : 1 }}>
+                        {publicandoId===p.id ? <><RefreshCw size={10} className="animate-spin"/> Publicando...</> : <><Zap size={10}/> Publicar Tudo</>}
+                      </button>
+                    )}
                     <div className="flex gap-1">
                       <button onClick={() => gerarLink(p.id, p.titulo)}
                         className="flex-1 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white"
@@ -681,7 +703,8 @@ export default function Catalogo() {
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

@@ -1120,13 +1120,15 @@ async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=De
 
     titulo, preco, imagem, cat_id = catalog_id, 0.0, "", ""
     try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            prodR, searchR = await asyncio.gather(
+        async with httpx.AsyncClient(timeout=20) as c:
+            prodR, itemR, searchR = await asyncio.gather(
                 c.get(f"https://api.mercadolibre.com/products/{catalog_id}", headers=headers),
+                c.get(f"https://api.mercadolibre.com/items/{catalog_id}", headers=headers),
                 c.get("https://api.mercadolibre.com/sites/MLB/search",
-                      params={"catalog_product_id": catalog_id, "sort": "price_asc", "limit": 3},
+                      params={"catalog_product_id": catalog_id, "sort": "price_asc", "limit": 5},
                       headers=headers)
             )
+        # /products/ → nome e imagem
         if prodR.status_code == 200:
             pd = prodR.json()
             titulo = pd.get("name") or pd.get("title") or catalog_id
@@ -1134,16 +1136,45 @@ async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=De
             pics = pd.get("pictures") or []
             if pics:
                 imagem = (pics[0].get("url") or pics[0].get("secure_url", "")).replace("http://", "https://")
+
+        # /items/ → título, preço direto ou via variações, imagem
+        if itemR.status_code == 200:
+            itd = itemR.json()
+            if not titulo or titulo == catalog_id:
+                titulo = itd.get("title", titulo)
+            if not cat_id:
+                cat_id = itd.get("category_id", "")
+            item_preco = float(itd.get("price") or itd.get("base_price") or 0)
+            if not item_preco and itd.get("variations"):
+                ps = [float(v.get("price") or 0) for v in itd["variations"] if v.get("price")]
+                if ps: item_preco = min(ps)
+            if item_preco: preco = item_preco
+            if not imagem:
+                pics2 = itd.get("pictures") or []
+                if pics2:
+                    imagem = (pics2[0].get("url") or "").replace("http://", "https://")
+                elif itd.get("thumbnail"):
+                    imagem = itd["thumbnail"].replace("I.jpg", "O.jpg").replace("http://", "https://")
+            # real catalog_product_id para busca mais precisa
+            real_cat_id = itd.get("catalog_product_id")
+            if real_cat_id and real_cat_id != catalog_id and not preco:
+                srR = await c.get("https://api.mercadolibre.com/sites/MLB/search",
+                    params={"catalog_product_id": real_cat_id, "sort": "price_asc", "limit": 5},
+                    headers=headers)
+                if srR.status_code == 200:
+                    searchR = srR  # usa esse resultado abaixo
+
+        # search → preço e imagem fallback
         if searchR.status_code == 200:
             sd = searchR.json()
             results = [r for r in (sd.get("results") or []) if float(r.get("price") or 0) > 0]
             if results:
-                preco = float(results[0]["price"])
+                if not preco: preco = float(results[0]["price"])
                 if not cat_id: cat_id = results[0].get("category_id", "")
                 if not titulo or titulo == catalog_id: titulo = results[0].get("title", titulo)
                 if not imagem:
                     imagem = (results[0].get("thumbnail") or "").replace("I.jpg", "O.jpg").replace("http://", "https://")
-    except Exception as e:
+    except Exception:
         pass
     return {"produto_ext_id": catalog_id, "titulo": titulo, "preco": preco,
             "imagem_url": imagem, "categoria": cat_id, "plataforma": "ML_AFILIADOS",

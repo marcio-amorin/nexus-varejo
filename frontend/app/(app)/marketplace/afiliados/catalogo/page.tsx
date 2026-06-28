@@ -132,10 +132,46 @@ export default function Catalogo() {
 
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
+
+    // Busca direto do browser (IP residencial → ML não bloqueia)
+    // 20 termos × 25 resultados = até 500 produtos únicos
+    const TERMOS = [
+      'samsung galaxy', 'motorola moto g', 'xiaomi redmi', 'smart tv 4k', 'notebook i5',
+      'fone bluetooth', 'tênis corrida', 'camiseta masculina', 'smartwatch', 'perfume importado',
+      'air fryer', 'jogo nintendo ps5', 'mochila escolar', 'suplemento proteína', 'cadeira gamer',
+      'kit skincare', 'cafeteira espresso', 'aspirador robô', 'tablet', 'tênis feminino',
+    ]
+
+    const seen = new Set<string>()
+    const todos: any[] = []
+
+    // Busca em lotes de 5 em paralelo para não travar o browser
+    for (let i = 0; i < TERMOS.length; i += 5) {
+      const lote = TERMOS.slice(i, i + 5)
+      const resultados = await Promise.all(lote.map(t => buscarMLBrowser(t, 25)))
+      for (const prods of resultados) {
+        for (const p of prods) {
+          if (p.produto_ext_id && !seen.has(p.produto_ext_id)) {
+            seen.add(p.produto_ext_id)
+            todos.push(p)
+          }
+        }
+      }
+    }
+
+    if (todos.length > 0) {
+      // Ordena por maior comissão estimada
+      todos.sort((a, b) => (b.comissao_valor || 0) - (a.comissao_valor || 0))
+      setRes(todos)
+      setLoadingAuto(false)
+      return
+    }
+
+    // Fallback: backend (cold start Render)
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 90000) // 90s para aguentar cold start Render
-      const r = await fetch(`${API}/afiliados/ml-destaques?limit=200`, { headers: hdr(), signal: ctrl.signal })
+      const timer = setTimeout(() => ctrl.abort(), 90000)
+      const r = await fetch(`${API}/afiliados/ml-destaques?limit=300`, { headers: hdr(), signal: ctrl.signal })
       clearTimeout(timer)
       if (r.ok) {
         const d = await r.json()
@@ -143,6 +179,7 @@ export default function Catalogo() {
         if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
       }
     } catch {}
+
     setErro('sem_produtos')
     setLoadingAuto(false)
   }

@@ -232,7 +232,33 @@ export default function Catalogo() {
       }
     }
 
-    // 1) Busca por catalog_product_id (igual ao endpoint dos 200 produtos — sem auth, sem CORS)
+    // 1) Chamada direta /items/{id} — GET simples sem header auth = sem CORS preflight = funciona no browser
+    try {
+      const ir = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
+      if (ir.ok) {
+        const id_data = await ir.json()
+        if (id_data.title && parseFloat(id_data.price||0) > 0) {
+          let preco = parseFloat(id_data.price || 0)
+          if (variationId && id_data.variations?.length) {
+            const varData = id_data.variations.find((v:any) => String(v.id) === String(variationId))
+            if (varData?.price) preco = parseFloat(varData.price)
+          }
+          const pct = comissaoML(id_data.category_id || '')
+          const img = (id_data.thumbnail||'').replace('I.jpg','O.jpg').replace('http://','https://')
+          setImportResult({ produto: {
+            produto_ext_id: id_data.id, titulo: id_data.title,
+            preco, preco_original: id_data.original_price || null,
+            comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
+            imagem_url: img, url_produto: id_data.permalink || textoReal,
+            vendas_mes: id_data.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
+            categoria: id_data.category_id||'', plataforma:'ML_AFILIADOS',
+          }, copies: {} })
+          setLoadingImport(false); return
+        }
+      }
+    } catch {}
+
+    // 2) Busca por catalog_product_id (sem auth, sem CORS)
     try {
       const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
       if (sr.ok) {
@@ -245,7 +271,7 @@ export default function Catalogo() {
       }
     } catch {}
 
-    // 2) Busca por ID direto na search (sem auth)
+    // 3) Busca por ID direto na search (sem auth)
     try {
       const sr2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${itemId}&limit=5`)
       if (sr2.ok) {
@@ -258,7 +284,7 @@ export default function Catalogo() {
       }
     } catch {}
 
-    // 3) Fallback: backend
+    // 4) Fallback: backend
     try {
       let url = `${API}/afiliados/importar-catalogo?catalog_id=${itemId}`
       if (variationId) url += `&variation_id=${variationId}`

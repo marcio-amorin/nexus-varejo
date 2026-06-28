@@ -1108,6 +1108,47 @@ def salvar_produto(body: ProdutoIn, db: Session = Depends(get_db), _=Depends(get
     db.refresh(p)
     return {"ok": True, "id": p.id}
 
+@router.get("/importar-catalogo")
+async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Importa produto de catálogo ML (ex: MLB23263109) com preço e imagem via token Vendedor."""
+    from models import VendedorConfig
+    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+    token = (vcfg.access_token if vcfg and vcfg.access_token else None) or \
+            (acfg.access_token if acfg and acfg.access_token else None)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    titulo, preco, imagem, cat_id = catalog_id, 0.0, "", ""
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            prodR, searchR = await asyncio.gather(
+                c.get(f"https://api.mercadolibre.com/products/{catalog_id}", headers=headers),
+                c.get("https://api.mercadolibre.com/sites/MLB/search",
+                      params={"catalog_product_id": catalog_id, "sort": "price_asc", "limit": 3},
+                      headers=headers)
+            )
+        if prodR.status_code == 200:
+            pd = prodR.json()
+            titulo = pd.get("name") or pd.get("title") or catalog_id
+            cat_id = pd.get("domain_id", "")
+            pics = pd.get("pictures") or []
+            if pics:
+                imagem = (pics[0].get("url") or pics[0].get("secure_url", "")).replace("http://", "https://")
+        if searchR.status_code == 200:
+            sd = searchR.json()
+            results = [r for r in (sd.get("results") or []) if float(r.get("price") or 0) > 0]
+            if results:
+                preco = float(results[0]["price"])
+                if not cat_id: cat_id = results[0].get("category_id", "")
+                if not titulo or titulo == catalog_id: titulo = results[0].get("title", titulo)
+                if not imagem:
+                    imagem = (results[0].get("thumbnail") or "").replace("I.jpg", "O.jpg").replace("http://", "https://")
+    except Exception as e:
+        pass
+    return {"produto_ext_id": catalog_id, "titulo": titulo, "preco": preco,
+            "imagem_url": imagem, "categoria": cat_id, "plataforma": "ML_AFILIADOS",
+            "url_produto": f"https://www.mercadolivre.com.br/p/{catalog_id}"}
+
 @router.post("/importar-ml/{item_id}")
 async def importar_ml_por_id(item_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Importa um produto do ML pelo ID (ex: MLB5532075156) usando o token de afiliado."""

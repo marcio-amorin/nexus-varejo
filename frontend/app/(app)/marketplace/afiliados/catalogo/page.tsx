@@ -204,54 +204,50 @@ export default function Catalogo() {
     if (mlMatch) {
       const itemId = `MLB${mlMatch[1]}`
       try {
-        // Para catálogo: usa /products/ para dados + search para preço e imagem
+        // Para catálogo: chama backend que usa token Vendedor (sem CORS, com auth)
         if (isCatalog) {
-          const [prodR, searchR] = await Promise.all([
-            fetch(`https://api.mercadolibre.com/products/${itemId}`),
-            fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
-          ])
-          let titulo = itemId
-          let preco = 0
-          let catId = ''
-          let imagem = ''
+          // Tenta extrair item_id real da URL (ex: wid=MLB... ou item_id:MLB...)
+          const decoded = decodeURIComponent(texto)
+          const widMatch = decoded.match(/wid=(MLB\d+)/i) || decoded.match(/item_id[=:](MLB\d+)/i)
+          const realItemId = widMatch ? widMatch[1] : null
 
-          if (prodR.ok) {
-            const pd = await prodR.json()
-            titulo = pd.name || pd.title || itemId
-            catId = pd.domain_id || ''
-            imagem = (pd.pictures?.[0]?.url || pd.pictures?.[0]?.secure_url || '').replace('http://','https://')
-          }
-
-          if (searchR.ok) {
-            const sd = await searchR.json()
-            const results = (sd.results || []).filter((r:any) => parseFloat(r.price) > 0)
-            if (results.length) {
-              preco = parseFloat(results[0].price)
-              if (!catId) catId = results[0].category_id || ''
-              if (!titulo || titulo === itemId) titulo = results[0].title || titulo
-              if (!imagem) imagem = (results[0].thumbnail || '').replace('I.jpg','O.jpg').replace('http://','https://')
+          if (realItemId && realItemId !== itemId) {
+            // Usa item real diretamente (mais confiável)
+            const r = await fetch(`https://api.mercadolibre.com/items/${realItemId}`)
+            if (r.ok) {
+              const d = await r.json()
+              let preco = parseFloat(d.price || d.base_price || 0)
+              if (!preco && d.variations?.length) {
+                const ps = d.variations.map((v:any) => parseFloat(v.price||0)).filter((p:number)=>p>0)
+                if (ps.length) preco = Math.min(...ps)
+              }
+              const pct = comissaoML(d.category_id || '')
+              const imagem = (d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')).replace('http://','https://')
+              setImportResult({ produto: {
+                produto_ext_id: itemId, titulo: d.title, preco,
+                preco_original: d.original_price || null,
+                comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
+                imagem_url: imagem, url_produto: d.permalink || texto,
+                vendas_mes: d.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
+                categoria: d.category_id||'', plataforma:'ML_AFILIADOS',
+              }, copies: {} })
+              setLoadingImport(false); return
             }
           }
 
-          if (titulo !== itemId || preco > 0 || imagem) {
-            const pct = comissaoML(catId)
-            const produto = {
-              produto_ext_id: itemId,
-              titulo,
-              preco,
-              preco_original: null,
-              comissao_pct: pct,
-              comissao_valor: Math.round(preco * pct / 100 * 100) / 100,
-              imagem_url: imagem,
-              url_produto: texto,
-              vendas_mes: 0,
-              avaliacao: 0, total_avaliacoes: 0,
-              categoria: catId,
-              plataforma: 'ML_AFILIADOS',
+          // Sem item_id: chama backend com token Vendedor
+          const r = await fetch(`${API}/afiliados/importar-catalogo?catalog_id=${itemId}`, { headers: hdr() })
+          if (r.ok) {
+            const d = await r.json()
+            if (d.titulo && d.titulo !== itemId) {
+              const pct = comissaoML(d.categoria || '')
+              setImportResult({ produto: {
+                ...d, comissao_pct: pct,
+                comissao_valor: Math.round((d.preco||0)*pct/100*100)/100,
+                preco_original: null, vendas_mes:0, avaliacao:0, total_avaliacoes:0,
+              }, copies: {} })
+              setLoadingImport(false); return
             }
-            setImportResult({ produto, copies: {} })
-            setLoadingImport(false)
-            return
           }
         }
 

@@ -37,16 +37,16 @@ const NAV: NavItem[] = [
   { href: '/marketplace/pedido-venda', icon: ClipboardList, label: 'Pedido Venda',        group: 'marketplace' },
   { href: '/marketplace/integracoes',  icon: RotateCcw,     label: 'Integrações',         group: 'marketplace' },
 
-  // ── MARKETING AFILIADOS + VENDEDOR (tudo junto) ──────────────────────────
-  { href: '/marketplace/vendedor',               icon: Store,         label: '🏪 Painel Vendedor',       group: 'corporativos' },
-  { href: '/marketplace/vendedor/anuncios',      icon: Package,       label: 'Meus Anúncios',            group: 'corporativos' },
-  { href: '/marketplace/vendedor/config',        icon: Settings,      label: 'Config. Vendedor',         group: 'corporativos' },
+  // ── MARKETING AFILIADOS + VENDEDOR (Afiliados primeiro) ─────────────────
   { href: '/marketplace/afiliados',              icon: Target,        label: '⚡ Afiliados — Painel',    group: 'corporativos' },
   { href: '/marketplace/afiliados/metas',        icon: TrendingUp,    label: 'Meta Vendas',             group: 'corporativos' },
   { href: '/marketplace/afiliados/catalogo',     icon: BookOpen,      label: 'Catálogo Produtos',       group: 'corporativos' },
   { href: '/marketplace/afiliados/conteudo',     icon: Image,         label: 'Criador de Conteúdo',     group: 'corporativos' },
   { href: '/marketplace/afiliados/financeiro',   icon: DollarSign,    label: 'Financeiro / Comissões',  group: 'corporativos' },
   { href: '/marketplace/afiliados/config',       icon: Settings,      label: 'Config. Afiliados',       group: 'corporativos' },
+  { href: '/marketplace/vendedor',               icon: Store,         label: '🏪 Painel Vendedor',       group: 'corporativos' },
+  { href: '/marketplace/vendedor/anuncios',      icon: Package,       label: 'Meus Anúncios',            group: 'corporativos' },
+  { href: '/marketplace/vendedor/config',        icon: Settings,      label: 'Config. Vendedor',         group: 'corporativos' },
 
   // ── COMPRAS ────────────────────────────────────────────────────────────────
   { href: '/compras',              icon: ShoppingBag,    label: 'Dashboard Compras',   group: 'compras' },

@@ -384,7 +384,7 @@ export default function Catalogo() {
             <p className="text-xs text-white/75 mt-0.5">Produtos mais vendidos — salve e promova</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => { setModalLink(true); setImportResult(null); setImportErro(''); setInputLink('') }}
+            <button onClick={() => { setModalLink(true); setImportResult(null); setImportErro(''); setInputLink(''); setPrecoManual(''); setImagemManual(''); setTituloManual('') }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black"
               style={{ background:'rgba(255,255,255,0.2)', color:'#fff', border:'1px solid rgba(255,255,255,0.35)' }}>
               <ExternalLink size={12}/> Importar Link ML

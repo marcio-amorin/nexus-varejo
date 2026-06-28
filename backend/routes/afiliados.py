@@ -508,6 +508,36 @@ async def buscar_produtos(
     else:
         raise HTTPException(400, "Plataforma não suportada")
 
+def _detectar_categoria(titulo: str) -> str:
+    t = titulo.lower()
+    if any(k in t for k in ['samsung','motorola','iphone','xiaomi','realme','poco','smartphone','celular','moto g','galaxy a','galaxy s','redmi']):
+        return 'Celulares'
+    if any(k in t for k in ['smart tv','tv ','televisão','qled','oled','4k','android tv','roku','aiwa']):
+        return 'TV & Vídeo'
+    if any(k in t for k in ['notebook','laptop','computador','monitor','tablet','ipad','impressora','teclado','mouse']):
+        return 'Informática'
+    if any(k in t for k in ['playstation','xbox','nintendo','ps5','ps4','switch','joystick','gamer','gift card']):
+        return 'Games'
+    if any(k in t for k in ['air fryer','fritadeira','geladeira','máquina de lavar','fogão','micro-ondas','liquidificador','aspirador','cafeteira','panela']):
+        return 'Eletrodomésticos'
+    if any(k in t for k in ['fone','headphone','earphone','bluetooth','caixa de som','speaker','amplificador','soundbar']):
+        return 'Áudio'
+    if any(k in t for k in ['tênis','sapato','bota','sandália','chinelo','calçado','sapatênis','mocassim']):
+        return 'Calçados'
+    if any(k in t for k in ['camiseta','camisa','blusa','vestido','calça','jaqueta','moletom','shorts','saia','legging']):
+        return 'Roupas'
+    if any(k in t for k in ['smartwatch','watch','relógio','pulseira inteligente']):
+        return 'Smartwatches'
+    if any(k in t for k in ['perfume','desodorante','shampoo','condicionador','hidratante','creme','protetor solar','maquiagem','skincare','sérum']):
+        return 'Beleza'
+    if any(k in t for k in ['bolsa','mochila','carteira','colar','brinco','anel','óculos','cinto','chapéu']):
+        return 'Acessórios'
+    if any(k in t for k in ['bicicleta','esteira','haltere','kettlebell','academia','yoga','fitness','musculação']):
+        return 'Esporte'
+    if any(k in t for k in ['câmera','camera','drone','gopro','ring light','tripé','lente']):
+        return 'Foto & Vídeo'
+    return 'Outros'
+
 @router.get("/top-oportunidades")
 async def top_oportunidades(
     meta_renda: float = 20000,
@@ -820,36 +850,6 @@ async def ml_destaques(
             except Exception:
                 continue
         return resultados
-
-    def _detectar_categoria(titulo: str) -> str:
-        t = titulo.lower()
-        if any(k in t for k in ['samsung', 'motorola', 'iphone', 'xiaomi', 'realme', 'poco', 'smartphone', 'celular', 'moto g', 'galaxy a', 'galaxy s', 'redmi']):
-            return 'Celulares'
-        if any(k in t for k in ['smart tv', 'tv ', 'televisão', 'qled', 'oled', '4k', 'android tv', 'roku', 'aiwa']):
-            return 'TV & Vídeo'
-        if any(k in t for k in ['notebook', 'laptop', 'computador', 'monitor', 'tablet', 'ipad', 'impressora', 'teclado', 'mouse']):
-            return 'Informática'
-        if any(k in t for k in ['playstation', 'xbox', 'nintendo', 'ps5', 'ps4', 'switch', 'joystick', 'controle gamer', 'gamer', 'gift card']):
-            return 'Games'
-        if any(k in t for k in ['air fryer', 'fritadeira', 'geladeira', 'máquina de lavar', 'fogão', 'micro-ondas', 'liquidificador', 'aspirador', 'cafeteira', 'panela', 'eletrodoméstico']):
-            return 'Eletrodomésticos'
-        if any(k in t for k in ['fone', 'headphone', 'earphone', 'bluetooth', 'caixa de som', 'speaker', 'amplificador', 'soundbar']):
-            return 'Áudio'
-        if any(k in t for k in ['tênis', 'sapato', 'bota', 'sandália', 'chinelo', 'calçado', 'sapatênis', 'mocassim']):
-            return 'Calçados'
-        if any(k in t for k in ['camiseta', 'camisa', 'blusa', 'vestido', 'calça', 'jaqueta', 'moletom', 'shorts', 'saia', 'macacão', 'conjunto', 'legging']):
-            return 'Roupas'
-        if any(k in t for k in ['smartwatch', 'watch', 'relógio', 'pulseira inteligente', 'fitness band']):
-            return 'Smartwatches'
-        if any(k in t for k in ['perfume', 'desodorante', 'shampoo', 'condicionador', 'hidratante', 'creme', 'protetor solar', 'maquiagem', 'batom', 'base', 'skincare', 'sérum']):
-            return 'Beleza'
-        if any(k in t for k in ['bolsa', 'mochila', 'carteira', 'colar', 'brinco', 'anel', 'óculos', 'acessório', 'cinto', 'chapéu']):
-            return 'Acessórios'
-        if any(k in t for k in ['bicicleta', 'esteira', 'haltere', 'kettlebell', 'academia', 'yoga', 'fitness', 'musculação']):
-            return 'Esporte'
-        if any(k in t for k in ['câmera', 'camera', 'drone', 'gopro', 'ring light', 'tripé', 'lente']):
-            return 'Foto & Vídeo'
-        return 'Outros'
 
     # ── Estratégia 1: scraping completo do HTML do ML (extrai dados sem API) ──
     _HEADERS_BROWSER = {

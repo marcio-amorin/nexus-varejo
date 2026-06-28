@@ -345,9 +345,37 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 if storage:
                     cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
                 payload["attributes"] = cat_attrs
-            # Calçados/Roupas: busca grade de tamanhos do catálogo e adiciona variações
+            # Calçados/Roupas: busca SIZE_GRID_ID do item original + catálogo, adiciona variações
             elif categoria in ("Calçados", "Roupas"):
-                sgid, sizes = await _get_catalog_attrs(catalog_product_id, cfg_vendedor.access_token)
+                sgid: str = ""
+                sizes: list = []
+                # 1ª tentativa: item original no ML (produto_ext_id = MLB...)
+                if produto.produto_ext_id:
+                    try:
+                        async with httpx.AsyncClient(timeout=8) as _ci:
+                            _ri = await _ci.get(
+                                f"https://api.mercadolibre.com/items/{produto.produto_ext_id}",
+                                headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                            )
+                        if _ri.status_code == 200:
+                            _item = _ri.json()
+                            for _a in _item.get("attributes", []):
+                                if _a.get("id") == "SIZE_GRID_ID":
+                                    sgid = str(_a.get("value_id") or _a.get("value_name", ""))
+                            for _v in _item.get("variations", [])[:8]:
+                                for _ac in _v.get("attribute_combinations", []):
+                                    if _ac.get("id") == "SIZE":
+                                        _nm = _ac.get("value_name", "")
+                                        if _nm and _nm not in sizes:
+                                            sizes.append(_nm)
+                    except Exception:
+                        pass
+                # 2ª tentativa: catálogo ML
+                if not sgid:
+                    sgid_c, sizes_c = await _get_catalog_attrs(catalog_product_id, cfg_vendedor.access_token)
+                    if sgid_c: sgid = sgid_c
+                    if not sizes and sizes_c: sizes = sizes_c
+                # Fallback: tamanhos padrão BR
                 if not sizes:
                     sizes = ["38", "39", "40", "41", "42"] if categoria == "Calçados" else ["P", "M", "G", "GG"]
                 payload["available_quantity"] = len(sizes)
@@ -356,7 +384,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     for s in sizes
                 ]
                 if sgid:
-                    payload["attributes"] = [{"id": "SIZE_GRID_ID", "value_id": str(sgid)}]
+                    payload["attributes"] = [{"id": "SIZE_GRID_ID", "value_id": sgid}]
         else:
             # Payload normal com atributos extraídos do título
             attrs: list = [

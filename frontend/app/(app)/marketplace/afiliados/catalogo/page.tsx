@@ -204,27 +204,40 @@ export default function Catalogo() {
     if (mlMatch) {
       const itemId = `MLB${mlMatch[1]}`
       try {
-        // Para catálogo: usa /products/ para dados + search para preço
+        // Para catálogo: usa /products/ para dados + search para preço e imagem
         if (isCatalog) {
           const [prodR, searchR] = await Promise.all([
             fetch(`https://api.mercadolibre.com/products/${itemId}`),
-            fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
+            fetch(`https://api.mercadolivre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
           ])
+          let titulo = itemId
+          let preco = 0
+          let catId = ''
+          let imagem = ''
+
           if (prodR.ok) {
             const pd = await prodR.json()
-            let preco = 0
-            let catId = pd.domain_id || ''
-            if (searchR.ok) {
-              const sd = await searchR.json()
-              const results = (sd.results || []).filter((r:any) => parseFloat(r.price) > 0)
-              if (results.length) preco = parseFloat(results[0].price)
-              if (!catId && results[0]?.category_id) catId = results[0].category_id
+            titulo = pd.name || pd.title || itemId
+            catId = pd.domain_id || ''
+            imagem = pd.pictures?.[0]?.url || pd.pictures?.[0]?.secure_url || ''
+          }
+
+          if (searchR.ok) {
+            const sd = await searchR.json()
+            const results = (sd.results || []).filter((r:any) => parseFloat(r.price) > 0)
+            if (results.length) {
+              preco = parseFloat(results[0].price)
+              if (!catId) catId = results[0].category_id || ''
+              if (!titulo || titulo === itemId) titulo = results[0].title || titulo
+              if (!imagem) imagem = (results[0].thumbnail || '').replace('I.jpg','O.jpg')
             }
-            const imagem = pd.pictures?.[0]?.url || pd.pictures?.[0]?.secure_url || ''
+          }
+
+          if (titulo !== itemId || preco > 0 || imagem) {
             const pct = comissaoML(catId)
             const produto = {
               produto_ext_id: itemId,
-              titulo: pd.name || pd.title || itemId,
+              titulo,
               preco,
               preco_original: null,
               comissao_pct: pct,

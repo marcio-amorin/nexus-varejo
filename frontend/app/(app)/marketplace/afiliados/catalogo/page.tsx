@@ -198,9 +198,18 @@ export default function Catalogo() {
     setLoadingImport(true); setImportErro(''); setImportResult(null)
     const texto = inputLink.trim()
 
+    // Resolve meli.la → backend faz o redirect e extrai o MLB ID real
+    let textoReal = texto
+    if (/meli\.la\//i.test(texto)) {
+      try {
+        const rr = await fetch(`${API}/afiliados/resolver-link?url=${encodeURIComponent(texto)}`, { headers: hdr() })
+        if (rr.ok) { const dd = await rr.json(); if (dd.url_real) textoReal = dd.url_real }
+      } catch {}
+    }
+
     // Detecta se é catálogo (/p/MLB) ou item direto
-    const isCatalog = /\/p\/MLB/i.test(texto)
-    const mlMatch = texto.match(/MLB-?(\d+)/i)
+    const isCatalog = /\/p\/MLB/i.test(textoReal)
+    const mlMatch = textoReal.match(/MLB-?(\d+)/i)
     if (mlMatch) {
       const itemId = `MLB${mlMatch[1]}`
       try {

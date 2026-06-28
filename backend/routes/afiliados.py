@@ -1108,6 +1108,16 @@ def salvar_produto(body: ProdutoIn, db: Session = Depends(get_db), _=Depends(get
     db.refresh(p)
     return {"ok": True, "id": p.id}
 
+@router.get("/resolver-link")
+async def resolver_link(url: str, _=Depends(get_current_user)):
+    """Resolve links curtos (meli.la, mercadoshops, etc) e retorna a URL real com MLB ID."""
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as c:
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            return {"url_real": str(r.url)}
+    except Exception as e:
+        raise HTTPException(400, f"Não foi possível resolver o link: {e}")
+
 @router.get("/importar-catalogo")
 async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Importa produto de catálogo ML (ex: MLB23263109) com preço e imagem via token Vendedor."""

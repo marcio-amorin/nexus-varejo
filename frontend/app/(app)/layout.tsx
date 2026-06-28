@@ -37,12 +37,10 @@ const NAV: NavItem[] = [
   { href: '/marketplace/pedido-venda', icon: ClipboardList, label: 'Pedido Venda',        group: 'marketplace' },
   { href: '/marketplace/integracoes',  icon: RotateCcw,     label: 'Integrações',         group: 'marketplace' },
 
-  // ── VENDEDOR ─────────────────────────────────────────────────────────────
-  { href: '/marketplace/vendedor',               icon: Store,         label: '🏪 Painel Vendedor',       group: 'vendedor' },
-  { href: '/marketplace/vendedor/anuncios',      icon: Package,       label: 'Meus Anúncios',            group: 'vendedor' },
-  { href: '/marketplace/vendedor/config',        icon: Settings,      label: 'Config. Vendedor',         group: 'vendedor' },
-
-  // ── CORPORATIVOS — MARKETING AFILIADOS ───────────────────────────────────
+  // ── MARKETING AFILIADOS + VENDEDOR (tudo junto) ──────────────────────────
+  { href: '/marketplace/vendedor',               icon: Store,         label: '🏪 Painel Vendedor',       group: 'corporativos' },
+  { href: '/marketplace/vendedor/anuncios',      icon: Package,       label: 'Meus Anúncios',            group: 'corporativos' },
+  { href: '/marketplace/vendedor/config',        icon: Settings,      label: 'Config. Vendedor',         group: 'corporativos' },
   { href: '/marketplace/afiliados',              icon: Target,        label: '⚡ Afiliados — Painel',    group: 'corporativos' },
   { href: '/marketplace/afiliados/metas',        icon: TrendingUp,    label: 'Meta Vendas',             group: 'corporativos' },
   { href: '/marketplace/afiliados/catalogo',     icon: BookOpen,      label: 'Catálogo Produtos',       group: 'corporativos' },
@@ -109,8 +107,7 @@ const NAV: NavItem[] = [
 
 const GROUPS = [
   { key: 'pdv',           label: 'PDV'           },
-  { key: 'vendedor',      label: 'VENDEDOR / PLATAFORMAS' },
-  { key: 'corporativos',  label: 'MARKETING AFILIADOS' },
+  { key: 'corporativos',  label: 'VENDEDOR / PLATAFORMAS & AFILIADOS' },
   { key: 'marketplace',   label: 'MARKETPLACE'   },
   { key: 'compras',       label: 'COMPRAS'       },
   { key: 'notas',         label: 'NOTAS FISCAIS' },
@@ -133,7 +130,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     principal: true, pdv: false, marketplace: false,
     compras: false, notas: false, estoque: false,
     gestao_precos: false, cadastros: false, financeiro: false,
-    relatorios: false, configuracoes: false, corporativos: false, vendedor: false,
+    relatorios: false, configuracoes: false, corporativos: false,
   })
   // sub-acordeão (ex: PDV)
   const [subOpen, setSubOpen] = useState<Record<string, boolean>>({ pdv: false })

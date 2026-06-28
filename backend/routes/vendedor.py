@@ -204,18 +204,25 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 {"id": "MODEL", "value_name": model},
             ],
         }
-        try:
+        async def _publicar_ml(pay: dict):
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.post(
+                return await client.post(
                     "https://api.mercadolibre.com/items",
                     headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
-                    json=payload
+                    json=pay
                 )
+        try:
+            r = await _publicar_ml(payload)
+            # Se der erro de grade de tamanho (moda/calçados), retenta com categoria genérica
+            if r.status_code == 400:
+                err_txt = r.text
+                if "fashion_grid" in err_txt or "SIZE_GRID_ID" in err_txt or "grid_id" in err_txt:
+                    payload_retry = {**payload, "category_id": "MLB1000"}  # Eletrônicos/Outros (sem grade)
+                    r = await _publicar_ml(payload_retry)
             if r.status_code in (200, 201):
                 rd = r.json()
                 ml_listing_id = rd.get("id")
                 ml_url = rd.get("permalink")
-                # Envia descrição separadamente
                 if ml_listing_id and (produto.descricao or produto.titulo):
                     try:
                         async with httpx.AsyncClient(timeout=10) as client2:

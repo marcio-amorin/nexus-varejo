@@ -194,7 +194,7 @@ export default function Catalogo() {
     try {
       const r = await fetch(`${API}/vendedor/publicar-tudo`, {
         method:'POST', headers:hdr(),
-        body:JSON.stringify({ produto_id:prodId, publicar_redes:true, modo_afiliado:true })
+        body:JSON.stringify({ produto_id:prodId, publicar_redes:true, modo_afiliado:false })
       })
       setResultadoPublicar(await r.json())
       carregarCatalogo()

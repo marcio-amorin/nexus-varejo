@@ -191,7 +191,7 @@ export default function Catalogo() {
     try {
       const r = await fetch(`${API}/vendedor/publicar-tudo`, {
         method:'POST', headers:hdr(),
-        body:JSON.stringify({ produto_id:prodId, publicar_redes:true })
+        body:JSON.stringify({ produto_id:prodId, publicar_redes:true, modo_afiliado:true })
       })
       setResultadoPublicar(await r.json())
       carregarCatalogo()
@@ -213,17 +213,40 @@ export default function Catalogo() {
       } catch {}
     }
 
-    // Extrai IDs: item real (item_id= ou wid=) tem prioridade para busca de preço
-    const itemIdMatch  = textoReal.match(/[?&](?:item_id|wid)=?(MLB[\d]+)/i)
-    const mlMatch      = textoReal.match(/MLB-?(\d+)/i)
+    // Extrai IDs: wid= ou item_id= (mesmo URL-encoded como %3A) tem o item real com preço
+    const textoDecoded = (() => { try { return decodeURIComponent(textoReal) } catch { return textoReal } })()
+    const itemIdMatch = textoDecoded.match(/[?&#&](?:item_id|wid)[=:](MLB[\d]+)/i)
+      || textoReal.match(/[?&](?:item_id|wid)=?(MLB[\d]+)/i)
+    const mlMatch = textoReal.match(/MLB-?(\d+)/i)
     if (!mlMatch) {
       setImportErro('Link inválido. Use um link do Mercado Livre com MLB no endereço.')
       setLoadingImport(false); return
     }
-    const catalogId  = `MLB${mlMatch[1]}`                        // ID do catálogo /p/MLB...
-    const itemId     = itemIdMatch ? itemIdMatch[1] : catalogId  // ID do item real (com preço)
+    const catalogId  = `MLB${mlMatch[1]}`
+    const itemId     = itemIdMatch ? itemIdMatch[1] : catalogId
     const varMatch   = textoReal.match(/[?&]searchVariation=(\d+)/i)
     const variationId = varMatch ? varMatch[1] : null
+
+    // Extrai título do slug da URL — suporta dois formatos:
+    // Formato 1: /MLB-digits-titulo-do-produto-_JM  (item direto)
+    // Formato 2: /slug-titulo/p/MLB...              (catálogo /p/)
+    function extrairTituloSlug(url: string): string {
+      const fixes: Record<string,string> = {
+        'tnis':'Tênis','calcado':'Calçado','calcados':'Calçados','camiseta':'Camiseta',
+        'calcas':'Calças','oculos':'Óculos','eletrico':'Elétrico','eletrica':'Elétrica',
+        'frequncia':'Frequência','funcoes':'Funções','automatica':'Automática',
+        'inox':'Inox','portatil':'Portátil',
+      }
+      const toTitle = (slug: string) =>
+        slug.split('-').filter(Boolean).map(p => { const l=p.toLowerCase(); return fixes[l]||(l.charAt(0).toUpperCase()+l.slice(1)) }).join(' ')
+      // Formato 1: item direto
+      const m1 = url.match(/MLB-\d+-(.+?)(?:-_JM|\?|#|$)/i)
+      if (m1) return toTitle(m1[1])
+      // Formato 2: catálogo /p/MLB
+      const m2 = url.match(/mercadolivre\.com\.br\/([^/?#]+)\/p\/MLB/i)
+      if (m2) return toTitle(m2[1])
+      return ''
+    }
 
     // Função auxiliar para montar produto a partir de resultado de search
     function montarDeBusca(res: any) {
@@ -259,7 +282,19 @@ export default function Catalogo() {
       }
     }
 
-    // 1) Proxy Vercel: usa o item ID real (tem preço definido)
+    // 0) ML Items direto do browser (IP residencial — sem bloqueio)
+    try {
+      const r0 = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=id,title,price,original_price,thumbnail,permalink,sold_quantity,category_id,variations`)
+      if (r0.ok) {
+        const id_data = await r0.json()
+        if (id_data.title && parseFloat(id_data.price || 0) > 0) {
+          setImportResult({ produto: montarDeItem(id_data), copies: {} })
+          setLoadingImport(false); return
+        }
+      }
+    } catch {}
+
+    // 1) Proxy Vercel: tenta multiget/scraping como fallback
     try {
       const tok = await getMLToken()
       const params = new URLSearchParams({ id: itemId, url: textoReal.split('#')[0].split('?')[0] })
@@ -267,19 +302,20 @@ export default function Catalogo() {
       const ir = await fetch(`/api/ml-item?${params}`)
       if (ir.ok) {
         const id_data = await ir.json()
-        if (id_data.title) {
+        if (id_data.title && parseFloat(id_data.price || 0) > 0) {
           setImportResult({ produto: montarDeItem(id_data), copies: {} })
           setLoadingImport(false); return
         }
       }
     } catch {}
 
-    // 2) Busca por catalog_product_id (sem auth, sem CORS)
+    // 2) Busca por catalog_product_id (sem auth, funciona do browser)
     try {
-      const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=3`)
+      const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=5`)
       if (sr.ok) {
         const sd = await sr.json()
-        const res = (sd.results||[]).find((r:any) => parseFloat(r.price||0) > 0) || sd.results?.[0]
+        const res = (sd.results||[]).find((r:any) => r.id === itemId && parseFloat(r.price||0) > 0)
+          || (sd.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
         if (res?.title) {
           setImportResult({ produto: montarDeBusca(res), copies: {} })
           setLoadingImport(false); return
@@ -287,7 +323,7 @@ export default function Catalogo() {
       }
     } catch {}
 
-    // 3a) Busca pelo item ID real na search (encontra preço correto)
+    // 3) Busca pelo item ID real (encontra o produto exato pelo ID)
     if (itemId !== catalogId) {
       try {
         const sr2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${itemId}&limit=10`)
@@ -302,21 +338,7 @@ export default function Catalogo() {
       } catch {}
     }
 
-    // 3b) Busca pelo catalog ID na search (sem auth)
-    try {
-      const sr3 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${catalogId}&limit=10`)
-      if (sr3.ok) {
-        const sd3 = await sr3.json()
-        const res3 = (sd3.results||[]).find((r:any) => r.id === catalogId || r.id === itemId)
-          || (sd3.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
-        if (res3?.title && parseFloat(res3.price||0) > 0) {
-          setImportResult({ produto: montarDeBusca(res3), copies: {} })
-          setLoadingImport(false); return
-        }
-      }
-    } catch {}
-
-    // 4) Fallback: backend
+    // 4) Fallback: backend (Render)
     try {
       let url = `${API}/afiliados/importar-catalogo?catalog_id=${itemId}`
       if (variationId) url += `&variation_id=${variationId}`
@@ -331,13 +353,7 @@ export default function Catalogo() {
       }
     } catch {}
 
-    // 5) Último recurso: extrai título do slug da URL (funciona sempre)
-    function extrairTituloSlug(url: string): string {
-      const m = url.match(/MLB-\d+-(.+?)(?:-_JM|\?|#|$)/i)
-      if (!m) return ''
-      const fixes: Record<string,string> = { 'tnis':'Tênis','calcado':'Calçado','calcados':'Calçados','camiseta':'Camiseta','calcas':'Calças','cinta':'Cinta','oculos':'Óculos','bolsa':'Bolsa' }
-      return m[1].split('-').filter(Boolean).map(p => { const l=p.toLowerCase(); return fixes[l]||(l.charAt(0).toUpperCase()+l.slice(1)) }).join(' ')
-    }
+    // 5) Último recurso: extrai título da URL (slug antes do /p/MLB ou depois do MLB-digits-)
     const tituloSlug = extrairTituloSlug(textoReal)
     const pct = 6
     const prod = {

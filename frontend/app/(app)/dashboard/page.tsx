@@ -289,7 +289,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Linha inferior ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-12 gap-2 flex-shrink-0" style={{ height: 160 }}>
+      <div className="dash-bottom-row grid grid-cols-12 gap-2 flex-shrink-0" style={{ height: 160 }}>
 
         {/* Top Produtos — 5 cols */}
         <div className="col-span-5 rounded-xl p-3 overflow-hidden"

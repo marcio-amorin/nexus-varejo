@@ -141,6 +141,18 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
   /* Flex-1 dentro de .pg nao trava altura no mobile */
   .pg > .flex-1 { flex: none !important; }
 
+  /* min-h-0 colapsa seções no mobile — remove restrição */
+  .min-h-0 { min-height: auto !important; }
+
+  /* Seções com col-span precisam de altura mínima no mobile */
+  [class*="col-span-"] { min-height: 120px; }
+
+  /* Linha inferior do dashboard (height fixo) vira auto no mobile */
+  .dash-bottom-row { height: auto !important; }
+
+  /* Grid-cols-2 com inline style também vira 1 coluna */
+  .grid-cols-2 { grid-template-columns: 1fr !important; }
+
   /* Textos menores em mobile */
   .text-base { font-size: 13px !important; }
 

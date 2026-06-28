@@ -283,18 +283,20 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
             catalog_product_id = await _search_catalog_product(produto.titulo, cfg_vendedor.access_token)
 
         if catalog_product_id:
-            # Payload simplificado via catálogo — ML preenche Anatel, grade, etc. automaticamente
+            # Payload via catálogo ML — ML preenche Anatel, grade, etc. automaticamente
+            # title e category_id ainda são obrigatórios pelo ML mesmo com catalog_product_id
             payload = {
                 "catalog_product_id": catalog_product_id,
+                "title": produto.titulo[:60],
+                "category_id": cat_id,
                 "price": preco_venda,
                 "currency_id": "BRL",
                 "available_quantity": 1,
                 "buying_mode": "buy_it_now",
                 "listing_type_id": "free",
                 "condition": "new",
+                "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
             }
-            if produto.imagem_url:
-                payload["pictures"] = [{"source": produto.imagem_url}]
         else:
             # Payload normal com atributos extraídos do título
             attrs: list = [

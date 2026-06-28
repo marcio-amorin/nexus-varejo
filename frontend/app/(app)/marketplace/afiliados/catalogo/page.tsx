@@ -224,20 +224,20 @@ export default function Catalogo() {
       const r = await fetch(url, { headers: hdr() })
       if (r.ok) {
         const d = await r.json()
-        if (d.titulo && d.titulo !== itemId) {
-          const pct = comissaoML(d.categoria || '')
-          setImportResult({ produto: {
-            ...d,
-            comissao_pct: pct,
-            comissao_valor: Math.round((d.preco||0)*pct/100*100)/100,
-            preco_original: null, vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0,
-          }, copies: {} })
-          setLoadingImport(false); return
-        }
+        const pct = comissaoML(d.categoria || '')
+        // Mostra o produto mesmo com dados parciais (usuário pode digitar preço manualmente)
+        setImportResult({ produto: {
+          ...d,
+          titulo: (d.titulo && d.titulo !== itemId) ? d.titulo : `Produto ${itemId}`,
+          comissao_pct: pct,
+          comissao_valor: Math.round((d.preco||0)*pct/100*100)/100,
+          preco_original: null, vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0,
+        }, copies: {} })
+        setLoadingImport(false); return
       }
     } catch {}
 
-    setImportErro('Produto não encontrado. Verifique o link.')
+    setImportErro('Erro ao conectar com o servidor. Tente novamente.')
     setLoadingImport(false)
   }
 

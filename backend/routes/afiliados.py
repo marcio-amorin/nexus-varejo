@@ -1138,6 +1138,16 @@ async def importar_catalogo(catalog_id: str, variation_id: str = None, db: Sessi
                       params={"catalog_product_id": catalog_id, "sort": "price_asc", "limit": 5},
                       headers=headers)
             )
+            # Se /items/ falhou com token (expirado/inválido), tenta sem auth
+            if itemR.status_code != 200 and token:
+                itemR = await c.get(f"https://api.mercadolibre.com/items/{catalog_id}")
+            # Se search com catalog_product_id não deu resultado, tenta busca pelo ID
+            if searchR.status_code != 200 or not (searchR.json().get("results") or []):
+                srQ = await c.get("https://api.mercadolibre.com/sites/MLB/search",
+                    params={"q": catalog_id, "limit": 3}, headers=headers)
+                if srQ.status_code == 200 and (srQ.json().get("results") or []):
+                    searchR = srQ
+
         # /products/ → nome e imagem (apenas para IDs de catálogo)
         if prodR.status_code == 200:
             pd = prodR.json()

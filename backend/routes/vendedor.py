@@ -388,7 +388,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                                             sgid = str(_a.get("value_id") or _a.get("value_name", ""))
                                 for _v in _item.get("variations", [])[:8]:
                                     for _ac in _v.get("attribute_combinations", []):
-                                        if _ac.get("id") == "SIZE":
+                                        if _ac.get("id") in ("SIZE", "SHOE_SIZE", "FOOTWEAR_SIZE"):
                                             _nm = _ac.get("value_name", "")
                                             if _nm and _nm not in sizes:
                                                 sizes.append(_nm)
@@ -399,6 +399,25 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     sgid_c, sizes_c = await _get_catalog_attrs(catalog_product_id, cfg_vendedor.access_token)
                     if sgid_c: sgid = sgid_c
                     if not sizes and sizes_c: sizes = sizes_c
+                # 3ª tentativa: atributos da categoria ML (fallback confiável)
+                if not sgid:
+                    try:
+                        async with httpx.AsyncClient(timeout=8) as _cc:
+                            _rc = await _cc.get(
+                                f"https://api.mercadolibre.com/categories/{cat_id}/attributes",
+                                headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                            )
+                        if _rc.status_code == 200:
+                            for _attr in _rc.json():
+                                if _attr.get("id") == "SIZE_GRID_ID":
+                                    _vals = _attr.get("allowed_values") or _attr.get("values") or []
+                                    if _vals:
+                                        _vid = _vals[0].get("id") or _vals[0].get("value_id")
+                                        if _vid:
+                                            sgid = str(_vid)
+                                    break
+                    except Exception:
+                        pass
                 # Fallback: tamanhos padrão BR
                 if not sizes:
                     sizes = ["38", "39", "40", "41", "42"] if categoria == "Calçados" else ["P", "M", "G", "GG"]
@@ -408,7 +427,8 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     for s in sizes
                 ]
                 if sgid:
-                    payload["attributes"] = [{"id": "SIZE_GRID_ID", "value_id": sgid}]
+                    sgid_val = int(sgid) if str(sgid).isdigit() else sgid
+                    payload["attributes"] = [{"id": "SIZE_GRID_ID", "value_id": sgid_val}]
         else:
             # Payload normal com atributos extraídos do título
             attrs: list = [
@@ -459,6 +479,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         "title": produto.titulo[:60], "category_id": cat_id,
                         "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
                         "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                        "shipping": _SHIPPING,
                         "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
                         "attributes": attrs2,
                     }
@@ -495,6 +516,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         "title": produto.titulo[:60], "category_id": cat_id,
                         "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
                         "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                        "shipping": _SHIPPING,
                         "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
                         "attributes": attrs_ship,
                     }

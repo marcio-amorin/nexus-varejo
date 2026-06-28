@@ -105,10 +105,11 @@ export default function Catalogo() {
   }
 
   // ── Chama ML direto do BROWSER do usuário (IP residencial → não bloqueado pelo ML)
-  async function buscarMLBrowser(q: string, limit: number, token?: string|null, category?: string): Promise<any[]> {
+  async function buscarMLBrowser(q: string, limit: number, token?: string|null, category?: string, offset?: number): Promise<any[]> {
+    const off = offset ? `&offset=${offset}` : ''
     const url = category
-      ? `https://api.mercadolibre.com/sites/MLB/search?category=${category}&sort=sold_quantity_desc&limit=${limit}`
-      : `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
+      ? `https://api.mercadolibre.com/sites/MLB/search?category=${category}&sort=sold_quantity_desc&limit=${limit}${off}`
+      : `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc${off}`
     // 1ª: simples sem headers (sem CORS preflight, mais compatível)
     try {
       const r = await fetch(url)
@@ -167,10 +168,13 @@ export default function Catalogo() {
     const seen = new Set<string>()
     const todos: any[] = []
 
-    // Fase 1: por categoria ML (15 cats, lotes de 5 em paralelo)
-    for (let i = 0; i < CATS_ML.length; i += 5) {
-      const lote = CATS_ML.slice(i, i + 5)
-      const resultados = await Promise.all(lote.map(cat => buscarMLBrowser('', 50, undefined, cat)))
+    // Fase 1: por categoria ML — 2 páginas por categoria (offset 0 e 50) → 15 cats × 100 = 1500 raw
+    for (let i = 0; i < CATS_ML.length; i += 3) {
+      const lote = CATS_ML.slice(i, i + 3)
+      const resultados = await Promise.all([
+        ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 0)),
+        ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 50)),
+      ])
       for (const prods of resultados) {
         for (const p of prods) {
           if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }
@@ -181,7 +185,7 @@ export default function Catalogo() {
     // Fase 2: por palavra-chave (15 termos, lotes de 5 em paralelo)
     for (let i = 0; i < TERMOS.length; i += 5) {
       const lote = TERMOS.slice(i, i + 5)
-      const resultados = await Promise.all(lote.map(t => buscarMLBrowser(t, 30)))
+      const resultados = await Promise.all(lote.map(t => buscarMLBrowser(t, 50)))
       for (const prods of resultados) {
         for (const p of prods) {
           if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }

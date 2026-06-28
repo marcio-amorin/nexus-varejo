@@ -133,14 +133,17 @@ export default function Catalogo() {
   async function buscarAuto() {
     setLoadingAuto(true); setRes([]); setErro('')
     try {
-      const r = await fetch(`${API}/afiliados/ml-destaques?limit=200`, { headers: hdr() })
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 90000) // 90s para aguentar cold start Render
+      const r = await fetch(`${API}/afiliados/ml-destaques?limit=200`, { headers: hdr(), signal: ctrl.signal })
+      clearTimeout(timer)
       if (r.ok) {
         const d = await r.json()
         const prods: any[] = d.resultados || []
         if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
       }
     } catch {}
-    setErro('')
+    setErro('sem_produtos')
     setLoadingAuto(false)
   }
 
@@ -287,18 +290,43 @@ export default function Catalogo() {
     const isCatalogUrl = /\/p\/MLB/i.test(textoReal)
 
     // ── URLs de CATÁLOGO (/p/MLB...) ─────────────────────────────────────────
-    // Busca pelo catalog_product_id com sort=price_asc → pega o menor preço
-    // (o wid= aponta para UM vendedor específico, não necessariamente o mais barato)
+    // Usa API /products/{id} para título+foto e search price_asc para menor preço
     if (isCatalogUrl) {
       try {
-        const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=5`)
-        if (sr.ok) {
-          const sd = await sr.json()
-          const res = (sd.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
-          if (res?.title) {
-            setImportResult({ produto: montarDeBusca(res), copies: {} })
-            setLoadingImport(false); return
-          }
+        const [prodR, priceR] = await Promise.all([
+          fetch(`https://api.mercadolibre.com/products/${catalogId}`),
+          fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=5`)
+        ])
+        const prodData   = prodR.ok   ? await prodR.json()   : null
+        const searchData = priceR.ok  ? await priceR.json()  : null
+        const titulo = prodData?.name || prodData?.names?.pt_BR || ''
+        const foto   = (prodData?.pictures?.[0]?.url || '').replace('I.jpg','O.jpg').replace('http://','https://')
+        const cheapest = (searchData?.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
+        if (titulo && cheapest) {
+          const pct = comissaoML(cheapest.category_id || '')
+          const preco = parseFloat(cheapest.price || 0)
+          setImportResult({ produto: {
+            produto_ext_id: cheapest.id || catalogId, titulo,
+            preco, preco_original: cheapest.original_price || null,
+            comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
+            imagem_url: foto || (cheapest.thumbnail||'').replace('I.jpg','O.jpg').replace('http://','https://'),
+            url_produto: cheapest.permalink || textoReal.split('?')[0].split('#')[0],
+            vendas_mes: cheapest.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
+            categoria: cheapest.category_id||'', plataforma:'ML_AFILIADOS',
+          }, copies: {} })
+          setLoadingImport(false); return
+        }
+        // Se pelo menos tem título e foto, usa mesmo sem preço
+        if (titulo) {
+          const pct = 6
+          setImportResult({ produto: {
+            produto_ext_id: catalogId, titulo,
+            preco: parseFloat(cheapest?.price||0), preco_original: null,
+            comissao_pct: pct, comissao_valor: 0,
+            imagem_url: foto, url_produto: textoReal.split('?')[0].split('#')[0],
+            vendas_mes: 0, avaliacao:0, total_avaliacoes:0, categoria:'', plataforma:'ML_AFILIADOS',
+          }, copies: {} })
+          setLoadingImport(false); return
         }
       } catch {}
     }

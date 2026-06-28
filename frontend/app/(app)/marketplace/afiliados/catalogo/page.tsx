@@ -143,10 +143,12 @@ export default function Catalogo() {
   }
 
   async function buscar() {
+    // Busca vazia → recarrega os 200 destaques
+    if (!query.trim()) { buscarAuto(); return }
     setLoading(true); setRes([]); setErro('')
     if (plat === 'ML_AFILIADOS') {
       try {
-        const p = new URLSearchParams({ q: query || 'smartphone samsung', plataforma: 'ML_AFILIADOS', ordenar, limit: '24' })
+        const p = new URLSearchParams({ q: query, plataforma: 'ML_AFILIADOS', ordenar, limit: '24' })
         const r = await fetch(`${API}/afiliados/buscar-produtos?${p}`, { headers: hdr() })
         const d = await r.json()
         const prods: any[] = d.resultados || []
@@ -384,7 +386,14 @@ export default function Catalogo() {
                 <input value={query} onChange={e => setQuery(e.target.value)}
                   onKeyDown={e => e.key==='Enter' && buscar()}
                   placeholder="Ex: fone bluetooth, tênis, perfume..."
-                  className="w-full pl-8 pr-3 py-2 text-xs rounded-lg"/>
+                  className="w-full pl-8 pr-8 py-2 text-xs rounded-lg"/>
+                {query && (
+                  <button onClick={() => { setQuery(''); buscarAuto() }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background:'var(--card)', color:'var(--muted)' }}>
+                    <X size={10}/>
+                  </button>
+                )}
               </div>
               <select value={ordenar} onChange={e => setOrdenar(e.target.value)} className="px-2 py-2 rounded-lg text-xs">
                 <option value="vendas">+ Vendidos</option>

@@ -26,6 +26,13 @@ export default function PDVPage() {
   const router = useRouter()
   const [token, setToken] = useState('')
   const [user, setUser]   = useState<any>(null)
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Abertura de Caixa
   const [showAbertura,  setShowAbertura]  = useState(false)
@@ -1584,10 +1591,10 @@ export default function PDVPage() {
       </div>
 
       {/* ══ CORPO: 2 colunas estilo Logus ══ */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
 
         {/* ─── COLUNA ESQUERDA: Operador ─── */}
-        <div className="flex flex-col" style={{ width: '42%', borderRight: '3px solid rgba(0,0,0,0.2)', background: 'rgba(255,255,255,0.97)' }}>
+        <div className="flex flex-col" style={{ width: isMobile ? '100%' : '42%', maxHeight: isMobile ? '35%' : undefined, borderRight: isMobile ? 'none' : '3px solid rgba(0,0,0,0.2)', borderBottom: isMobile ? '3px solid rgba(0,0,0,0.2)' : 'none', background: 'rgba(255,255,255,0.97)' }}>
 
           {/* ── TOPO: Logo da empresa | Foto do produto ── */}
           <div className="flex flex-1 min-h-0" style={{ borderBottom: '2px solid #e2e8f0' }}>

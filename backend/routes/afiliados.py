@@ -849,60 +849,44 @@ async def ml_destaques(
         except Exception:
             return []
 
-    # ── Estratégia principal: busca por categoria SEM token (search API é pública) ──
+    # ── Estratégia principal: keyword search sem auth (funciona do Render) ────────
     import asyncio as _asyncio
-    token = await _get_fresh_ml_token(db)  # opcional — melhora resultados se disponível
+    token = await _get_fresh_ml_token(db)  # opcional — usa se disponível
 
     todos: list[dict] = []
     seen_tok: set[str] = set()
 
-    categorias = [
-        "MLB1051",   # Celulares
-        "MLB1000",   # Eletrônicos
-        "MLB1648",   # TV e Vídeo
-        "MLB1055",   # Informática
-        "MLB1499",   # Games
-        "MLB1459",   # Calçados
-        "MLB1574",   # Roupas e Acessórios
-        "MLB1246",   # Esporte e Lazer
-        "MLB218519", # Beleza e Cuidado
-        "MLB5726",   # Bebês e Crianças
-        "MLB1000",   # Ferramentas
-        "MLB1144",   # Automotivo
+    # 20 termos cobrindo categorias diferentes → mínima sobreposição → 200+ únicos
+    TERMOS = [
+        "samsung galaxy",       # celulares Samsung
+        "motorola edge moto",   # celulares Motorola
+        "xiaomi redmi poco",    # celulares Xiaomi
+        "smart tv 4k",          # televisões
+        "notebook gamer",       # informática
+        "fone bluetooth",       # áudio
+        "tênis corrida",        # calçados
+        "camiseta masculina",   # roupas
+        "smartwatch relógio",   # wearables
+        "perfume masculino",    # beleza
+        "air fryer fritadeira", # eletrodomésticos
+        "jogo ps5 nintendo",    # games
+        "mochila escolar",      # acessórios
+        "suplemento proteína",  # esporte/saúde
+        "cadeira gamer",        # móveis
+        "kit skincare",         # beleza feminina
+        "cafeteira espresso",   # cozinha
+        "aspirador robô",       # casa
+        "tablet ipad",          # informática/tablets
+        "tênis feminino sandália", # calçados femininos
     ]
-    termos_extra = [
-        "air fryer fritadeira", "perfume importado",
-        "smartwatch relógio", "fone bluetooth",
-        "notebook gamer", "suplemento proteína",
-        "jogo de cama", "aspirador robô",
-    ]
-
-    async def _buscar_cat(cat_id: str) -> list[dict]:
-        hdrs = {}
-        if token:
-            hdrs["Authorization"] = f"Bearer {token}"
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(
-                    "https://api.mercadolibre.com/sites/MLB/search",
-                    params={"category": cat_id, "limit": 50, "sort": "sold_quantity_desc"},
-                    headers=hdrs,
-                )
-                if r.status_code == 200:
-                    return r.json().get("results", [])
-        except Exception:
-            pass
-        return []
 
     async def _buscar_termo(termo: str) -> list[dict]:
-        hdrs = {}
-        if token:
-            hdrs["Authorization"] = f"Bearer {token}"
+        hdrs = {"Authorization": f"Bearer {token}"} if token else {}
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await client.get(
                     "https://api.mercadolibre.com/sites/MLB/search",
-                    params={"q": termo, "limit": 50, "sort": "sold_quantity_desc"},
+                    params={"q": termo, "limit": 25, "sort": "sold_quantity_desc"},
                     headers=hdrs,
                 )
                 if r.status_code == 200:
@@ -911,11 +895,10 @@ async def ml_destaques(
             pass
         return []
 
-    # 1ª rodada: categorias em paralelo (4 por vez)
-    cats_unicas = list(dict.fromkeys(categorias))
-    for i in range(0, len(cats_unicas), 4):
-        lote = cats_unicas[i:i+4]
-        resultados_lote = await _asyncio.gather(*[_buscar_cat(c) for c in lote])
+    # Busca em paralelo (5 por vez para não sobrecarregar)
+    for i in range(0, len(TERMOS), 5):
+        lote = TERMOS[i:i+5]
+        resultados_lote = await _asyncio.gather(*[_buscar_termo(t) for t in lote])
         for items in resultados_lote:
             for item in items:
                 if item.get("id") not in seen_tok and item.get("price"):
@@ -924,21 +907,8 @@ async def ml_destaques(
         if len(todos) >= limit:
             break
 
-    # 2ª rodada: termos extras para complementar
-    if len(todos) < limit:
-        for i in range(0, len(termos_extra), 4):
-            lote = termos_extra[i:i+4]
-            resultados_lote = await _asyncio.gather(*[_buscar_termo(t) for t in lote])
-            for items in resultados_lote:
-                for item in items:
-                    if item.get("id") not in seen_tok and item.get("price"):
-                        seen_tok.add(item["id"])
-                        todos.append(_formatar(item))
-            if len(todos) >= limit:
-                break
-
     if todos:
-        return {"resultados": todos[:limit], "total": len(todos), "fonte": "categoria"}
+        return {"resultados": todos[:limit], "total": len(todos), "fonte": "keyword"}
 
     # ── Fallback: scraping HTML do ML ─────────────────────────────────────────
     resultados: list[dict] = []

@@ -98,7 +98,30 @@ class AnuncioUpdateIn(BaseModel):
     preco_venda: Optional[float] = None
     status:      Optional[str] = None
 
-# ─── Preditor de categoria via API do ML (retorna leaf category) ──────────────
+# ─── Helpers de categoria e catálogo ML ──────────────────────────────────────
+
+def _extract_catalog_id(url: str) -> str:
+    """Extrai catalog_product_id de URLs ML do tipo /p/MLB12345."""
+    m = re.search(r'/p/(MLB\d+)', url or "")
+    return m.group(1) if m else ""
+
+async def _search_catalog_product(titulo: str, token: str) -> str:
+    """Busca catalog_product_id no ML para categorias regulamentadas (Anatel, grade tamanhos)."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(
+                "https://api.mercadolibre.com/products/search",
+                params={"site_id": "MLB", "q": titulo[:80], "limit": 5},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                for item in r.json().get("results", []):
+                    pid = item.get("id", "")
+                    if pid:
+                        return pid
+    except Exception:
+        pass
+    return ""
 
 async def _predict_cat_ml(titulo: str, token: str) -> str:
     """Usa domain_discovery do ML para obter category_id folha correto."""
@@ -253,51 +276,52 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         brand, model = _extrair_brand_model(produto.titulo)
         cor = _detectar_cor(produto.titulo)
 
-        # Atributos base
-        attrs: list = [
-            {"id": "BRAND", "value_name": brand},
-            {"id": "MODEL", "value_name": model},
-        ]
-        # Atributos extras por categoria
-        if categoria == "Celulares":
-            attrs += [
-                {"id": "COLOR", "value_name": cor},
-                {"id": "MAIN_COLOR", "value_name": cor},
-                {"id": "ALPHANUMERIC_MODELS", "value_name": model},
-                {"id": "IS_DUAL_SIM", "value_name": "Sim"},
-            ]
-            # Tenta buscar N° Anatel do produto original no ML
-            if produto.produto_ext_id:
-                try:
-                    async with httpx.AsyncClient(timeout=8) as _c:
-                        _ra = await _c.get(
-                            f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
-                            headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
-                        )
-                    if _ra.status_code == 200:
-                        for _a in _ra.json():
-                            if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
-                                _anatel = _a.get("value_name") or ((_a.get("values") or [{}])[0].get("name",""))
-                                if _anatel:
-                                    attrs.append({"id": "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER", "value_name": _anatel})
-                                break
-                except Exception:
-                    pass
-        elif categoria in ("Smartwatches", "Áudio", "Roupas", "Acessórios", "Esporte", "Calçados"):
-            attrs.append({"id": "COLOR", "value_name": cor})
+        # Para categorias regulamentadas (Anatel, grade de tamanhos), usa catalog_product_id
+        # que já tem todos os atributos preenchidos no catálogo do ML
+        catalog_product_id = _extract_catalog_id(produto.url_produto or "")
+        if not catalog_product_id and categoria in ("Celulares", "Calçados", "Roupas", "Acessórios"):
+            catalog_product_id = await _search_catalog_product(produto.titulo, cfg_vendedor.access_token)
 
-        payload = {
-            "title": produto.titulo[:60],
-            "category_id": cat_id,
-            "price": preco_venda,
-            "currency_id": "BRL",
-            "available_quantity": 1,
-            "buying_mode": "buy_it_now",
-            "listing_type_id": "free",
-            "condition": "new",
-            "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
-            "attributes": attrs,
-        }
+        if catalog_product_id:
+            # Payload simplificado via catálogo — ML preenche Anatel, grade, etc. automaticamente
+            payload = {
+                "catalog_product_id": catalog_product_id,
+                "price": preco_venda,
+                "currency_id": "BRL",
+                "available_quantity": 1,
+                "buying_mode": "buy_it_now",
+                "listing_type_id": "free",
+                "condition": "new",
+            }
+            if produto.imagem_url:
+                payload["pictures"] = [{"source": produto.imagem_url}]
+        else:
+            # Payload normal com atributos extraídos do título
+            attrs: list = [
+                {"id": "BRAND", "value_name": brand},
+                {"id": "MODEL", "value_name": model},
+            ]
+            if categoria == "Celulares":
+                attrs += [
+                    {"id": "COLOR", "value_name": cor},
+                    {"id": "MAIN_COLOR", "value_name": cor},
+                    {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                    {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                ]
+            elif categoria in ("Smartwatches", "Áudio", "Roupas", "Acessórios", "Esporte", "Calçados"):
+                attrs.append({"id": "COLOR", "value_name": cor})
+            payload = {
+                "title": produto.titulo[:60],
+                "category_id": cat_id,
+                "price": preco_venda,
+                "currency_id": "BRL",
+                "available_quantity": 1,
+                "buying_mode": "buy_it_now",
+                "listing_type_id": "free",
+                "condition": "new",
+                "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                "attributes": attrs,
+            }
 
         async def _publicar_ml(pay: dict):
             async with httpx.AsyncClient(timeout=20) as client:
@@ -313,27 +337,31 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
 
             if not ml_ok and r.status_code == 400:
                 err_txt = r.text
-                if "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
-                    # Calçados/moda exigem grade de tamanhos — não é possível via API sem variações
-                    resultado["passos"].append({
-                        "passo": "ML Vendedor",
-                        "status": "⚠️ Categoria exige grade de tamanhos (calçados/moda) → publique diretamente no ML. Link afiliado gerado.",
-                    })
+                if catalog_product_id and ("listing_type" in err_txt or "not_allowed" in err_txt or "forbidden" in err_txt.lower()):
+                    # Catálogo não aceita free → tenta payload normal com atributos
+                    attrs2: list = [{"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model}, {"id": "COLOR", "value_name": cor}]
+                    p2 = {
+                        "title": produto.titulo[:60], "category_id": cat_id,
+                        "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                        "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                        "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                        "attributes": attrs2,
+                    }
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                elif "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → link afiliado gerado."})
                 elif "ANATEL" in err_txt:
-                    # Celulares exigem N° homologação Anatel — não encontrado no produto original
-                    resultado["passos"].append({
-                        "passo": "ML Vendedor",
-                        "status": "⚠️ Celular requer N° homologação Anatel → publique diretamente no ML com o certificado. Link afiliado gerado.",
-                    })
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Celular requer N° Anatel → link afiliado gerado."})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:
-                    # Categoria não é folha → retenta sem category_id (ML auto-detecta)
                     p2 = {k: v for k, v in payload.items() if k != "category_id"}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 elif "missing_required" in err_txt:
-                    # Outros atributos faltando → retenta com BRAND+MODEL+COLOR apenas
                     p2 = {**payload, "attributes": [
                         {"id": "BRAND", "value_name": brand},
                         {"id": "MODEL", "value_name": model},

@@ -860,26 +860,40 @@ async def ml_destaques(
         termos = [
             "smartphone samsung motorola", "fone bluetooth earphone tws",
             "smart tv 4k android", "notebook laptop gamer",
-            "air fryer fritadeira", "tenis corrida calçado",
-            "perfume maquiagem skincare", "playstation xbox nintendo",
+            "air fryer fritadeira elétrica", "tenis corrida calçado esportivo",
+            "perfume importado feminino", "playstation xbox nintendo switch",
+            "câmera ring light streaming", "mochila bolsa feminina",
+            "suplemento proteína whey", "relógio smartwatch masculino",
+            "jogo de cama edredom lençol", "aspirador robô portátil",
+            "estabilizador nobreak bateria", "camiseta masculina algodão",
         ]
         todos: list[dict] = []
         seen_tok: set[str] = set()
-        for termo in termos:
+        import asyncio as _asyncio
+        # Processa em lotes de 4 termos em paralelo para ser mais rápido
+        async def _buscar_termo(termo: str) -> list[dict]:
             try:
                 async with httpx.AsyncClient(timeout=12) as client:
                     r = await client.get(
                         "https://api.mercadolibre.com/sites/MLB/search",
-                        params={"q": termo, "limit": 25, "sort": "sold_quantity_desc"},
+                        params={"q": termo, "limit": 50, "sort": "sold_quantity_desc"},
                         headers={"Authorization": f"Bearer {token}"},
                     )
                     if r.status_code == 200:
-                        for item in r.json().get("results", []):
-                            if item.get("id") not in seen_tok:
-                                seen_tok.add(item["id"])
-                                todos.append(_formatar(item))
+                        return r.json().get("results", [])
             except Exception:
                 pass
+            return []
+        for i in range(0, len(termos), 4):
+            lote = termos[i:i+4]
+            resultados_lote = await _asyncio.gather(*[_buscar_termo(t) for t in lote])
+            for items in resultados_lote:
+                for item in items:
+                    if item.get("id") not in seen_tok:
+                        seen_tok.add(item["id"])
+                        todos.append(_formatar(item))
+            if len(todos) >= limit:
+                break
         if todos:
             return {"resultados": todos[:limit], "total": len(todos), "fonte": "oauth"}
 

@@ -1265,6 +1265,56 @@ async def importar_catalogo(catalog_id: str, variation_id: str = None, db: Sessi
                 imagem = (results[0].get("thumbnail") or "").replace("I.jpg", "O.jpg").replace("http://", "https://")
             if not permalink: permalink = results[0].get("permalink", "")
 
+    # Scraping fallback: se API falhou (token inválido), busca dados direto da página do ML
+    if not titulo or titulo == catalog_id:
+        try:
+            import re as _re
+            page_url = f"https://produto.mercadolibre.com.br/{catalog_id}"
+            hdrs_browser = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "pt-BR,pt;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as cs:
+                pr = await cs.get(page_url, headers=hdrs_browser)
+            if pr.status_code == 200:
+                html = pr.text
+                # JSON-LD structured data (mais confiável)
+                ld_matches = _re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, _re.DOTALL)
+                for ld_raw in ld_matches:
+                    try:
+                        ld = json.loads(ld_raw)
+                        items_ld = ld if isinstance(ld, list) else [ld]
+                        for item_ld in items_ld:
+                            if item_ld.get("@type") in ("Product", "Offer"):
+                                if not titulo or titulo == catalog_id:
+                                    titulo = item_ld.get("name") or titulo
+                                if not preco:
+                                    offers = item_ld.get("offers") or item_ld
+                                    p_str = offers.get("price") or offers.get("lowPrice") or "0"
+                                    preco = float(str(p_str).replace(",", ".") or 0)
+                                if not imagem:
+                                    imgs = item_ld.get("image") or []
+                                    if isinstance(imgs, str): imgs = [imgs]
+                                    if imgs: imagem = imgs[0].replace("http://", "https://")
+                    except Exception:
+                        pass
+                # Open Graph fallback
+                if not titulo or titulo == catalog_id:
+                    m = _re.search(r'<meta property="og:title" content="([^"]+)"', html)
+                    if m: titulo = m.group(1).split(" - Mercado")[0].strip()
+                if not imagem:
+                    m = _re.search(r'<meta property="og:image" content="([^"]+)"', html)
+                    if m: imagem = m.group(1).replace("http://", "https://")
+                if not preco:
+                    m = _re.search(r'"price":\s*"?(\d+(?:\.\d+)?)"?', html)
+                    if m: preco = float(m.group(1))
+                if not permalink:
+                    m = _re.search(r'<meta property="og:url" content="([^"]+)"', html)
+                    if m: permalink = m.group(1)
+        except Exception:
+            pass
+
     url_final = permalink or f"https://www.mercadolivre.com.br/p/{catalog_id}"
     return {"produto_ext_id": catalog_id, "titulo": titulo, "preco": preco,
             "imagem_url": imagem, "categoria": cat_id, "plataforma": "ML_AFILIADOS",

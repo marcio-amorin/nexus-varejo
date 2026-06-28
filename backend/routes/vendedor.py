@@ -147,6 +147,20 @@ def _extrair_brand_model(titulo: str):
     brand = next((w for w in words if w.lower() not in stopwords and len(w) > 2), 'Outro')
     return brand[:60], model[:60]
 
+def _detectar_cor(titulo: str) -> str:
+    t = titulo.lower()
+    for k, v in [
+        ('preto','Preto'),('black','Preto'),('branco','Branco'),('white','Branco'),
+        ('azul','Azul'),('blue','Azul'),('vermelho','Vermelho'),('red','Vermelho'),
+        ('verde','Verde'),('green','Verde'),('roxo','Roxo'),('purple','Roxo'),
+        ('cinza','Cinza'),('gray','Cinza'),('grey','Cinza'),('rosa','Rosa'),('pink','Rosa'),
+        ('dourado','Dourado'),('gold','Dourado'),('prata','Prata'),('silver','Prata'),
+        ('titanium','Titânio'),('titanio','Titânio'),('titanê','Titânio'),
+        ('laranja','Laranja'),('orange','Laranja'),('amarelo','Amarelo'),('yellow','Amarelo'),
+    ]:
+        if k in t: return v
+    return 'Preto'
+
 def _detectar_cat(titulo: str) -> str:
     t = titulo.lower()
     if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|redmi', t): return 'Celulares'
@@ -232,27 +246,59 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
     if data.modo_afiliado:
         resultado["passos"].append({"passo": "ML Vendedor", "status": "⏭️ Modo afiliado — use o Link Afiliado para divulgar"})
     elif cfg_vendedor and cfg_vendedor.access_token:
-        # Prediz categoria folha via API do ML (evita item.category_id.invalid)
         cat_id = await _predict_cat_ml(produto.titulo, cfg_vendedor.access_token)
+        categoria = _detectar_cat(produto.titulo)
         if not cat_id:
-            categoria = _detectar_cat(produto.titulo)
             cat_id = _CAT_ML.get(categoria, "MLB1459")
         brand, model = _extrair_brand_model(produto.titulo)
+        cor = _detectar_cor(produto.titulo)
+
+        # Atributos base
+        attrs: list = [
+            {"id": "BRAND", "value_name": brand},
+            {"id": "MODEL", "value_name": model},
+        ]
+        # Atributos extras por categoria
+        if categoria == "Celulares":
+            attrs += [
+                {"id": "COLOR", "value_name": cor},
+                {"id": "MAIN_COLOR", "value_name": cor},
+                {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+            ]
+            # Tenta buscar N° Anatel do produto original no ML
+            if produto.produto_ext_id:
+                try:
+                    async with httpx.AsyncClient(timeout=8) as _c:
+                        _ra = await _c.get(
+                            f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
+                            headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                        )
+                    if _ra.status_code == 200:
+                        for _a in _ra.json():
+                            if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
+                                _anatel = _a.get("value_name") or ((_a.get("values") or [{}])[0].get("name",""))
+                                if _anatel:
+                                    attrs.append({"id": "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER", "value_name": _anatel})
+                                break
+                except Exception:
+                    pass
+        elif categoria in ("Smartwatches", "Áudio", "Roupas", "Acessórios", "Esporte", "Calçados"):
+            attrs.append({"id": "COLOR", "value_name": cor})
+
         payload = {
             "title": produto.titulo[:60],
             "category_id": cat_id,
             "price": preco_venda,
             "currency_id": "BRL",
-            "available_quantity": 1,  # free listing: max 1 por categoria
+            "available_quantity": 1,
             "buying_mode": "buy_it_now",
             "listing_type_id": "free",
             "condition": "new",
             "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
-            "attributes": [
-                {"id": "BRAND", "value_name": brand},
-                {"id": "MODEL", "value_name": model},
-            ],
+            "attributes": attrs,
         }
+
         async def _publicar_ml(pay: dict):
             async with httpx.AsyncClient(timeout=20) as client:
                 return await client.post(
@@ -260,15 +306,49 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
                     json=pay
                 )
+
         try:
             r = await _publicar_ml(payload)
-            # Se der erro de grade de tamanho (moda/calçados), retenta com categoria genérica
-            if r.status_code == 400:
+            ml_ok = r.status_code in (200, 201)
+
+            if not ml_ok and r.status_code == 400:
                 err_txt = r.text
-                if "fashion_grid" in err_txt or "SIZE_GRID_ID" in err_txt or "grid_id" in err_txt:
-                    payload_retry = {**payload, "category_id": "MLB1000"}  # Eletrônicos/Outros (sem grade)
-                    r = await _publicar_ml(payload_retry)
-            if r.status_code in (200, 201):
+                if "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
+                    # Calçados/moda exigem grade de tamanhos — não é possível via API sem variações
+                    resultado["passos"].append({
+                        "passo": "ML Vendedor",
+                        "status": "⚠️ Categoria exige grade de tamanhos (calçados/moda) → publique diretamente no ML. Link afiliado gerado.",
+                    })
+                elif "ANATEL" in err_txt:
+                    # Celulares exigem N° homologação Anatel — não encontrado no produto original
+                    resultado["passos"].append({
+                        "passo": "ML Vendedor",
+                        "status": "⚠️ Celular requer N° homologação Anatel → publique diretamente no ML com o certificado. Link afiliado gerado.",
+                    })
+                elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:
+                    # Categoria não é folha → retenta sem category_id (ML auto-detecta)
+                    p2 = {k: v for k, v in payload.items() if k != "category_id"}
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                elif "missing_required" in err_txt:
+                    # Outros atributos faltando → retenta com BRAND+MODEL+COLOR apenas
+                    p2 = {**payload, "attributes": [
+                        {"id": "BRAND", "value_name": brand},
+                        {"id": "MODEL", "value_name": model},
+                        {"id": "COLOR", "value_name": cor},
+                    ]}
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                else:
+                    try: err_detail = r.json()
+                    except: err_detail = r.text[:300]
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": str(err_detail)[:300]})
+
+            if ml_ok:
                 rd = r.json()
                 ml_listing_id = rd.get("id")
                 ml_url = rd.get("permalink")
@@ -283,12 +363,6 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     except Exception:
                         pass
                 resultado["passos"].append({"passo": "ML Vendedor", "status": "✅ Publicado", "url": ml_url, "listing_id": ml_listing_id})
-            else:
-                try:
-                    err_detail = r.json()
-                except Exception:
-                    err_detail = r.text[:300]
-                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": str(err_detail)[:300]})
         except Exception as e:
             resultado["passos"].append({"passo": "ML Vendedor", "status": f"❌ Erro: {str(e)[:100]}"})
     else:

@@ -101,9 +101,15 @@ class AnuncioUpdateIn(BaseModel):
 # ─── Helpers de categoria e catálogo ML ──────────────────────────────────────
 
 def _extract_catalog_id(url: str) -> str:
-    """Extrai catalog_product_id de URLs ML do tipo /p/MLB12345."""
-    m = re.search(r'/p/(MLB\d+)', url or "")
-    return m.group(1) if m else ""
+    """Extrai catalog_product_id de URLs ML em todos os formatos."""
+    if not url: return ""
+    # Formato 1: /p/MLB12345 (www.mercadolivre.com.br/p/...)
+    m = re.search(r'/p/(MLB\d+)', url)
+    if m: return m.group(1)
+    # Formato 2: produto.mercadolivre.com.br/MLB-12345-... (catálogo de produto)
+    m = re.search(r'produto\.mercadolivre\.com\.br/MLB-(\d+)', url, re.I)
+    if m: return f"MLB{m.group(1)}"
+    return ""
 
 async def _search_catalog_product(titulo: str, token: str) -> str:
     """Busca catalog_product_id no ML para categorias regulamentadas (Anatel, grade tamanhos)."""
@@ -124,27 +130,30 @@ async def _search_catalog_product(titulo: str, token: str) -> str:
     return ""
 
 async def _get_catalog_attrs(catalog_id: str, token: str) -> tuple[str, list]:
-    """Busca SIZE_GRID_ID e tamanhos disponíveis do produto no catálogo ML."""
+    """Busca SIZE_GRID_ID e tamanhos via /products/ e /items/ do ML."""
     size_grid_id = ""
     sizes: list = []
     try:
         async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(
+            for endpoint in [
                 f"https://api.mercadolibre.com/products/{catalog_id}",
-                headers={"Authorization": f"Bearer {token}"}
-            )
-            if r.status_code == 200:
+                f"https://api.mercadolibre.com/items/{catalog_id}",
+            ]:
+                r = await c.get(endpoint, headers={"Authorization": f"Bearer {token}"})
+                if r.status_code != 200:
+                    continue
                 data = r.json()
                 for attr in data.get("attributes", []):
                     if attr.get("id") == "SIZE_GRID_ID":
-                        size_grid_id = attr.get("value_id") or attr.get("value_name", "")
-                # Tamanhos das variações do catálogo
+                        size_grid_id = str(attr.get("value_id") or attr.get("value_name", ""))
                 for var in data.get("variations", []):
                     for combo in var.get("attribute_combinations", []):
                         if combo.get("id") in ("SIZE", "SHOE_SIZE", "FOOTWEAR_SIZE"):
                             name = combo.get("value_name", "")
                             if name and name not in sizes:
                                 sizes.append(name)
+                if size_grid_id or sizes:
+                    break
     except Exception:
         pass
     return size_grid_id, sizes[:8]

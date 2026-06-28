@@ -232,27 +232,32 @@ export default function Catalogo() {
       }
     }
 
-    // 1) Chamada direta /items/{id} — GET simples sem header auth = sem CORS preflight = funciona no browser
+    // Função auxiliar para montar produto a partir dos dados do /items endpoint
+    function montarDeItem(id_data: any, preco_override?: number) {
+      let preco = preco_override ?? parseFloat(id_data.price || 0)
+      if (!preco_override && variationId && id_data.variations?.length) {
+        const varData = id_data.variations.find((v:any) => String(v.id) === String(variationId))
+        if (varData?.price) preco = parseFloat(varData.price)
+      }
+      const pct = comissaoML(id_data.category_id || '')
+      const img = (id_data.thumbnail||'').replace('I.jpg','O.jpg').replace('http://','https://')
+      return {
+        produto_ext_id: id_data.id, titulo: id_data.title,
+        preco, preco_original: id_data.original_price || null,
+        comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
+        imagem_url: img, url_produto: id_data.permalink || textoReal,
+        vendas_mes: id_data.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
+        categoria: id_data.category_id||'', plataforma:'ML_AFILIADOS',
+      }
+    }
+
+    // 1) Proxy Vercel → /items/{id} (Vercel IP não é bloqueado pelo ML, ao contrário do Render)
     try {
-      const ir = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
+      const ir = await fetch(`/api/ml-item?id=${itemId}`)
       if (ir.ok) {
         const id_data = await ir.json()
         if (id_data.title && parseFloat(id_data.price||0) > 0) {
-          let preco = parseFloat(id_data.price || 0)
-          if (variationId && id_data.variations?.length) {
-            const varData = id_data.variations.find((v:any) => String(v.id) === String(variationId))
-            if (varData?.price) preco = parseFloat(varData.price)
-          }
-          const pct = comissaoML(id_data.category_id || '')
-          const img = (id_data.thumbnail||'').replace('I.jpg','O.jpg').replace('http://','https://')
-          setImportResult({ produto: {
-            produto_ext_id: id_data.id, titulo: id_data.title,
-            preco, preco_original: id_data.original_price || null,
-            comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
-            imagem_url: img, url_produto: id_data.permalink || textoReal,
-            vendas_mes: id_data.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
-            categoria: id_data.category_id||'', plataforma:'ML_AFILIADOS',
-          }, copies: {} })
+          setImportResult({ produto: montarDeItem(id_data), copies: {} })
           setLoadingImport(false); return
         }
       }

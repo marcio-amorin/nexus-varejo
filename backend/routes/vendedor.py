@@ -123,6 +123,32 @@ async def _search_catalog_product(titulo: str, token: str) -> str:
         pass
     return ""
 
+async def _get_catalog_attrs(catalog_id: str, token: str) -> tuple[str, list]:
+    """Busca SIZE_GRID_ID e tamanhos disponíveis do produto no catálogo ML."""
+    size_grid_id = ""
+    sizes: list = []
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(
+                f"https://api.mercadolibre.com/products/{catalog_id}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                for attr in data.get("attributes", []):
+                    if attr.get("id") == "SIZE_GRID_ID":
+                        size_grid_id = attr.get("value_id") or attr.get("value_name", "")
+                # Tamanhos das variações do catálogo
+                for var in data.get("variations", []):
+                    for combo in var.get("attribute_combinations", []):
+                        if combo.get("id") in ("SIZE", "SHOE_SIZE", "FOOTWEAR_SIZE"):
+                            name = combo.get("value_name", "")
+                            if name and name not in sizes:
+                                sizes.append(name)
+    except Exception:
+        pass
+    return size_grid_id, sizes[:8]
+
 async def _predict_cat_ml(titulo: str, token: str) -> str:
     """Usa domain_discovery do ML para obter category_id folha correto."""
     try:
@@ -169,6 +195,18 @@ def _extrair_brand_model(titulo: str):
     stopwords = {'com','sem','fio','para','de','do','da','e','em','o','a','os','as','por'}
     brand = next((w for w in words if w.lower() not in stopwords and len(w) > 2), 'Outro')
     return brand[:60], model[:60]
+
+def _extrair_memoria(titulo: str) -> tuple[str, str]:
+    """Extrai RAM e armazenamento interno do título (ex: '128gb, 8gb ram' → '8 GB', '128 GB')."""
+    t = titulo.lower()
+    vals = re.findall(r'(\d+)\s*gb', t)
+    ram_match = re.search(r'(\d+)\s*gb\s*(?:de\s*)?ram', t) or re.search(r'ram\s*[:\-]?\s*(\d+)\s*gb', t)
+    ram = f"{ram_match.group(1)} GB" if ram_match else ""
+    if not ram and len(vals) >= 2:
+        nums = [int(v) for v in vals]
+        ram = f"{min(nums)} GB"
+    storage = f"{max(int(v) for v in vals)} GB" if vals else ""
+    return ram, storage
 
 def _detectar_cor(titulo: str) -> str:
     t = titulo.lower()
@@ -283,8 +321,6 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
             catalog_product_id = await _search_catalog_product(produto.titulo, cfg_vendedor.access_token)
 
         if catalog_product_id:
-            # Payload via catálogo ML — ML preenche Anatel, grade, etc. automaticamente
-            # title e category_id ainda são obrigatórios pelo ML mesmo com catalog_product_id
             payload = {
                 "catalog_product_id": catalog_product_id,
                 "title": produto.titulo[:60],
@@ -297,6 +333,27 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 "condition": "new",
                 "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
             }
+            # Celulares: RAM, armazenamento e cor são obrigatórios pelo catálogo ML
+            if categoria == "Celulares":
+                ram, storage = _extrair_memoria(produto.titulo)
+                cat_attrs = [{"id": "COLOR", "value_name": cor}]
+                if ram:
+                    cat_attrs.append({"id": "RAM", "value_name": ram})
+                if storage:
+                    cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
+                payload["attributes"] = cat_attrs
+            # Calçados/Roupas: busca grade de tamanhos do catálogo e adiciona variações
+            elif categoria in ("Calçados", "Roupas"):
+                sgid, sizes = await _get_catalog_attrs(catalog_product_id, cfg_vendedor.access_token)
+                if not sizes:
+                    sizes = ["38", "39", "40", "41", "42"] if categoria == "Calçados" else ["P", "M", "G", "GG"]
+                payload["available_quantity"] = len(sizes)
+                payload["variations"] = [
+                    {"attribute_combinations": [{"id": "SIZE", "value_name": s}], "available_quantity": 1, "price": preco_venda}
+                    for s in sizes
+                ]
+                if sgid:
+                    payload["attributes"] = [{"id": "SIZE_GRID_ID", "value_id": str(sgid)}]
         else:
             # Payload normal com atributos extraídos do título
             attrs: list = [
@@ -353,6 +410,21 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                elif "missing_catalog_required" in err_txt:
+                    # Atributos obrigatórios do catálogo faltando → extrai do erro e retenta
+                    ram, storage = _extrair_memoria(produto.titulo)
+                    retry_attrs = [{"id": "COLOR", "value_name": cor}]
+                    if ram: retry_attrs.append({"id": "RAM", "value_name": ram})
+                    if storage: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
+                    retry_attrs += [
+                        {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                        {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                    ]
+                    p2 = {**payload, "attributes": retry_attrs}
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:200]})
                 elif "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → link afiliado gerado."})
                 elif "ANATEL" in err_txt:

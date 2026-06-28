@@ -208,7 +208,7 @@ export default function Catalogo() {
         if (isCatalog) {
           const [prodR, searchR] = await Promise.all([
             fetch(`https://api.mercadolibre.com/products/${itemId}`),
-            fetch(`https://api.mercadolivre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
+            fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
           ])
           let titulo = itemId
           let preco = 0
@@ -219,7 +219,7 @@ export default function Catalogo() {
             const pd = await prodR.json()
             titulo = pd.name || pd.title || itemId
             catId = pd.domain_id || ''
-            imagem = pd.pictures?.[0]?.url || pd.pictures?.[0]?.secure_url || ''
+            imagem = (pd.pictures?.[0]?.url || pd.pictures?.[0]?.secure_url || '').replace('http://','https://')
           }
 
           if (searchR.ok) {
@@ -229,7 +229,7 @@ export default function Catalogo() {
               preco = parseFloat(results[0].price)
               if (!catId) catId = results[0].category_id || ''
               if (!titulo || titulo === itemId) titulo = results[0].title || titulo
-              if (!imagem) imagem = (results[0].thumbnail || '').replace('I.jpg','O.jpg')
+              if (!imagem) imagem = (results[0].thumbnail || '').replace('I.jpg','O.jpg').replace('http://','https://')
             }
           }
 

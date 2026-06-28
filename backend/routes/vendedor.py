@@ -245,21 +245,24 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
     else:
         resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Conta vendedor não configurada"})
 
-    # ── Passo 3: Salvar anúncio no banco ──────────────────────────────────────
-    anuncio = VendedorAnuncio(
-        produto_afiliado_id=produto.id,
-        plataforma="ML_VENDEDOR",
-        listing_id=ml_listing_id,
-        titulo=produto.titulo,
-        preco_custo=produto.preco,
-        preco_venda=preco_venda,
-        margem_pct=margem,
-        categoria_ml=_detectar_cat(produto.titulo),
-        imagem_url=produto.imagem_url,
-        url_anuncio=ml_url,
-        status="ATIVO" if ml_listing_id else "PENDENTE",
-        publicado_em=datetime.utcnow() if ml_listing_id else None,
-    )
+    # ── Passo 3: Salvar anúncio no banco (upsert — evita duplicados) ─────────
+    anuncio = db.query(VendedorAnuncio).filter_by(
+        produto_afiliado_id=produto.id, plataforma="ML_VENDEDOR"
+    ).first()
+    if not anuncio:
+        anuncio = VendedorAnuncio(produto_afiliado_id=produto.id, plataforma="ML_VENDEDOR")
+        db.add(anuncio)
+    anuncio.listing_id  = ml_listing_id or anuncio.listing_id
+    anuncio.titulo      = produto.titulo
+    anuncio.preco_custo = produto.preco
+    anuncio.preco_venda = preco_venda
+    anuncio.margem_pct  = margem
+    anuncio.categoria_ml = _detectar_cat(produto.titulo)
+    anuncio.imagem_url  = produto.imagem_url
+    anuncio.url_anuncio = ml_url or anuncio.url_anuncio
+    if ml_listing_id:
+        anuncio.status       = "ATIVO"
+        anuncio.publicado_em = datetime.utcnow()
 
     # ── Passo 4: Gerar link de afiliado ───────────────────────────────────────
     cfg_afil = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
@@ -270,6 +273,11 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         if pub_id and produto.url_produto:
             link_afiliado = f"https://mercadolivre.com/sec/affiliate?deal_print_id={pub_id}&item_id={produto.produto_ext_id}&tracking_id=nexus"
     anuncio.link_afiliado = link_afiliado
+    # Modo afiliado: usa link afiliado como URL do anúncio e marca como ATIVO
+    if data.modo_afiliado and link_afiliado:
+        anuncio.url_anuncio = link_afiliado
+        anuncio.status = "ATIVO"
+        anuncio.publicado_em = anuncio.publicado_em or datetime.utcnow()
     db.add(anuncio)
     db.commit()
     resultado["passos"].append({"passo": "Link Afiliado", "status": "✅ Gerado", "link": link_afiliado})
@@ -345,6 +353,30 @@ def remover_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depends(ge
     if not a: raise HTTPException(404, "Anúncio não encontrado")
     db.delete(a); db.commit()
     return {"ok": True}
+
+@router.post("/anuncios/limpar-duplicados")
+def limpar_duplicados(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Remove duplicados (mantém o mais recente por produto) e pendentes sem link"""
+    from sqlalchemy import func
+    todos = db.query(VendedorAnuncio).order_by(VendedorAnuncio.id.desc()).all()
+    vistos: set[int] = set()
+    removidos = 0
+    for a in todos:
+        key = a.produto_afiliado_id
+        if key in vistos:
+            db.delete(a); removidos += 1
+        else:
+            vistos.add(key)
+    # Remove pendentes sem link afiliado e sem listing
+    pendentes_vazios = db.query(VendedorAnuncio).filter(
+        VendedorAnuncio.status == "PENDENTE",
+        VendedorAnuncio.listing_id == None,
+        VendedorAnuncio.link_afiliado == None,
+    ).all()
+    for a in pendentes_vazios:
+        db.delete(a); removidos += 1
+    db.commit()
+    return {"ok": True, "removidos": removidos}
 
 # ─── Dashboard Vendedor ───────────────────────────────────────────────────────
 

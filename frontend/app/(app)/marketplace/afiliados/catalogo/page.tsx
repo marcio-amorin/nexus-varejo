@@ -675,17 +675,33 @@ export default function Catalogo() {
               ) : (
                 <>
                   <p className="text-xs font-bold text-white truncate">{resultadoPublicar.produto}</p>
-                  {(resultadoPublicar.passos||[]).map((s:any,i:number) => (
+                  {(resultadoPublicar.passos||[]).map((s:any,i:number) => {
+                    const ico = s.status?.startsWith('✅') ? '✅'
+                      : s.status?.startsWith('⚠️') ? '⚠️'
+                      : s.status?.startsWith('⏭️') ? '⏭️'
+                      : '❌'
+                    return (
                     <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{ background:'var(--card2)' }}>
-                      <span className="text-sm">{s.status?.startsWith('✅') ? '✅' : s.status?.startsWith('⚠️') ? '⚠️' : '❌'}</span>
+                      <span className="text-sm">{ico}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-black text-white">{s.passo}</p>
-                        <p className="text-[9px]" style={{ color:'var(--muted)' }}>{s.status?.replace(/^[✅⚠️❌]\s*/,'')}</p>
+                        <p className="text-[9px]" style={{ color:'var(--muted)' }}>{s.status?.replace(/^[\u{1F000}-\u{1FFFF}☀-⟿\s]+/u,'')}</p>
                         {s.detalhe && <p className="text-[9px] mt-1 break-all" style={{ color:'#ef4444' }}>{typeof s.detalhe === 'object' ? JSON.stringify(s.detalhe) : s.detalhe}</p>}
                         {s.url && <a href={s.url} target="_blank" className="text-[9px] text-blue-400 underline">Ver anúncio ↗</a>}
+                        {s.link && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-[9px] truncate flex-1" style={{ color:'#22c55e' }}>{s.link}</span>
+                            <button onClick={() => { navigator.clipboard.writeText(s.link); setCopiedKey('link_afil_'+i) }}
+                              className="px-1.5 py-0.5 rounded text-[9px] font-bold flex-shrink-0"
+                              style={{ background:'rgba(34,197,94,0.2)', color:'#22c55e' }}>
+                              {copiedKey==='link_afil_'+i ? '✓ Copiado' : 'Copiar Link'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                   <div className="flex gap-2 pt-1">
                     <div className="flex-1 rounded-lg p-2 text-center" style={{ background:'rgba(249,115,22,0.1)', border:'1px solid rgba(249,115,22,0.2)' }}>
                       <p className="text-xs font-black" style={{ color:'#f97316' }}>R$ {resultadoPublicar.preco_venda?.toFixed(2)}</p>

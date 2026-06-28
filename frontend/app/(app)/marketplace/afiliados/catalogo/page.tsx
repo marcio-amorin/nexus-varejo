@@ -105,8 +105,10 @@ export default function Catalogo() {
   }
 
   // ── Chama ML direto do BROWSER do usuário (IP residencial → não bloqueado pelo ML)
-  async function buscarMLBrowser(q: string, limit: number, token?: string|null): Promise<any[]> {
-    const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
+  async function buscarMLBrowser(q: string, limit: number, token?: string|null, category?: string): Promise<any[]> {
+    const url = category
+      ? `https://api.mercadolibre.com/sites/MLB/search?category=${category}&sort=sold_quantity_desc&limit=${limit}`
+      : `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&sort=sold_quantity_desc`
     // 1ª: simples sem headers (sem CORS preflight, mais compatível)
     try {
       const r = await fetch(url)
@@ -134,27 +136,55 @@ export default function Catalogo() {
     setLoadingAuto(true); setRes([]); setErro('')
 
     // Busca direto do browser (IP residencial → ML não bloqueia)
-    // 20 termos × 25 resultados = até 500 produtos únicos
+    // Fase 1: por CATEGORIA (top vendidos por categoria, sem sobreposição) — 15 cats × 50 = 750 raw
+    // Fase 2: por PALAVRA-CHAVE complementar — 15 termos × 30 = 450 raw
+    // Total esperado após dedup: 400–600 produtos únicos
+    const CATS_ML = [
+      'MLB1055',  // Celulares e Smartphones
+      'MLB432',   // Televisores
+      'MLB1648',  // Computação (notebooks, tablets)
+      'MLB1144',  // Games (consoles, jogos)
+      'MLB1574',  // Eletrodomésticos
+      'MLB109285',// Fones / Headphones
+      'MLB7195',  // Smartwatches
+      'MLB1246',  // Beleza e Cuidado Pessoal
+      'MLB1276',  // Esportes e Fitness
+      'MLB1248',  // Camisetas e Roupas
+      'MLB108562',// Tênis e Calçados
+      'MLB1430',  // Moda e Acessórios
+      'MLB1459',  // Eletrônicos em geral
+      'MLB1010',  // Câmeras e Foto
+      'MLB218519',// Ferramentas e Construção
+    ]
     const TERMOS = [
-      'samsung galaxy', 'motorola moto g', 'xiaomi redmi', 'smart tv 4k', 'notebook i5',
-      'fone bluetooth', 'tênis corrida', 'camiseta masculina', 'smartwatch', 'perfume importado',
-      'air fryer', 'jogo nintendo ps5', 'mochila escolar', 'suplemento proteína', 'cadeira gamer',
-      'kit skincare', 'cafeteira espresso', 'aspirador robô', 'tablet', 'tênis feminino',
+      'samsung galaxy s', 'motorola moto g edge', 'xiaomi redmi note',
+      'smart tv 65 4k', 'notebook gamer i7', 'fone bluetooth anc',
+      'tênis corrida masculino', 'perfume importado masculino', 'air fryer digital',
+      'suplemento whey protein', 'cadeira gamer', 'kit skincare facial',
+      'aspirador robô wifi', 'tablet android', 'câmera mirrorless',
     ]
 
     const seen = new Set<string>()
     const todos: any[] = []
 
-    // Busca em lotes de 5 em paralelo para não travar o browser
-    for (let i = 0; i < TERMOS.length; i += 5) {
-      const lote = TERMOS.slice(i, i + 5)
-      const resultados = await Promise.all(lote.map(t => buscarMLBrowser(t, 25)))
+    // Fase 1: por categoria ML (15 cats, lotes de 5 em paralelo)
+    for (let i = 0; i < CATS_ML.length; i += 5) {
+      const lote = CATS_ML.slice(i, i + 5)
+      const resultados = await Promise.all(lote.map(cat => buscarMLBrowser('', 50, undefined, cat)))
       for (const prods of resultados) {
         for (const p of prods) {
-          if (p.produto_ext_id && !seen.has(p.produto_ext_id)) {
-            seen.add(p.produto_ext_id)
-            todos.push(p)
-          }
+          if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }
+        }
+      }
+    }
+
+    // Fase 2: por palavra-chave (15 termos, lotes de 5 em paralelo)
+    for (let i = 0; i < TERMOS.length; i += 5) {
+      const lote = TERMOS.slice(i, i + 5)
+      const resultados = await Promise.all(lote.map(t => buscarMLBrowser(t, 30)))
+      for (const prods of resultados) {
+        for (const p of prods) {
+          if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }
         }
       }
     }

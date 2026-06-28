@@ -217,7 +217,47 @@ export default function Catalogo() {
     const varMatch = textoReal.match(/[?&]searchVariation=(\d+)/i)
     const variationId = varMatch ? varMatch[1] : null
 
-    // SEMPRE usa backend (token Vendedor → preços reais em itens com variações de tamanho)
+    // Busca token fresco do backend (auto-refresh)
+    let mlToken: string | null = null
+    try {
+      const tr = await fetch(`${API}/afiliados/ml-token`, { headers: hdr() })
+      if (tr.ok) { const td = await tr.json(); mlToken = td.access_token || null }
+    } catch {}
+
+    // Chama ML API direto do NAVEGADOR (IP do usuário não é bloqueado pelo ML)
+    const mlHeaders: any = mlToken ? { Authorization: `Bearer ${mlToken}` } : {}
+    try {
+      const itemR = await fetch(`https://api.mercadolibre.com/items/${itemId}`, { headers: mlHeaders })
+      if (itemR.ok) {
+        const d = await itemR.json()
+        let preco = parseFloat(d.price || d.base_price || 0)
+        // Preço da variação específica
+        if (variationId && d.variations?.length) {
+          const vMatch = d.variations.find((v:any) => String(v.id) === String(variationId))
+          if (vMatch?.price) preco = parseFloat(vMatch.price)
+        }
+        // Menor preço entre variações como fallback
+        if (!preco && d.variations?.length) {
+          const ps = d.variations.map((v:any) => parseFloat(v.price||0)).filter((p:number)=>p>0)
+          if (ps.length) preco = Math.min(...ps)
+        }
+        const pct = comissaoML(d.category_id || '')
+        const imgRaw = d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')
+        const imagem = imgRaw.replace('http://','https://')
+        setImportResult({ produto: {
+          produto_ext_id: d.id || itemId,
+          titulo: d.title || `Produto ${itemId}`,
+          preco, preco_original: d.original_price || null,
+          comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
+          imagem_url: imagem, url_produto: d.permalink || textoReal,
+          vendas_mes: d.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
+          categoria: d.category_id||'', plataforma:'ML_AFILIADOS',
+        }, copies: {} })
+        setLoadingImport(false); return
+      }
+    } catch {}
+
+    // Fallback: backend (caso o ML bloqueie a requisição do browser)
     try {
       let url = `${API}/afiliados/importar-catalogo?catalog_id=${itemId}`
       if (variationId) url += `&variation_id=${variationId}`
@@ -225,7 +265,6 @@ export default function Catalogo() {
       if (r.ok) {
         const d = await r.json()
         const pct = comissaoML(d.categoria || '')
-        // Mostra o produto mesmo com dados parciais (usuário pode digitar preço manualmente)
         setImportResult({ produto: {
           ...d,
           titulo: (d.titulo && d.titulo !== itemId) ? d.titulo : `Produto ${itemId}`,
@@ -237,7 +276,7 @@ export default function Catalogo() {
       }
     } catch {}
 
-    setImportErro('Erro ao conectar com o servidor. Tente novamente.')
+    setImportErro('Não foi possível importar. Tente reconectar o ML em Configurações.')
     setLoadingImport(false)
   }
 

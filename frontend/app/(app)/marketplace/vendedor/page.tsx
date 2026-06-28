@@ -126,15 +126,30 @@ export default function PainelVendedor() {
           <div className="divide-y" style={{ borderColor:'var(--border)' }}>
             {(dash?.recentes||[]).map((a:any,i:number) => {
               const sc = STATUS_COR[a.status] || STATUS_COR.PENDENTE
+              const isMLReal = !!a.listing_id
               return (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-white truncate">{a.titulo}</p>
-                    <p className="text-[10px]" style={{ color:'var(--muted)' }}>{a.plataforma.replace('_VENDEDOR','')}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold"
+                        style={ isMLReal
+                          ? { background:'rgba(34,197,94,0.15)', color:'#22c55e' }
+                          : { background:'rgba(249,115,22,0.15)', color:'#f97316' } }>
+                        {isMLReal ? `✅ ML #${a.listing_id}` : '🔗 Link Afiliado'}
+                      </span>
+                    </div>
                   </div>
                   <p className="text-xs font-black flex-shrink-0" style={{ color:'#f97316' }}>{fmtR(a.preco_venda)}</p>
-                  <span className="text-[9px] px-2 py-0.5 rounded-full font-bold flex-shrink-0"
-                    style={{ background:sc.bg, color:sc.cor }}>{a.status}</span>
+                  {a.url_anuncio
+                    ? <a href={a.url_anuncio} target="_blank"
+                        className="text-[9px] px-2 py-0.5 rounded-full font-bold flex-shrink-0"
+                        style={{ background:'rgba(59,130,246,0.15)', color:'#3b82f6', border:'1px solid rgba(59,130,246,0.3)' }}>
+                        Ver ↗
+                      </a>
+                    : <span className="text-[9px] px-2 py-0.5 rounded-full font-bold flex-shrink-0"
+                        style={{ background:sc.bg, color:sc.cor }}>{a.status}</span>
+                  }
                 </div>
               )
             })}

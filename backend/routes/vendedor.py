@@ -440,7 +440,11 @@ def dashboard_vendedor(db: Session = Depends(get_db), _=Depends(get_current_user
         "total_vendas": int(total_vendas or 0),
         "pendentes": pendentes,
         "recentes": [
-            {"id": a.id, "titulo": a.titulo[:50], "preco_venda": a.preco_venda, "status": a.status, "plataforma": a.plataforma}
+            {
+                "id": a.id, "titulo": a.titulo[:50], "preco_venda": a.preco_venda,
+                "status": a.status, "plataforma": a.plataforma,
+                "listing_id": a.listing_id, "url_anuncio": a.url_anuncio,
+            }
             for a in recentes
         ]
     }

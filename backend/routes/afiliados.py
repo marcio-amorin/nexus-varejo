@@ -1119,8 +1119,8 @@ async def resolver_link(url: str, _=Depends(get_current_user)):
         raise HTTPException(400, f"Não foi possível resolver o link: {e}")
 
 @router.get("/importar-catalogo")
-async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Importa produto de catálogo ML (ex: MLB23263109) com preço e imagem via token Vendedor."""
+async def importar_catalogo(catalog_id: str, variation_id: str = None, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Importa qualquer produto ML (catálogo ou item direto) com preço e imagem via token Vendedor."""
     from models import VendedorConfig
     vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
     acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
@@ -1128,7 +1128,7 @@ async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=De
             (acfg.access_token if acfg and acfg.access_token else None)
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
-    titulo, preco, imagem, cat_id = catalog_id, 0.0, "", ""
+    titulo, preco, imagem, cat_id, permalink = catalog_id, 0.0, "", "", ""
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             prodR, itemR, searchR = await asyncio.gather(
@@ -1138,7 +1138,7 @@ async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=De
                       params={"catalog_product_id": catalog_id, "sort": "price_asc", "limit": 5},
                       headers=headers)
             )
-        # /products/ → nome e imagem
+        # /products/ → nome e imagem (apenas para IDs de catálogo)
         if prodR.status_code == 200:
             pd = prodR.json()
             titulo = pd.get("name") or pd.get("title") or catalog_id
@@ -1147,32 +1147,42 @@ async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=De
             if pics:
                 imagem = (pics[0].get("url") or pics[0].get("secure_url", "")).replace("http://", "https://")
 
-        # /items/ → título, preço direto ou via variações, imagem
+        # /items/ → título, preço direto ou via variações, imagem, permalink
         if itemR.status_code == 200:
             itd = itemR.json()
             if not titulo or titulo == catalog_id:
                 titulo = itd.get("title", titulo)
             if not cat_id:
                 cat_id = itd.get("category_id", "")
+            permalink = itd.get("permalink", "")
             item_preco = float(itd.get("price") or itd.get("base_price") or 0)
+            # Preço de variação específica se fornecida
+            if variation_id and itd.get("variations"):
+                for v in itd["variations"]:
+                    if str(v.get("id")) == str(variation_id):
+                        vp = float(v.get("price") or 0)
+                        if vp: item_preco = vp
+                        break
+            # Fallback: menor preço entre variações
             if not item_preco and itd.get("variations"):
                 ps = [float(v.get("price") or 0) for v in itd["variations"] if v.get("price")]
                 if ps: item_preco = min(ps)
             if item_preco: preco = item_preco
+            # Imagem: prefer pictures[].url (alta res), fallback thumbnail
             if not imagem:
                 pics2 = itd.get("pictures") or []
                 if pics2:
-                    imagem = (pics2[0].get("url") or "").replace("http://", "https://")
-                elif itd.get("thumbnail"):
-                    imagem = itd["thumbnail"].replace("I.jpg", "O.jpg").replace("http://", "https://")
-            # real catalog_product_id para busca mais precisa
+                    imagem = (pics2[0].get("url") or pics2[0].get("secure_url") or "").replace("http://", "https://")
+            if not imagem and itd.get("thumbnail"):
+                imagem = itd["thumbnail"].replace("I.jpg", "O.jpg").replace("http://", "https://")
+            # catalog_product_id real para busca mais precisa de preço
             real_cat_id = itd.get("catalog_product_id")
             if real_cat_id and real_cat_id != catalog_id and not preco:
                 srR = await c.get("https://api.mercadolibre.com/sites/MLB/search",
                     params={"catalog_product_id": real_cat_id, "sort": "price_asc", "limit": 5},
                     headers=headers)
                 if srR.status_code == 200:
-                    searchR = srR  # usa esse resultado abaixo
+                    searchR = srR
 
         # search → preço e imagem fallback
         if searchR.status_code == 200:
@@ -1184,11 +1194,14 @@ async def importar_catalogo(catalog_id: str, db: Session = Depends(get_db), _=De
                 if not titulo or titulo == catalog_id: titulo = results[0].get("title", titulo)
                 if not imagem:
                     imagem = (results[0].get("thumbnail") or "").replace("I.jpg", "O.jpg").replace("http://", "https://")
+                if not permalink: permalink = results[0].get("permalink", "")
     except Exception:
         pass
+
+    url_final = permalink or f"https://www.mercadolivre.com.br/p/{catalog_id}"
     return {"produto_ext_id": catalog_id, "titulo": titulo, "preco": preco,
             "imagem_url": imagem, "categoria": cat_id, "plataforma": "ML_AFILIADOS",
-            "url_produto": f"https://www.mercadolivre.com.br/p/{catalog_id}"}
+            "url_produto": url_final}
 
 @router.post("/importar-ml/{item_id}")
 async def importar_ml_por_id(item_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):

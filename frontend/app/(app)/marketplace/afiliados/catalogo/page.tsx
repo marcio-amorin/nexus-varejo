@@ -198,7 +198,7 @@ export default function Catalogo() {
     setLoadingImport(true); setImportErro(''); setImportResult(null)
     const texto = inputLink.trim()
 
-    // Resolve meli.la → backend faz o redirect e extrai o MLB ID real
+    // Resolve meli.la → backend segue o redirect
     let textoReal = texto
     if (/meli\.la\//i.test(texto)) {
       try {
@@ -207,103 +207,37 @@ export default function Catalogo() {
       } catch {}
     }
 
-    // Detecta se é catálogo (/p/MLB) ou item direto
-    const isCatalog = /\/p\/MLB/i.test(textoReal)
+    // Extrai ID do MLB e variação (searchVariation=ID)
     const mlMatch = textoReal.match(/MLB-?(\d+)/i)
-    if (mlMatch) {
-      const itemId = `MLB${mlMatch[1]}`
-      try {
-        // Para catálogo: chama backend que usa token Vendedor (sem CORS, com auth)
-        if (isCatalog) {
-          // Tenta extrair item_id real da URL (ex: wid=MLB... ou item_id:MLB...)
-          const decoded = decodeURIComponent(texto)
-          const widMatch = decoded.match(/wid=(MLB\d+)/i) || decoded.match(/item_id[=:](MLB\d+)/i)
-          const realItemId = widMatch ? widMatch[1] : null
-
-          if (realItemId && realItemId !== itemId) {
-            // Usa item real diretamente (mais confiável)
-            const r = await fetch(`https://api.mercadolibre.com/items/${realItemId}`)
-            if (r.ok) {
-              const d = await r.json()
-              let preco = parseFloat(d.price || d.base_price || 0)
-              if (!preco && d.variations?.length) {
-                const ps = d.variations.map((v:any) => parseFloat(v.price||0)).filter((p:number)=>p>0)
-                if (ps.length) preco = Math.min(...ps)
-              }
-              const pct = comissaoML(d.category_id || '')
-              const imagem = (d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')).replace('http://','https://')
-              setImportResult({ produto: {
-                produto_ext_id: itemId, titulo: d.title, preco,
-                preco_original: d.original_price || null,
-                comissao_pct: pct, comissao_valor: Math.round(preco*pct/100*100)/100,
-                imagem_url: imagem, url_produto: d.permalink || texto,
-                vendas_mes: d.sold_quantity||0, avaliacao:0, total_avaliacoes:0,
-                categoria: d.category_id||'', plataforma:'ML_AFILIADOS',
-              }, copies: {} })
-              setLoadingImport(false); return
-            }
-          }
-
-          // Sem item_id: chama backend com token Vendedor
-          const r = await fetch(`${API}/afiliados/importar-catalogo?catalog_id=${itemId}`, { headers: hdr() })
-          if (r.ok) {
-            const d = await r.json()
-            if (d.titulo && d.titulo !== itemId) {
-              const pct = comissaoML(d.categoria || '')
-              setImportResult({ produto: {
-                ...d, comissao_pct: pct,
-                comissao_valor: Math.round((d.preco||0)*pct/100*100)/100,
-                preco_original: null, vendas_mes:0, avaliacao:0, total_avaliacoes:0,
-              }, copies: {} })
-              setLoadingImport(false); return
-            }
-          }
-        }
-
-        // Item direto (não catálogo)
-        const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`)
-        if (r.ok) {
-          const d = await r.json()
-          // Preço direto
-          let preco = parseFloat(d.price || d.base_price || 0)
-          // Fallback: menor variação
-          if (!preco && d.variations?.length) {
-            const precos = d.variations.map((v:any) => parseFloat(v.price||0)).filter((p:number)=>p>0)
-            if (precos.length) preco = Math.min(...precos)
-          }
-          const pct = comissaoML(d.category_id || '')
-          const imgRaw = d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')
-          const imagem = imgRaw.replace('http://','https://')
-          const produto = {
-            produto_ext_id: d.id,
-            titulo: d.title,
-            preco,
-            preco_original: d.original_price || null,
-            comissao_pct: pct,
-            comissao_valor: Math.round(preco * pct / 100 * 100) / 100,
-            imagem_url: imagem,
-            url_produto: d.permalink || texto,
-            vendas_mes: d.sold_quantity || 0,
-            avaliacao: 0, total_avaliacoes: 0,
-            categoria: d.category_id || '',
-            plataforma: 'ML_AFILIADOS',
-          }
-          setImportResult({ produto, copies: {} })
-          setLoadingImport(false)
-          return
-        }
-      } catch {}
+    if (!mlMatch) {
+      setImportErro('Link inválido. Use um link do Mercado Livre com MLB no endereço.')
+      setLoadingImport(false); return
     }
+    const itemId = `MLB${mlMatch[1]}`
+    const varMatch = textoReal.match(/[?&]searchVariation=(\d+)/i)
+    const variationId = varMatch ? varMatch[1] : null
 
-    // Fallback: backend
+    // SEMPRE usa backend (token Vendedor → preços reais em itens com variações de tamanho)
     try {
-      const r = await fetch(`${API}/afiliados/importar-link`, {
-        method:'POST', headers:hdr(), body:JSON.stringify({ url_ou_texto: texto })
-      })
-      const d = await r.json()
-      if (!r.ok) { setImportErro(d.detail || 'Produto não encontrado. Verifique o link.'); setLoadingImport(false); return }
-      setImportResult(d)
-    } catch { setImportErro('Erro de conexão com o servidor') }
+      let url = `${API}/afiliados/importar-catalogo?catalog_id=${itemId}`
+      if (variationId) url += `&variation_id=${variationId}`
+      const r = await fetch(url, { headers: hdr() })
+      if (r.ok) {
+        const d = await r.json()
+        if (d.titulo && d.titulo !== itemId) {
+          const pct = comissaoML(d.categoria || '')
+          setImportResult({ produto: {
+            ...d,
+            comissao_pct: pct,
+            comissao_valor: Math.round((d.preco||0)*pct/100*100)/100,
+            preco_original: null, vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0,
+          }, copies: {} })
+          setLoadingImport(false); return
+        }
+      }
+    } catch {}
+
+    setImportErro('Produto não encontrado. Verifique o link.')
     setLoadingImport(false)
   }
 

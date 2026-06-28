@@ -320,6 +320,8 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         if not catalog_product_id and categoria in ("Celulares", "Calçados", "Roupas", "Acessórios"):
             catalog_product_id = await _search_catalog_product(produto.titulo, cfg_vendedor.access_token)
 
+        _SHIPPING = {"mode": "me2", "local_pick_up": False, "free_shipping": False}
+
         if catalog_product_id:
             payload = {
                 "catalog_product_id": catalog_product_id,
@@ -331,6 +333,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 "buying_mode": "buy_it_now",
                 "listing_type_id": "free",
                 "condition": "new",
+                "shipping": _SHIPPING,
                 "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
             }
             # Celulares: RAM, armazenamento e cor são obrigatórios pelo catálogo ML
@@ -378,6 +381,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 "buying_mode": "buy_it_now",
                 "listing_type_id": "free",
                 "condition": "new",
+                "shipping": _SHIPPING,
                 "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
                 "attributes": attrs,
             }

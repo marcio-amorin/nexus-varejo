@@ -83,6 +83,8 @@ export default function Catalogo() {
   const [importErro, setImportErro]     = useState('')
   const [copiedKey, setCopiedKey]       = useState('')
   const [precoManual, setPrecoManual]   = useState('')
+  const [imagemManual, setImagemManual] = useState('')
+  const [tituloManual, setTituloManual] = useState('')
 
   useEffect(() => { carregarCatalogo(); buscarAuto() }, [])
 
@@ -299,19 +301,31 @@ export default function Catalogo() {
       const r = await fetch(url, { headers: hdr() })
       if (r.ok) {
         const d = await r.json()
-        const pct = comissaoML(d.categoria || '')
-        setImportResult({ produto: {
-          ...d,
-          titulo: (d.titulo && d.titulo !== itemId) ? d.titulo : `Produto ${itemId}`,
-          comissao_pct: pct,
-          comissao_valor: Math.round((d.preco||0)*pct/100*100)/100,
-          preco_original: null, vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0,
-        }, copies: {} })
-        setLoadingImport(false); return
+        if (d.titulo && d.titulo !== itemId && d.imagem_url) {
+          const pct = comissaoML(d.categoria || '')
+          setImportResult({ produto: { ...d, comissao_pct: pct, comissao_valor: Math.round((d.preco||0)*pct/100*100)/100, preco_original: null, vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0 }, copies: {} })
+          setLoadingImport(false); return
+        }
       }
     } catch {}
 
-    setImportErro('Não foi possível importar. Tente reconectar o ML em Configurações.')
+    // 5) Último recurso: extrai título do slug da URL (funciona sempre)
+    function extrairTituloSlug(url: string): string {
+      const m = url.match(/MLB-\d+-(.+?)(?:-_JM|\?|#|$)/i)
+      if (!m) return ''
+      const fixes: Record<string,string> = { 'tnis':'Tênis','calcado':'Calçado','calcados':'Calçados','camiseta':'Camiseta','calcas':'Calças','cinta':'Cinta','oculos':'Óculos','bolsa':'Bolsa' }
+      return m[1].split('-').filter(Boolean).map(p => { const l=p.toLowerCase(); return fixes[l]||(l.charAt(0).toUpperCase()+l.slice(1)) }).join(' ')
+    }
+    const tituloSlug = extrairTituloSlug(textoReal)
+    const pct = 6
+    const prod = {
+      produto_ext_id: itemId, titulo: tituloSlug || itemId,
+      preco: 0, preco_original: null, comissao_pct: pct, comissao_valor: 0,
+      imagem_url: '', url_produto: textoReal.split('?')[0].split('#')[0],
+      vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0, categoria: '', plataforma: 'ML_AFILIADOS',
+    }
+    setTituloManual(tituloSlug)
+    setImportResult({ produto: prod, copies: {}, precisaImagem: true })
     setLoadingImport(false)
   }
 
@@ -327,9 +341,11 @@ export default function Catalogo() {
       prod.preco = parseFloat(precoManual)
       prod.comissao_valor = Math.round(prod.preco * prod.comissao_pct / 100 * 100) / 100
     }
+    if (tituloManual) prod.titulo = tituloManual
+    if (imagemManual) prod.imagem_url = imagemManual
     await salvarProduto(prod)
-    setModalLink(false); setImportResult(null); setInputLink(''); setPrecoManual('')
-    setAba('catalogo')  // vai direto para Meu Catálogo após salvar
+    setModalLink(false); setImportResult(null); setInputLink(''); setPrecoManual(''); setImagemManual(''); setTituloManual('')
+    setAba('catalogo')
   }
 
   async function toggleFav(id:number) {
@@ -679,11 +695,18 @@ export default function Catalogo() {
                   {/* Produto */}
                   <div className="rounded-xl overflow-hidden" style={{ background:'var(--card2)', border:'1px solid var(--border)' }}>
                     <div className="flex items-center gap-3 p-3">
-                      {importResult.produto.imagem_url
-                        ? <img src={importResult.produto.imagem_url} className="w-14 h-14 object-contain rounded-lg flex-shrink-0" style={{ background:'var(--card)' }}/>
+                      {(importResult.produto.imagem_url || imagemManual)
+                        ? <img src={imagemManual || importResult.produto.imagem_url} className="w-14 h-14 object-contain rounded-lg flex-shrink-0" style={{ background:'var(--card)' }}/>
                         : <div className="w-14 h-14 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background:'var(--card)' }}><ShoppingBag size={24} color="var(--muted)"/></div>}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-white leading-tight">{importResult.produto.titulo}</p>
+                        {importResult.precisaImagem ? (
+                          <input value={tituloManual} onChange={e => setTituloManual(e.target.value)}
+                            className="w-full px-2 py-1 rounded-lg text-xs font-bold text-white mb-1"
+                            style={{ background:'var(--card)', border:'1px solid var(--border)' }}
+                            placeholder="Nome do produto"/>
+                        ) : (
+                          <p className="text-xs font-bold text-white leading-tight">{importResult.produto.titulo}</p>
+                        )}
                         {importResult.produto.preco > 0 ? (
                           <>
                             <p className="text-lg font-black mt-1" style={{ color:'#f97316' }}>{fmtR(importResult.produto.preco)}</p>
@@ -710,6 +733,17 @@ export default function Catalogo() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Campo de imagem manual (quando ML bloqueia scraping) */}
+                  {importResult.precisaImagem && (
+                    <div className="rounded-xl p-3" style={{ background:'var(--card2)', border:'1px solid rgba(249,115,22,0.3)' }}>
+                      <p className="text-[10px] mb-1 font-bold" style={{ color:'#f59e0b' }}>📷 Cole a URL da foto do produto (opcional):</p>
+                      <p className="text-[10px] mb-2" style={{ color:'var(--muted)' }}>Abra o produto no ML → clique com botão direito na foto → "Copiar endereço da imagem"</p>
+                      <input value={imagemManual} onChange={e => setImagemManual(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg text-xs" placeholder="https://http2.mlstatic.com/..."
+                        style={{ background:'var(--card)', border:'1px solid var(--border)', color:'var(--text)' }}/>
+                    </div>
+                  )}
 
                   {/* Copies gerados */}
                   {Object.entries(importResult.copies || {}).map(([rede, copy]: any) => (

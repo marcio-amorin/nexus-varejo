@@ -171,9 +171,7 @@ export default function Catalogo() {
   }
 
   async function salvarProduto(p: any) {
-    const r = await fetch(`${API}/afiliados/catalogo`, { method:'POST', headers:hdr(), body:JSON.stringify(p) })
-    const d = await r.json()
-    if (d.duplicado) return
+    await fetch(`${API}/afiliados/catalogo`, { method:'POST', headers:hdr(), body:JSON.stringify(p) })
     carregarCatalogo(); setAba('catalogo')
   }
 

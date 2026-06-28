@@ -251,15 +251,15 @@ export default function Catalogo() {
       }
     }
 
-    // 1) Proxy Vercel → /items/{id} com token ML (Vercel não é bloqueado pelo ML)
+    // 1) Proxy Vercel: tenta API ML, depois raspa HTML da página (não precisa de auth)
     try {
       const tok = await getMLToken()
-      const params = new URLSearchParams({ id: itemId })
+      const params = new URLSearchParams({ id: itemId, url: textoReal.split('#')[0] })
       if (tok) params.set('token', tok)
       const ir = await fetch(`/api/ml-item?${params}`)
       if (ir.ok) {
         const id_data = await ir.json()
-        if (id_data.title && parseFloat(id_data.price||0) > 0) {
+        if (id_data.title) {
           setImportResult({ produto: montarDeItem(id_data), copies: {} })
           setLoadingImport(false); return
         }

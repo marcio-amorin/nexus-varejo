@@ -1177,6 +1177,7 @@ async def importar_catalogo(catalog_id: str, variation_id: str = None, db: Sessi
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
     titulo, preco, imagem, cat_id, permalink = catalog_id, 0.0, "", "", ""
+    prod_data, item_data, search_data = None, None, None
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             prodR, itemR, searchR = await asyncio.gather(
@@ -1186,75 +1187,83 @@ async def importar_catalogo(catalog_id: str, variation_id: str = None, db: Sessi
                       params={"catalog_product_id": catalog_id, "sort": "price_asc", "limit": 5},
                       headers=headers)
             )
-            # Se /items/ falhou com token (expirado/inválido), tenta sem auth
+            # Se /items/ falhou com token (expirado), tenta sem auth
             if itemR.status_code != 200 and token:
                 itemR = await c.get(f"https://api.mercadolibre.com/items/{catalog_id}")
-            # Se search com catalog_product_id não deu resultado, tenta busca pelo ID
+            # Se search por catalog_product_id vazio, busca pelo ID
             if searchR.status_code != 200 or not (searchR.json().get("results") or []):
                 srQ = await c.get("https://api.mercadolibre.com/sites/MLB/search",
                     params={"q": catalog_id, "limit": 3}, headers=headers)
                 if srQ.status_code == 200 and (srQ.json().get("results") or []):
                     searchR = srQ
+            # Se ainda sem preço e o item tem catalog_product_id diferente, busca por ele
+            if itemR.status_code == 200:
+                itd_tmp = itemR.json()
+                real_cat_id = itd_tmp.get("catalog_product_id")
+                tmp_preco = float(itd_tmp.get("price") or itd_tmp.get("base_price") or 0)
+                if not tmp_preco and itd_tmp.get("variations"):
+                    ps = [float(v.get("price") or 0) for v in itd_tmp["variations"] if v.get("price")]
+                    if ps: tmp_preco = min(ps)
+                if real_cat_id and real_cat_id != catalog_id and not tmp_preco:
+                    srR = await c.get("https://api.mercadolibre.com/sites/MLB/search",
+                        params={"catalog_product_id": real_cat_id, "sort": "price_asc", "limit": 5},
+                        headers=headers)
+                    if srR.status_code == 200 and (srR.json().get("results") or []):
+                        searchR = srR
 
-        # /products/ → nome e imagem (apenas para IDs de catálogo)
-        if prodR.status_code == 200:
-            pd = prodR.json()
-            titulo = pd.get("name") or pd.get("title") or catalog_id
-            cat_id = pd.get("domain_id", "")
-            pics = pd.get("pictures") or []
-            if pics:
-                imagem = (pics[0].get("url") or pics[0].get("secure_url", "")).replace("http://", "https://")
-
-        # /items/ → título, preço direto ou via variações, imagem, permalink
-        if itemR.status_code == 200:
-            itd = itemR.json()
-            if not titulo or titulo == catalog_id:
-                titulo = itd.get("title", titulo)
-            if not cat_id:
-                cat_id = itd.get("category_id", "")
-            permalink = itd.get("permalink", "")
-            item_preco = float(itd.get("price") or itd.get("base_price") or 0)
-            # Preço de variação específica se fornecida
-            if variation_id and itd.get("variations"):
-                for v in itd["variations"]:
-                    if str(v.get("id")) == str(variation_id):
-                        vp = float(v.get("price") or 0)
-                        if vp: item_preco = vp
-                        break
-            # Fallback: menor preço entre variações
-            if not item_preco and itd.get("variations"):
-                ps = [float(v.get("price") or 0) for v in itd["variations"] if v.get("price")]
-                if ps: item_preco = min(ps)
-            if item_preco: preco = item_preco
-            # Imagem: prefer pictures[].url (alta res), fallback thumbnail
-            if not imagem:
-                pics2 = itd.get("pictures") or []
-                if pics2:
-                    imagem = (pics2[0].get("url") or pics2[0].get("secure_url") or "").replace("http://", "https://")
-            if not imagem and itd.get("thumbnail"):
-                imagem = itd["thumbnail"].replace("I.jpg", "O.jpg").replace("http://", "https://")
-            # catalog_product_id real para busca mais precisa de preço
-            real_cat_id = itd.get("catalog_product_id")
-            if real_cat_id and real_cat_id != catalog_id and not preco:
-                srR = await c.get("https://api.mercadolibre.com/sites/MLB/search",
-                    params={"catalog_product_id": real_cat_id, "sort": "price_asc", "limit": 5},
-                    headers=headers)
-                if srR.status_code == 200:
-                    searchR = srR
-
-        # search → preço e imagem fallback
-        if searchR.status_code == 200:
-            sd = searchR.json()
-            results = [r for r in (sd.get("results") or []) if float(r.get("price") or 0) > 0]
-            if results:
-                if not preco: preco = float(results[0]["price"])
-                if not cat_id: cat_id = results[0].get("category_id", "")
-                if not titulo or titulo == catalog_id: titulo = results[0].get("title", titulo)
-                if not imagem:
-                    imagem = (results[0].get("thumbnail") or "").replace("I.jpg", "O.jpg").replace("http://", "https://")
-                if not permalink: permalink = results[0].get("permalink", "")
+            # Guarda os dados brutos (todas as chamadas já feitas)
+            if prodR.status_code == 200:   prod_data   = prodR.json()
+            if itemR.status_code == 200:   item_data   = itemR.json()
+            if searchR.status_code == 200: search_data = searchR.json()
     except Exception:
         pass
+
+    # Processa /products/ → nome e imagem (catálogo)
+    if prod_data:
+        titulo = prod_data.get("name") or prod_data.get("title") or catalog_id
+        cat_id = prod_data.get("domain_id", "")
+        pics = prod_data.get("pictures") or []
+        if pics:
+            imagem = (pics[0].get("url") or pics[0].get("secure_url", "")).replace("http://", "https://")
+
+    # Processa /items/ → título, preço, variações, imagem, permalink
+    if item_data:
+        if not titulo or titulo == catalog_id:
+            titulo = item_data.get("title", titulo)
+        if not cat_id:
+            cat_id = item_data.get("category_id", "")
+        permalink = item_data.get("permalink", "")
+        item_preco = float(item_data.get("price") or item_data.get("base_price") or 0)
+        # Preço de variação específica
+        if variation_id and item_data.get("variations"):
+            for v in item_data["variations"]:
+                if str(v.get("id")) == str(variation_id):
+                    vp = float(v.get("price") or 0)
+                    if vp: item_preco = vp
+                    break
+        # Fallback: menor preço entre variações
+        if not item_preco and item_data.get("variations"):
+            ps = [float(v.get("price") or 0) for v in item_data["variations"] if v.get("price")]
+            if ps: item_preco = min(ps)
+        if item_preco: preco = item_preco
+        # Imagem alta resolução
+        if not imagem:
+            pics2 = item_data.get("pictures") or []
+            if pics2:
+                imagem = (pics2[0].get("url") or pics2[0].get("secure_url") or "").replace("http://", "https://")
+        if not imagem and item_data.get("thumbnail"):
+            imagem = item_data["thumbnail"].replace("I.jpg", "O.jpg").replace("http://", "https://")
+
+    # Processa search → preço e imagem fallback
+    if search_data:
+        results = [r for r in (search_data.get("results") or []) if float(r.get("price") or 0) > 0]
+        if results:
+            if not preco: preco = float(results[0]["price"])
+            if not cat_id: cat_id = results[0].get("category_id", "")
+            if not titulo or titulo == catalog_id: titulo = results[0].get("title", titulo)
+            if not imagem:
+                imagem = (results[0].get("thumbnail") or "").replace("I.jpg", "O.jpg").replace("http://", "https://")
+            if not permalink: permalink = results[0].get("permalink", "")
 
     url_final = permalink or f"https://www.mercadolivre.com.br/p/{catalog_id}"
     return {"produto_ext_id": catalog_id, "titulo": titulo, "preco": preco,

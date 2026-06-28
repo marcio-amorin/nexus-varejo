@@ -23,8 +23,38 @@ def vendedor_ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_us
         f"&client_id={urllib.parse.quote(cfg.client_id)}"
         f"&redirect_uri={urllib.parse.quote(ML_REDIRECT_URI)}"
         f"&state=vendedor"
+        f"&scope=offline_access"
     )
     return {"url": url}
+
+@router.get("/ml-verificar")
+async def vendedor_ml_verificar(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Verifica se o token ML Vendedor está ativo e retorna dados da conta"""
+    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    if not vcfg or not vcfg.access_token:
+        return {"ok": False, "msg": "Conta não conectada"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://api.mercadolibre.com/users/me",
+                headers={"Authorization": f"Bearer {vcfg.access_token}"}
+            )
+        if r.status_code == 200:
+            d = r.json()
+            return {
+                "ok": True,
+                "nickname": d.get("nickname",""),
+                "email": d.get("email",""),
+                "seller_id": str(d.get("id","")),
+                "permalink": d.get("permalink",""),
+                "logo": d.get("logo",""),
+            }
+        elif r.status_code == 401:
+            return {"ok": False, "msg": "Token expirado — reconecte o ML"}
+        else:
+            return {"ok": False, "msg": f"Erro ML {r.status_code}"}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 

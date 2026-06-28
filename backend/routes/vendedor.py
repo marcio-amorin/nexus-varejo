@@ -43,6 +43,7 @@ class PublicarTudoIn(BaseModel):
     preco_venda:   Optional[float] = None   # se None, usa preco_afiliado + 15%
     quantidade:    int = 10
     publicar_redes: bool = True   # também posta nas redes sociais
+    modo_afiliado: bool = False   # pula publicação ML Vendedor (só link afiliado)
 
 class AnuncioUpdateIn(BaseModel):
     preco_venda: Optional[float] = None
@@ -174,12 +175,14 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
     preco_venda = data.preco_venda or round(produto.preco * 1.15, 2)
     margem = round(((preco_venda - produto.preco) / produto.preco * 100) if produto.preco else 15, 1)
 
-    # ── Passo 2: Publicar no ML Vendedor ──────────────────────────────────────
+    # ── Passo 2: Publicar no ML Vendedor (pulado no modo afiliado) ────────────
     cfg_vendedor = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
     ml_listing_id = None
     ml_url = None
 
-    if cfg_vendedor and cfg_vendedor.access_token:
+    if data.modo_afiliado:
+        resultado["passos"].append({"passo": "ML Vendedor", "status": "⏭️ Modo afiliado — use o Link Afiliado para divulgar"})
+    elif cfg_vendedor and cfg_vendedor.access_token:
         # Prediz categoria folha via API do ML (evita item.category_id.invalid)
         cat_id = await _predict_cat_ml(produto.titulo, cfg_vendedor.access_token)
         if not cat_id:

@@ -202,6 +202,7 @@ export default function Catalogo() {
   async function importarLink() {
     if (!inputLink.trim()) return
     setLoadingImport(true); setImportErro(''); setImportResult(null)
+    setPrecoManual(''); setImagemManual(''); setTituloManual('')
     const texto = inputLink.trim()
 
     // Resolve meli.la → backend segue o redirect
@@ -282,19 +283,42 @@ export default function Catalogo() {
       }
     }
 
-    // 0) ML Items direto do browser (IP residencial — sem bloqueio)
-    try {
-      const r0 = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=id,title,price,original_price,thumbnail,permalink,sold_quantity,category_id,variations`)
-      if (r0.ok) {
-        const id_data = await r0.json()
-        if (id_data.title && parseFloat(id_data.price || 0) > 0) {
-          setImportResult({ produto: montarDeItem(id_data), copies: {} })
-          setLoadingImport(false); return
-        }
-      }
-    } catch {}
+    // Detecta se é URL de catálogo /p/MLB (múltiplos vendedores) ou item direto
+    const isCatalogUrl = /\/p\/MLB/i.test(textoReal)
 
-    // 1) Proxy Vercel: tenta multiget/scraping como fallback
+    // ── URLs de CATÁLOGO (/p/MLB...) ─────────────────────────────────────────
+    // Busca pelo catalog_product_id com sort=price_asc → pega o menor preço
+    // (o wid= aponta para UM vendedor específico, não necessariamente o mais barato)
+    if (isCatalogUrl) {
+      try {
+        const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=5`)
+        if (sr.ok) {
+          const sd = await sr.json()
+          const res = (sd.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
+          if (res?.title) {
+            setImportResult({ produto: montarDeBusca(res), copies: {} })
+            setLoadingImport(false); return
+          }
+        }
+      } catch {}
+    }
+
+    // ── URLs de ITEM DIRETO (produto.mercadolivre.com.br/MLB-...) ────────────
+    // Busca direta ao ML via browser (IP residencial, sem bloqueio)
+    if (!isCatalogUrl) {
+      try {
+        const r0 = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=id,title,price,original_price,thumbnail,permalink,sold_quantity,category_id,variations`)
+        if (r0.ok) {
+          const id_data = await r0.json()
+          if (id_data.title && parseFloat(id_data.price || 0) > 0) {
+            setImportResult({ produto: montarDeItem(id_data), copies: {} })
+            setLoadingImport(false); return
+          }
+        }
+      } catch {}
+    }
+
+    // Proxy Vercel: tenta multiget/scraping como fallback
     try {
       const tok = await getMLToken()
       const params = new URLSearchParams({ id: itemId, url: textoReal.split('#')[0].split('?')[0] })
@@ -309,21 +333,7 @@ export default function Catalogo() {
       }
     } catch {}
 
-    // 2) Busca por catalog_product_id (sem auth, funciona do browser)
-    try {
-      const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=5`)
-      if (sr.ok) {
-        const sd = await sr.json()
-        const res = (sd.results||[]).find((r:any) => r.id === itemId && parseFloat(r.price||0) > 0)
-          || (sd.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
-        if (res?.title) {
-          setImportResult({ produto: montarDeBusca(res), copies: {} })
-          setLoadingImport(false); return
-        }
-      }
-    } catch {}
-
-    // 3) Busca pelo item ID real (encontra o produto exato pelo ID)
+    // Busca pelo item ID real na search (encontra o produto pelo ID)
     if (itemId !== catalogId) {
       try {
         const sr2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${itemId}&limit=10`)

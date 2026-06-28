@@ -287,14 +287,30 @@ export default function Catalogo() {
       }
     } catch {}
 
-    // 3) Busca por ID direto na search (sem auth)
+    // 3a) Busca pelo item ID real na search (encontra preço correto)
+    if (itemId !== catalogId) {
+      try {
+        const sr2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${itemId}&limit=10`)
+        if (sr2.ok) {
+          const sd2 = await sr2.json()
+          const res2 = (sd2.results||[]).find((r:any) => r.id === itemId)
+          if (res2?.title && parseFloat(res2.price||0) > 0) {
+            setImportResult({ produto: montarDeBusca(res2), copies: {} })
+            setLoadingImport(false); return
+          }
+        }
+      } catch {}
+    }
+
+    // 3b) Busca pelo catalog ID na search (sem auth)
     try {
-      const sr2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${itemId}&limit=5`)
-      if (sr2.ok) {
-        const sd2 = await sr2.json()
-        const res2 = (sd2.results||[]).find((r:any) => r.id === itemId) || (sd2.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
-        if (res2?.title) {
-          setImportResult({ produto: montarDeBusca(res2), copies: {} })
+      const sr3 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${catalogId}&limit=10`)
+      if (sr3.ok) {
+        const sd3 = await sr3.json()
+        const res3 = (sd3.results||[]).find((r:any) => r.id === catalogId || r.id === itemId)
+          || (sd3.results||[]).find((r:any) => parseFloat(r.price||0) > 0)
+        if (res3?.title && parseFloat(res3.price||0) > 0) {
+          setImportResult({ produto: montarDeBusca(res3), copies: {} })
           setLoadingImport(false); return
         }
       }

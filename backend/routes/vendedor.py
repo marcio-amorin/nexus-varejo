@@ -273,9 +273,14 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         if pub_id and produto.url_produto:
             link_afiliado = f"https://mercadolivre.com/sec/affiliate?deal_print_id={pub_id}&item_id={produto.produto_ext_id}&tracking_id=nexus"
     anuncio.link_afiliado = link_afiliado
-    # Modo afiliado: usa link afiliado como URL do anúncio e marca como ATIVO
+    # Modo afiliado: pula ML Vendedor e usa link afiliado diretamente
     if data.modo_afiliado and link_afiliado:
         anuncio.url_anuncio = link_afiliado
+        anuncio.status = "ATIVO"
+        anuncio.publicado_em = anuncio.publicado_em or datetime.utcnow()
+    # ML Vendedor falhou mas temos link afiliado → usa como fallback
+    elif not ml_listing_id and link_afiliado:
+        anuncio.url_anuncio = anuncio.url_anuncio or link_afiliado
         anuncio.status = "ATIVO"
         anuncio.publicado_em = anuncio.publicado_em or datetime.utcnow()
     db.add(anuncio)

@@ -849,12 +849,8 @@ async def ml_destaques(
         except Exception:
             return []
 
-    # ── Estratégia principal: token do Vendedor ML (sempre ativo) ─────────────
-    from models import VendedorConfig as _VC
-    vcfg = db.query(_VC).filter_by(plataforma="ML_VENDEDOR").first()
-    acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    token = (vcfg.access_token if vcfg and vcfg.access_token else None) or \
-            (acfg.access_token if acfg and acfg.access_token else None)
+    # ── Estratégia principal: token fresco do ML (renova automaticamente) ────────
+    token = await _get_fresh_ml_token(db)
 
     if token:
         import asyncio as _asyncio

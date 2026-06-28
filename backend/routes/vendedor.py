@@ -336,14 +336,18 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 "shipping": _SHIPPING,
                 "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
             }
-            # Celulares: RAM, armazenamento e cor são obrigatórios pelo catálogo ML
+            # Celulares: atributos obrigatórios pelo catálogo ML
             if categoria == "Celulares":
                 ram, storage = _extrair_memoria(produto.titulo)
-                cat_attrs = [{"id": "COLOR", "value_name": cor}]
-                if ram:
-                    cat_attrs.append({"id": "RAM", "value_name": ram})
-                if storage:
-                    cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
+                cat_attrs = [
+                    {"id": "BRAND",  "value_name": brand},
+                    {"id": "MODEL",  "value_name": model},
+                    {"id": "COLOR",  "value_name": cor},
+                    {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                    {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                ]
+                if ram:     cat_attrs.append({"id": "RAM",             "value_name": ram})
+                if storage: cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
                 payload["attributes"] = cat_attrs
             # Calçados/Roupas: busca SIZE_GRID_ID do item original + catálogo, adiciona variações
             elif categoria in ("Calçados", "Roupas"):

@@ -76,26 +76,26 @@ export default function MeusAnuncios() {
   return (
     <div className="pg">
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
-        <div className="px-5 py-4 flex items-center justify-between">
-          <div>
+        <div className="px-4 py-3 flex flex-wrap items-center gap-2">
+          <div className="flex-1 min-w-0">
             <h1 className="text-base font-black text-white flex items-center gap-2"><Package size={16}/> Meus Anúncios</h1>
             <p className="text-xs text-white/75 mt-0.5">{anuncios.length} anúncios publicados nas plataformas</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 flex-wrap">
             <button onClick={sincronizarCatalogo}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white"
               style={{ background:'rgba(34,197,94,0.3)', border:'1px solid rgba(34,197,94,0.5)' }}>
-              <RefreshCw size={12}/> Sincronizar Catálogo
+              <RefreshCw size={11}/> Sincronizar
             </button>
             <button onClick={limparDuplicados}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white"
               style={{ background:'rgba(239,68,68,0.3)', border:'1px solid rgba(239,68,68,0.5)' }}>
-              🗑️ Limpar Duplicados
+              🗑️ Limpar
             </button>
             <button onClick={() => router.push('/marketplace/afiliados/catalogo')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white"
               style={{ background:'rgba(255,255,255,0.2)', border:'1px solid rgba(255,255,255,0.35)' }}>
-              <Zap size={12}/> Publicar Novo
+              <Zap size={11}/> Novo
             </button>
           </div>
         </div>

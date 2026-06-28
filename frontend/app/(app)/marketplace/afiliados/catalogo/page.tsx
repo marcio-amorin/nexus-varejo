@@ -178,9 +178,13 @@ export default function Catalogo() {
   }
 
   async function publicarTudo(p: any) {
-    const rs = await fetch(`${API}/afiliados/catalogo`, { method:'POST', headers:hdr(), body:JSON.stringify(p) })
-    const ds = await rs.json()
-    const prodId = ds.id || ds.produto_id
+    // Se já tem id (produto do catálogo), usa direto; senão salva primeiro
+    let prodId = p.id || p.produto_id
+    if (!prodId) {
+      const rs = await fetch(`${API}/afiliados/catalogo`, { method:'POST', headers:hdr(), body:JSON.stringify(p) })
+      const ds = await rs.json()
+      prodId = ds.id || ds.produto_id
+    }
     if (!prodId) { alert('Erro ao salvar produto'); return }
     setPublicandoId(prodId)
     setResultadoPublicar(null)
@@ -587,6 +591,12 @@ export default function Catalogo() {
                       <span className="text-[10px] font-black" style={{ color:'#f97316' }}>{fmtR(p.preco)}</span>
                       <span className="text-[10px] font-bold" style={{ color:'#22c55e' }}>{p.comissao_pct}%</span>
                     </div>
+                    <button onClick={() => publicarTudo(p)}
+                      disabled={publicandoId===p.id}
+                      className="w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white mb-1"
+                      style={{ background: publicandoId===p.id ? 'var(--card2)' : 'linear-gradient(135deg,#7c3aed,#f97316)', opacity: publicandoId===p.id ? 0.6 : 1 }}>
+                      {publicandoId===p.id ? <><RefreshCw size={10} className="animate-spin"/> Publicando...</> : <><Zap size={10}/> Publicar Tudo</>}
+                    </button>
                     <div className="flex gap-1">
                       <button onClick={() => gerarLink(p.id, p.titulo)}
                         className="flex-1 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white"

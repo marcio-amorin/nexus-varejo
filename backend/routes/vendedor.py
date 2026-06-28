@@ -362,25 +362,36 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
             elif categoria in ("Calçados", "Roupas"):
                 sgid: str = ""
                 sizes: list = []
-                # 1ª tentativa: item original no ML (produto_ext_id = MLB...)
+                # 1ª tentativa: /items/{id}/attributes e /items/{id} para SIZE_GRID_ID e tamanhos
                 if produto.produto_ext_id:
                     try:
-                        async with httpx.AsyncClient(timeout=8) as _ci:
+                        async with httpx.AsyncClient(timeout=10) as _ci:
+                            # Endpoint /attributes retorna lista limpa de atributos
+                            _ra = await _ci.get(
+                                f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
+                                headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                            )
+                            if _ra.status_code == 200:
+                                for _a in _ra.json():
+                                    if _a.get("id") == "SIZE_GRID_ID":
+                                        sgid = str(_a.get("value_id") or _a.get("value_name", ""))
+                            # Endpoint /items/{id} para tamanhos nas variações
                             _ri = await _ci.get(
                                 f"https://api.mercadolibre.com/items/{produto.produto_ext_id}",
                                 headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
                             )
-                        if _ri.status_code == 200:
-                            _item = _ri.json()
-                            for _a in _item.get("attributes", []):
-                                if _a.get("id") == "SIZE_GRID_ID":
-                                    sgid = str(_a.get("value_id") or _a.get("value_name", ""))
-                            for _v in _item.get("variations", [])[:8]:
-                                for _ac in _v.get("attribute_combinations", []):
-                                    if _ac.get("id") == "SIZE":
-                                        _nm = _ac.get("value_name", "")
-                                        if _nm and _nm not in sizes:
-                                            sizes.append(_nm)
+                            if _ri.status_code == 200:
+                                _item = _ri.json()
+                                if not sgid:
+                                    for _a in _item.get("attributes", []):
+                                        if _a.get("id") == "SIZE_GRID_ID":
+                                            sgid = str(_a.get("value_id") or _a.get("value_name", ""))
+                                for _v in _item.get("variations", [])[:8]:
+                                    for _ac in _v.get("attribute_combinations", []):
+                                        if _ac.get("id") == "SIZE":
+                                            _nm = _ac.get("value_name", "")
+                                            if _nm and _nm not in sizes:
+                                                sizes.append(_nm)
                     except Exception:
                         pass
                 # 2ª tentativa: catálogo ML
@@ -455,16 +466,51 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
-                elif "missing_catalog_required" in err_txt:
-                    # Atributos obrigatórios do catálogo faltando → extrai do erro e retenta
-                    ram, storage = _extrair_memoria(produto.titulo)
-                    retry_attrs = [{"id": "COLOR", "value_name": cor}]
-                    if ram: retry_attrs.append({"id": "RAM", "value_name": ram})
-                    if storage: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
-                    retry_attrs += [
-                        {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                elif "shipping.lost_me" in err_txt or "4053" in err_txt:
+                    # Conta sem ME1/ME2 configurado com catálogo → retenta sem catalog e sem shipping
+                    ram2, storage2 = _extrair_memoria(produto.titulo)
+                    attrs_ship = [
+                        {"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model},
+                        {"id": "COLOR", "value_name": cor}, {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                         {"id": "IS_DUAL_SIM", "value_name": "Sim"},
                     ]
+                    if ram2: attrs_ship.append({"id": "RAM", "value_name": ram2})
+                    if storage2: attrs_ship.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
+                    # Busca Anatel do item original
+                    if produto.produto_ext_id:
+                        try:
+                            async with httpx.AsyncClient(timeout=8) as _ca:
+                                _ra = await _ca.get(
+                                    f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
+                                    headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                                )
+                            if _ra.status_code == 200:
+                                for _a in _ra.json():
+                                    if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
+                                        _anatel = _a.get("value_name","") or ((_a.get("values") or [{}])[0].get("name",""))
+                                        if _anatel: attrs_ship.append({"id": "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER", "value_name": _anatel})
+                                        break
+                        except Exception: pass
+                    p2 = {
+                        "title": produto.titulo[:60], "category_id": cat_id,
+                        "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                        "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                        "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                        "attributes": attrs_ship,
+                    }
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:250]})
+                elif "missing_catalog_required" in err_txt:
+                    ram2, storage2 = _extrair_memoria(produto.titulo)
+                    retry_attrs = [
+                        {"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model},
+                        {"id": "COLOR", "value_name": cor}, {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                        {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                    ]
+                    if ram2: retry_attrs.append({"id": "RAM", "value_name": ram2})
+                    if storage2: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
                     p2 = {**payload, "attributes": retry_attrs}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)

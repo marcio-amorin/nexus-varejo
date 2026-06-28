@@ -39,9 +39,15 @@ export default function MeusAnuncios() {
       if (filtroSt)   p.set('status', filtroSt)
       if (filtroPlat) p.set('plataforma', filtroPlat)
       const r = await fetch(`${API}/vendedor/anuncios?${p}`, { headers: hdr() })
-      setAnuncios(await r.json())
-    } catch {}
+      const d = await r.json()
+      setAnuncios(Array.isArray(d) ? d : [])
+    } catch { setAnuncios([]) }
     setLoading(false)
+  }
+
+  async function limparDuplicados() {
+    await fetch(`${API}/vendedor/anuncios/limpar-duplicados`, { method:'POST', headers: hdr() })
+    carregar()
   }
 
   async function remover(id: number) {
@@ -66,11 +72,18 @@ export default function MeusAnuncios() {
             <h1 className="text-base font-black text-white flex items-center gap-2"><Package size={16}/> Meus Anúncios</h1>
             <p className="text-xs text-white/75 mt-0.5">{anuncios.length} anúncios publicados nas plataformas</p>
           </div>
-          <button onClick={() => router.push('/marketplace/afiliados/catalogo')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
-            style={{ background:'rgba(255,255,255,0.2)', border:'1px solid rgba(255,255,255,0.35)' }}>
-            <Zap size={12}/> Publicar Novo
-          </button>
+          <div className="flex gap-2">
+            <button onClick={limparDuplicados}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
+              style={{ background:'rgba(239,68,68,0.3)', border:'1px solid rgba(239,68,68,0.5)' }}>
+              🗑️ Limpar Duplicados
+            </button>
+            <button onClick={() => router.push('/marketplace/afiliados/catalogo')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
+              style={{ background:'rgba(255,255,255,0.2)', border:'1px solid rgba(255,255,255,0.35)' }}>
+              <Zap size={12}/> Publicar Novo
+            </button>
+          </div>
         </div>
       </div>
 

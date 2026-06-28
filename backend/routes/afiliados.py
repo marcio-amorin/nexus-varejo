@@ -796,8 +796,13 @@ async def ml_destaques(
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
     }
     _PAGINAS_ML = [
-        "https://www.mercadolivre.com.br/mais-vendidos",   # ~150 produtos (eletrônicos, games, casa)
-        "https://www.mercadolivre.com.br/moda",            # ~120 produtos (roupas, calçados, acessórios)
+        "https://www.mercadolivre.com.br/mais-vendidos",
+        "https://www.mercadolivre.com.br/moda",
+        "https://www.mercadolivre.com.br/eletrodomesticos",
+        "https://www.mercadolivre.com.br/esportes-fitness",
+        "https://www.mercadolivre.com.br/beleza-cuidado-pessoal",
+        "https://www.mercadolivre.com.br/games",
+        "https://www.mercadolivre.com.br/casa-moveis-decoracao",
     ]
 
     def _decode_esc(s: str) -> str:
@@ -910,17 +915,19 @@ async def ml_destaques(
     if todos:
         return {"resultados": todos[:limit], "total": len(todos), "fonte": "keyword"}
 
-    # ── Fallback: scraping HTML do ML ─────────────────────────────────────────
+    # ── Fallback: scraping HTML do ML (7 páginas em paralelo) ────────────────
     resultados: list[dict] = []
     seen_global: set[str] = set()
-    for url_pag in _PAGINAS_ML:
+    lotes_pag = [_PAGINAS_ML[i:i+3] for i in range(0, len(_PAGINAS_ML), 3)]
+    for lote_pag in lotes_pag:
         if len(resultados) >= limit:
             break
-        prods = await _scrape_pagina(url_pag)
-        for p in prods:
-            if p["produto_ext_id"] not in seen_global:
-                seen_global.add(p["produto_ext_id"])
-                resultados.append(p)
+        prods_lote = await _asyncio.gather(*[_scrape_pagina(u) for u in lote_pag])
+        for prods in prods_lote:
+            for p in prods:
+                if p["produto_ext_id"] not in seen_global:
+                    seen_global.add(p["produto_ext_id"])
+                    resultados.append(p)
 
     if resultados:
         resultados.sort(key=lambda x: x["comissao_valor"], reverse=True)

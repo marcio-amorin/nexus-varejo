@@ -272,7 +272,8 @@ export default function Catalogo() {
             if (precos.length) preco = Math.min(...precos)
           }
           const pct = comissaoML(d.category_id || '')
-          const imagem = d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')
+          const imgRaw = d.pictures?.[0]?.url || (d.thumbnail||'').replace('I.jpg','O.jpg')
+          const imagem = imgRaw.replace('http://','https://')
           const produto = {
             produto_ext_id: d.id,
             titulo: d.title,

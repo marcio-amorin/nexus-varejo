@@ -213,14 +213,16 @@ export default function Catalogo() {
       } catch {}
     }
 
-    // Extrai ID do MLB e variação (searchVariation=ID)
-    const mlMatch = textoReal.match(/MLB-?(\d+)/i)
+    // Extrai IDs: item real (item_id= ou wid=) tem prioridade para busca de preço
+    const itemIdMatch  = textoReal.match(/[?&](?:item_id|wid)=?(MLB[\d]+)/i)
+    const mlMatch      = textoReal.match(/MLB-?(\d+)/i)
     if (!mlMatch) {
       setImportErro('Link inválido. Use um link do Mercado Livre com MLB no endereço.')
       setLoadingImport(false); return
     }
-    const itemId = `MLB${mlMatch[1]}`
-    const varMatch = textoReal.match(/[?&]searchVariation=(\d+)/i)
+    const catalogId  = `MLB${mlMatch[1]}`                        // ID do catálogo /p/MLB...
+    const itemId     = itemIdMatch ? itemIdMatch[1] : catalogId  // ID do item real (com preço)
+    const varMatch   = textoReal.match(/[?&]searchVariation=(\d+)/i)
     const variationId = varMatch ? varMatch[1] : null
 
     // Função auxiliar para montar produto a partir de resultado de search
@@ -257,10 +259,10 @@ export default function Catalogo() {
       }
     }
 
-    // 1) Proxy Vercel: tenta API ML, depois raspa HTML da página (não precisa de auth)
+    // 1) Proxy Vercel: usa o item ID real (tem preço definido)
     try {
       const tok = await getMLToken()
-      const params = new URLSearchParams({ id: itemId, url: textoReal.split('#')[0] })
+      const params = new URLSearchParams({ id: itemId, url: textoReal.split('#')[0].split('?')[0] })
       if (tok) params.set('token', tok)
       const ir = await fetch(`/api/ml-item?${params}`)
       if (ir.ok) {
@@ -274,7 +276,7 @@ export default function Catalogo() {
 
     // 2) Busca por catalog_product_id (sem auth, sem CORS)
     try {
-      const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${itemId}&sort=price_asc&limit=3`)
+      const sr = await fetch(`https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=${catalogId}&sort=price_asc&limit=3`)
       if (sr.ok) {
         const sd = await sr.json()
         const res = (sd.results||[]).find((r:any) => parseFloat(r.price||0) > 0) || sd.results?.[0]
@@ -323,7 +325,7 @@ export default function Catalogo() {
     const tituloSlug = extrairTituloSlug(textoReal)
     const pct = 6
     const prod = {
-      produto_ext_id: itemId, titulo: tituloSlug || itemId,
+      produto_ext_id: itemId, titulo: tituloSlug || catalogId,
       preco: 0, preco_original: null, comissao_pct: pct, comissao_valor: 0,
       imagem_url: '', url_produto: textoReal.split('?')[0].split('#')[0],
       vendas_mes: 0, avaliacao: 0, total_avaliacoes: 0, categoria: '', plataforma: 'ML_AFILIADOS',

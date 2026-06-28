@@ -797,12 +797,14 @@ async def ml_destaques(
     }
     _PAGINAS_ML = [
         "https://www.mercadolivre.com.br/mais-vendidos",
+        "https://www.mercadolivre.com.br/ofertas",
         "https://www.mercadolivre.com.br/moda",
         "https://www.mercadolivre.com.br/eletrodomesticos",
         "https://www.mercadolivre.com.br/esportes-fitness",
         "https://www.mercadolivre.com.br/beleza-cuidado-pessoal",
-        "https://www.mercadolivre.com.br/games",
+        "https://www.mercadolivre.com.br/video-games",
         "https://www.mercadolivre.com.br/casa-moveis-decoracao",
+        "https://www.mercadolivre.com.br/celulares-smartphones",
     ]
 
     def _decode_esc(s: str) -> str:
@@ -817,16 +819,16 @@ async def ml_destaques(
                 html = r.content.decode('utf-8', errors='replace')
                 produtos: list[dict] = []
                 seen_ids: set[str] = set()
-                # Extrai blocos com title + permalink + thumbnail + price do JSON embedded no HTML
+
+                # Padrão 1: title + permalink + thumbnail + (image_id opcional) + price
                 for m in _re.finditer(
-                    r'"title"\s*:\s*"([^"]{3,200})","permalink"\s*:\s*"(https[^"]+?)","thumbnail"\s*:\s*"(https[^"]+?)","image_id"\s*:\s*"[^"]*","price"\s*:\s*(\d+(?:\.\d+)?)',
+                    r'"title"\s*:\s*"([^"]{3,200})","permalink"\s*:\s*"(https[^"]+?)","thumbnail"\s*:\s*"(https[^"]+?)"(?:,"image_id"\s*:\s*"[^"]*")?,"price"\s*:\s*(\d+(?:\.\d+)?)',
                     html
                 ):
                     titulo    = _decode_esc(m.group(1))
                     permalink = _decode_esc(m.group(2))
                     thumbnail = _decode_esc(m.group(3))
                     preco     = float(m.group(4))
-                    # Extrair ID MLB do permalink
                     id_m = _re.search(r'/(MLB\d{7,12})', permalink)
                     if not id_m:
                         continue
@@ -850,6 +852,18 @@ async def ml_destaques(
                         "categoria":      _detectar_categoria(titulo),
                         "plataforma":     "ML_AFILIADOS",
                     })
+
+                # Padrão 2 (fallback): extrai todos os IDs MLB da página e busca via /items API
+                if len(produtos) < 20:
+                    all_ids_html = list(dict.fromkeys(_re.findall(r'"(MLB\d{7,12})"', html)))
+                    ids_novos = [i for i in all_ids_html if i not in seen_ids][:60]
+                    if ids_novos:
+                        via_api = await _buscar_por_ids(ids_novos)
+                        for p in via_api:
+                            if p["produto_ext_id"] not in seen_ids:
+                                seen_ids.add(p["produto_ext_id"])
+                                produtos.append(p)
+
                 return produtos
         except Exception:
             return []

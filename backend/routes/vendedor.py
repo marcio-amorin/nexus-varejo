@@ -354,6 +354,46 @@ def remover_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depends(ge
     db.delete(a); db.commit()
     return {"ok": True}
 
+@router.post("/publicar-catalogo-tudo")
+def publicar_catalogo_tudo(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Cria anúncios para todos os produtos do catálogo afiliado que ainda não têm registro"""
+    produtos = db.query(AfiliadoProduto).all()
+    criados = 0
+    atualizados = 0
+    for produto in produtos:
+        existente = db.query(VendedorAnuncio).filter_by(
+            produto_afiliado_id=produto.id, plataforma="ML_VENDEDOR"
+        ).first()
+        link = produto.url_produto or ""
+        preco_venda = round(produto.preco * 1.15, 2) if produto.preco else 0
+        margem = round(((preco_venda - produto.preco) / produto.preco * 100) if produto.preco else 15, 1)
+        if not existente:
+            novo = VendedorAnuncio(
+                produto_afiliado_id=produto.id,
+                plataforma="ML_VENDEDOR",
+                titulo=produto.titulo or "",
+                preco_custo=produto.preco or 0,
+                preco_venda=preco_venda,
+                margem_pct=margem,
+                imagem_url=produto.imagem_url,
+                url_anuncio=link,
+                link_afiliado=link,
+                status="ATIVO" if link else "PENDENTE",
+                publicado_em=datetime.utcnow() if link else None,
+                categoria_ml=_detectar_cat(produto.titulo or ""),
+            )
+            db.add(novo)
+            criados += 1
+        elif existente.status != "ATIVO" and link:
+            existente.url_anuncio = link
+            existente.link_afiliado = link
+            existente.status = "ATIVO"
+            existente.publicado_em = existente.publicado_em or datetime.utcnow()
+            atualizados += 1
+    db.commit()
+    return {"ok": True, "criados": criados, "atualizados": atualizados, "total_catalogo": len(produtos)}
+
+
 @router.post("/anuncios/limpar-duplicados")
 def limpar_duplicados(db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Remove duplicados (mantém o mais recente por produto) e pendentes sem link"""

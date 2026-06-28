@@ -50,6 +50,15 @@ export default function MeusAnuncios() {
     carregar()
   }
 
+  async function sincronizarCatalogo() {
+    setLoading(true)
+    const r = await fetch(`${API}/vendedor/publicar-catalogo-tudo`, { method:'POST', headers: hdr() })
+    const d = await r.json()
+    carregar()
+    if (d.criados > 0 || d.atualizados > 0)
+      alert(`✅ ${d.criados} criados, ${d.atualizados} atualizados de ${d.total_catalogo} produtos no catálogo.`)
+  }
+
   async function remover(id: number) {
     if (!confirm('Remover anúncio?')) return
     await fetch(`${API}/vendedor/anuncios/${id}`, { method:'DELETE', headers:hdr() })
@@ -73,6 +82,11 @@ export default function MeusAnuncios() {
             <p className="text-xs text-white/75 mt-0.5">{anuncios.length} anúncios publicados nas plataformas</p>
           </div>
           <div className="flex gap-2">
+            <button onClick={sincronizarCatalogo}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
+              style={{ background:'rgba(34,197,94,0.3)', border:'1px solid rgba(34,197,94,0.5)' }}>
+              <RefreshCw size={12}/> Sincronizar Catálogo
+            </button>
             <button onClick={limparDuplicados}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-white"
               style={{ background:'rgba(239,68,68,0.3)', border:'1px solid rgba(239,68,68,0.5)' }}>
@@ -114,9 +128,14 @@ export default function MeusAnuncios() {
           <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color:'var(--muted)' }}>
             <Package size={40}/>
             <p className="text-sm font-bold text-white">Nenhum anúncio publicado ainda</p>
-            <p className="text-xs">No Catálogo de Produtos, clique em "Publicar Tudo" para começar</p>
+            <p className="text-xs">Sincronize os produtos salvos no catálogo ou adicione novos</p>
+            <button onClick={sincronizarCatalogo}
+              className="px-5 py-2 rounded-xl text-xs font-black text-white mt-2 flex items-center gap-1.5"
+              style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)' }}>
+              <RefreshCw size={12}/> Sincronizar do Catálogo
+            </button>
             <button onClick={() => router.push('/marketplace/afiliados/catalogo')}
-              className="px-5 py-2 rounded-xl text-xs font-black text-white mt-2"
+              className="px-5 py-2 rounded-xl text-xs font-black text-white"
               style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)' }}>
               <Zap size={12} className="inline mr-1"/> Ir ao Catálogo
             </button>

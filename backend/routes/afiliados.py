@@ -211,7 +211,7 @@ async def _get_fresh_ml_token(db) -> str | None:
         for cfg in configs:
             if not cfg.client_id or not cfg.client_secret:
                 continue
-            # 1) Tenta refresh_token
+            # 1) Tenta refresh_token (mais completo — tem permissões de usuário)
             if cfg.refresh_token:
                 try:
                     r = await c.post(ML_TOKEN_URL, data={
@@ -229,10 +229,7 @@ async def _get_fresh_ml_token(db) -> str | None:
                             return cfg.access_token
                 except Exception:
                     pass
-            # 2) Token armazenado
-            if cfg.access_token:
-                return cfg.access_token
-            # 3) client_credentials
+            # 2) client_credentials — gera token fresco com as credenciais atuais
             try:
                 r = await c.post(ML_TOKEN_URL, data={
                     "grant_type": "client_credentials",
@@ -247,6 +244,9 @@ async def _get_fresh_ml_token(db) -> str | None:
                         return cfg.access_token
             except Exception:
                 pass
+            # 3) Token armazenado como último recurso
+            if cfg.access_token:
+                return cfg.access_token
     return None
 
 @router.get("/ml-auth-url")

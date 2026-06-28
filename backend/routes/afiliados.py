@@ -857,20 +857,46 @@ async def ml_destaques(
             (acfg.access_token if acfg and acfg.access_token else None)
 
     if token:
-        termos = [
-            "smartphone samsung motorola", "fone bluetooth earphone tws",
-            "smart tv 4k android", "notebook laptop gamer",
-            "air fryer fritadeira elétrica", "tenis corrida calçado esportivo",
-            "perfume importado feminino", "playstation xbox nintendo switch",
-            "câmera ring light streaming", "mochila bolsa feminina",
-            "suplemento proteína whey", "relógio smartwatch masculino",
-            "jogo de cama edredom lençol", "aspirador robô portátil",
-            "estabilizador nobreak bateria", "camiseta masculina algodão",
-        ]
+        import asyncio as _asyncio
         todos: list[dict] = []
         seen_tok: set[str] = set()
-        import asyncio as _asyncio
-        # Processa em lotes de 4 termos em paralelo para ser mais rápido
+
+        # Busca por CATEGORIA (menos sobreposição que palavras-chave)
+        categorias = [
+            "MLB1051",   # Celulares
+            "MLB1000",   # Eletrônicos
+            "MLB1648",   # TV e Vídeo
+            "MLB1055",   # Informática
+            "MLB1499",   # Games
+            "MLB1459",   # Calçados
+            "MLB1574",   # Roupas e Acessórios
+            "MLB1246",   # Esporte e Lazer
+            "MLB1574",   # Moda
+            "MLB218519", # Beleza e Cuidado
+            "MLB1574",   # Casa
+            "MLB5726",   # Bebês
+        ]
+        termos_extra = [
+            "air fryer fritadeira", "perfume importado",
+            "smartwatch relógio", "fone bluetooth",
+            "notebook gamer", "suplemento proteína",
+            "jogo de cama", "aspirador robô",
+        ]
+
+        async def _buscar_cat(cat_id: str) -> list[dict]:
+            try:
+                async with httpx.AsyncClient(timeout=12) as client:
+                    r = await client.get(
+                        "https://api.mercadolibre.com/sites/MLB/search",
+                        params={"category": cat_id, "limit": 50, "sort": "sold_quantity_desc"},
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    if r.status_code == 200:
+                        return r.json().get("results", [])
+            except Exception:
+                pass
+            return []
+
         async def _buscar_termo(termo: str) -> list[dict]:
             try:
                 async with httpx.AsyncClient(timeout=12) as client:
@@ -884,9 +910,12 @@ async def ml_destaques(
             except Exception:
                 pass
             return []
-        for i in range(0, len(termos), 4):
-            lote = termos[i:i+4]
-            resultados_lote = await _asyncio.gather(*[_buscar_termo(t) for t in lote])
+
+        # 1ª rodada: busca por categorias em paralelo (4 por vez)
+        cats_unicas = list(dict.fromkeys(categorias))  # remove duplicatas mantendo ordem
+        for i in range(0, len(cats_unicas), 4):
+            lote = cats_unicas[i:i+4]
+            resultados_lote = await _asyncio.gather(*[_buscar_cat(c) for c in lote])
             for items in resultados_lote:
                 for item in items:
                     if item.get("id") not in seen_tok:
@@ -894,6 +923,20 @@ async def ml_destaques(
                         todos.append(_formatar(item))
             if len(todos) >= limit:
                 break
+
+        # 2ª rodada: complementa com termos extras se ainda não chegou em 200
+        if len(todos) < limit:
+            for i in range(0, len(termos_extra), 4):
+                lote = termos_extra[i:i+4]
+                resultados_lote = await _asyncio.gather(*[_buscar_termo(t) for t in lote])
+                for items in resultados_lote:
+                    for item in items:
+                        if item.get("id") not in seen_tok:
+                            seen_tok.add(item["id"])
+                            todos.append(_formatar(item))
+                if len(todos) >= limit:
+                    break
+
         if todos:
             return {"resultados": todos[:limit], "total": len(todos), "fonte": "oauth"}
 

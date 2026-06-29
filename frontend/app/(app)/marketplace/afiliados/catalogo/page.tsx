@@ -69,6 +69,7 @@ export default function Catalogo() {
   const [catalogo, setCat]        = useState<any[]>([])
   const [loading, setLoading]         = useState(false)
   const [loadingAuto, setLoadingAuto] = useState(false)
+  const [filtroCat, setFiltroCat]     = useState<'todos'|'nao_publicado'|'ml_vendedor'|'afiliado'>('todos')
   const [erroBusca, setErro]          = useState('')
   const [msgLink, setMsgLink]         = useState('')
   const [catSel, setCatSel]           = useState('Todos')
@@ -718,9 +719,40 @@ export default function Catalogo() {
               <p className="text-xs">Salve produtos da aba Buscar para promover</p>
               <button onClick={() => setAba('buscar')} className="btn-primary text-xs px-5 py-2">Ver Produtos</button>
             </div>
-          ) : (
-            <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
-              {catalogo.map((p,i) => {
+          ) : (() => {
+            const naoPublicados = catalogo.filter(p => p.pub_status !== 'ml_vendedor').length
+            const noML          = catalogo.filter(p => p.pub_status === 'ml_vendedor').length
+            const afiliados     = catalogo.filter(p => p.pub_status === 'afiliado').length
+            const filtrados = filtroCat === 'nao_publicado'
+              ? catalogo.filter(p => p.pub_status !== 'ml_vendedor')
+              : filtroCat === 'ml_vendedor'
+              ? catalogo.filter(p => p.pub_status === 'ml_vendedor')
+              : filtroCat === 'afiliado'
+              ? catalogo.filter(p => p.pub_status === 'afiliado')
+              : catalogo
+            return (
+            <>
+              {/* Filtros */}
+              <div className="flex gap-1.5 flex-wrap mb-2">
+                {([
+                  { key:'todos',         label:`Todos (${catalogo.length})`,          cor:'#f97316' },
+                  { key:'nao_publicado', label:`⚡ Não publicados (${naoPublicados})`, cor:'#ef4444' },
+                  { key:'ml_vendedor',   label:`✅ No ML (${noML})`,                   cor:'#22c55e' },
+                  { key:'afiliado',      label:`🔗 Só afiliado (${afiliados})`,        cor:'#f59e0b' },
+                ] as const).map(f => (
+                  <button key={f.key} onClick={() => setFiltroCat(f.key)}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-bold"
+                    style={{
+                      background: filtroCat===f.key ? f.cor+'25' : 'var(--card)',
+                      border: `1px solid ${filtroCat===f.key ? f.cor : 'var(--border)'}`,
+                      color: filtroCat===f.key ? f.cor : 'var(--muted)',
+                    }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
+              {filtrados.map((p,i) => {
                 const pubBadge = p.pub_status === 'ml_vendedor'
                   ? { label:'✅ No ML',   bg:'rgba(34,197,94,0.2)',  cor:'#22c55e',  border:'rgba(34,197,94,0.5)'  }
                   : p.pub_status === 'afiliado'
@@ -776,8 +808,10 @@ export default function Catalogo() {
                 </div>
                 )
               })}
-            </div>
-          )}
+              </div>
+            </>
+            )
+          })()}
         </div>
       )}
       {/* ── Modal Resultado Publicar Tudo ────────────────────────────────── */}

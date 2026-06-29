@@ -331,6 +331,39 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
 
         _SHIPPING = {"mode": "me2", "local_pick_up": False, "free_shipping": False}
 
+        # Para celulares: busca Anatel ANTES de montar o payload (necessário mesmo com catalog)
+        _anatel_global = ""
+        if categoria == "Celulares":
+            # 1ª fonte: /items/{produto_ext_id}/attributes
+            if produto.produto_ext_id:
+                try:
+                    async with httpx.AsyncClient(timeout=8) as _ca:
+                        _ra = await _ca.get(
+                            f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
+                            headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                        )
+                    if _ra.status_code == 200:
+                        for _a in _ra.json():
+                            if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
+                                _anatel_global = _a.get("value_name","") or ((_a.get("values") or [{}])[0].get("name",""))
+                                break
+                except Exception: pass
+            # 2ª fonte: /products/{catalog_product_id}
+            if not _anatel_global and catalog_product_id:
+                try:
+                    async with httpx.AsyncClient(timeout=8) as _cp:
+                        _rp = await _cp.get(
+                            f"https://api.mercadolibre.com/products/{catalog_product_id}",
+                            headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                        )
+                    if _rp.status_code == 200:
+                        for _a in _rp.json().get("attributes", []):
+                            if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
+                                _vals = _a.get("values") or []
+                                _anatel_global = _a.get("value_name","") or (_vals[0].get("name","") if _vals else "")
+                                break
+                except Exception: pass
+
         if catalog_product_id:
             payload = {
                 "catalog_product_id": catalog_product_id,
@@ -345,21 +378,22 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 "shipping": _SHIPPING,
                 "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
             }
-            # Celulares: atributos obrigatórios pelo catálogo ML
+            # Celulares: atributos obrigatórios + Anatel já buscado acima
             if categoria == "Celulares":
                 ram, storage = _extrair_memoria(produto.titulo)
                 cat_attrs = [
-                    {"id": "BRAND",  "value_name": brand},
-                    {"id": "MODEL",  "value_name": model},
-                    {"id": "COLOR",  "value_name": cor},
+                    {"id": "BRAND",               "value_name": brand},
+                    {"id": "MANUFACTURER",        "value_name": brand},
+                    {"id": "MODEL",               "value_name": model},
+                    {"id": "COLOR",               "value_name": cor},
                     {"id": "ALPHANUMERIC_MODELS", "value_name": model},
-                    {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                    {"id": "IS_DUAL_SIM",         "value_name": "Sim"},
                 ]
-                if ram:     cat_attrs.append({"id": "RAM",             "value_name": ram})
-                if storage: cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
+                if ram:              cat_attrs.append({"id": "RAM",             "value_name": ram})
+                if storage:          cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
+                if _anatel_global:   cat_attrs.append({"id": "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER", "value_name": _anatel_global})
                 payload["attributes"] = cat_attrs
             # Calçados/Roupas com catalog_product_id: o catálogo já gerencia tamanhos/grade
-            # NÃO adicionar variations nem SIZE_GRID_ID → ML rejeita quando usados com catalog
             elif categoria in ("Calçados", "Roupas"):
                 payload["available_quantity"] = data.quantidade
         else:

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Store, TrendingUp, Package, RefreshCw, Settings, Zap, ChevronRight, ShoppingBag } from 'lucide-react'
+import { Store, TrendingUp, Package, RefreshCw, Settings, Zap, ChevronRight, ShoppingBag, ShoppingCart } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#7c3aed 0%,#f97316 100%)'
@@ -16,19 +16,32 @@ const STATUS_COR: Record<string,{bg:string;cor:string}> = {
   ERRO:     { bg:'rgba(239,68,68,0.15)',  cor:'#ef4444' },
 }
 
+const STATUS_PEDIDO: Record<string,{label:string;bg:string;cor:string}> = {
+  PAID:      { label:'Pago',      bg:'rgba(34,197,94,0.15)',   cor:'#22c55e' },
+  DELIVERED: { label:'Entregue',  bg:'rgba(34,197,94,0.15)',   cor:'#22c55e' },
+  SHIPPED:   { label:'Enviado',   bg:'rgba(59,130,246,0.15)',  cor:'#3b82f6' },
+  NOVO:      { label:'Novo',      bg:'rgba(245,158,11,0.15)',  cor:'#f59e0b' },
+  CANCELLED: { label:'Cancelado', bg:'rgba(239,68,68,0.15)',   cor:'#ef4444' },
+}
+
 export default function PainelVendedor() {
   const router = useRouter()
-  const [dash, setDash]     = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
+  const [dash, setDash]         = useState<any>(null)
+  const [pedidos, setPedidos]   = useState<any[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [syncing, setSyncing]   = useState(false)
 
   useEffect(() => { carregar() }, [])
 
   async function carregar() {
     setLoading(true)
     try {
-      const r = await fetch(`${API}/vendedor/dashboard`, { headers: hdr() })
-      setDash(await r.json())
+      const [rd, rp] = await Promise.all([
+        fetch(`${API}/vendedor/dashboard`, { headers: hdr() }),
+        fetch(`${API}/vendedor/pedidos`,   { headers: hdr() }),
+      ])
+      setDash(await rd.json())
+      setPedidos(await rp.json())
     } catch {}
     setLoading(false)
   }
@@ -36,7 +49,10 @@ export default function PainelVendedor() {
   async function syncPedidos() {
     setSyncing(true)
     try {
-      await fetch(`${API}/vendedor/sync-pedidos`, { method:'POST', headers:hdr() })
+      const r = await fetch(`${API}/vendedor/sync-pedidos`, { method:'POST', headers:hdr() })
+      const d = await r.json()
+      if (d.novos_pedidos > 0) alert(`✅ ${d.novos_pedidos} novo(s) pedido(s) sincronizado(s)!`)
+      else alert('Nenhum pedido novo. Já está tudo sincronizado.')
       carregar()
     } catch {}
     setSyncing(false)
@@ -101,6 +117,62 @@ export default function PainelVendedor() {
           style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)' }}>
           Ir ao Catálogo <ChevronRight size={13}/>
         </button>
+      </div>
+
+      {/* Pedidos recentes */}
+      <div className="pg-body rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+        <div className="px-4 py-2.5 flex items-center justify-between" style={{ borderBottom:'1px solid var(--border)' }}>
+          <p className="text-[10px] font-black tracking-widest flex items-center gap-1.5" style={{ color:'var(--muted)' }}>
+            <ShoppingCart size={11}/> PEDIDOS RECEBIDOS
+          </p>
+          <button onClick={syncPedidos} disabled={syncing}
+            className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg"
+            style={{ background:'rgba(34,197,94,0.1)', color:'#22c55e', border:'1px solid rgba(34,197,94,0.3)' }}>
+            <RefreshCw size={9} className={syncing?'animate-spin':''}/> {syncing?'Buscando...':'Sync Pedidos'}
+          </button>
+        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-6"><RefreshCw size={16} color="#22c55e" className="animate-spin"/></div>
+        ) : pedidos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-2" style={{ color:'var(--muted)' }}>
+            <ShoppingCart size={28}/>
+            <p className="text-xs">Nenhum pedido ainda</p>
+            <p className="text-[10px]">Clique em "Sync Pedidos" para buscar do Mercado Livre</p>
+          </div>
+        ) : (
+          <div className="divide-y" style={{ borderColor:'var(--border)' }}>
+            {pedidos.slice(0,10).map((p:any,i:number) => {
+              const st = STATUS_PEDIDO[p.status] || STATUS_PEDIDO.NOVO
+              return (
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background:'rgba(34,197,94,0.1)' }}>
+                    <ShoppingCart size={13} color="#22c55e"/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{p.titulo_produto || '—'}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold" style={{ background:st.bg, color:st.cor }}>
+                        {st.label}
+                      </span>
+                      {p.data_pedido && (
+                        <span className="text-[9px]" style={{ color:'var(--muted)' }}>
+                          {new Date(p.data_pedido).toLocaleDateString('pt-BR')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs font-black" style={{ color:'#22c55e' }}>{fmtR(p.valor_venda)}</p>
+                    {p.lucro_estimado > 0 && (
+                      <p className="text-[9px]" style={{ color:'#f97316' }}>lucro ~{fmtR(p.lucro_estimado)}</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Anúncios recentes */}

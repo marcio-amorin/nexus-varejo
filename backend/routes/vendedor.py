@@ -780,11 +780,30 @@ def dashboard_vendedor(db: Session = Depends(get_db), _=Depends(get_current_user
         ]
     }
 
+# ─── Listar pedidos ──────────────────────────────────────────────────────────
+
+@router.get("/pedidos")
+def listar_pedidos(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    pedidos = db.query(VendedorPedido).order_by(VendedorPedido.data_pedido.desc()).limit(100).all()
+    return [
+        {
+            "id": p.id,
+            "pedido_ext_id": p.pedido_ext_id,
+            "titulo_produto": p.titulo_produto,
+            "valor_venda": p.valor_venda,
+            "lucro_estimado": p.lucro_estimado,
+            "status": p.status,
+            "plataforma": p.plataforma,
+            "data_pedido": p.data_pedido.isoformat() if p.data_pedido else None,
+        }
+        for p in pedidos
+    ]
+
 # ─── Sync pedidos ML ─────────────────────────────────────────────────────────
 
 @router.post("/sync-pedidos")
 async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Busca pedidos recentes na conta ML vendedor e salva no banco"""
+    """Busca pedidos recentes na conta ML vendedor, salva e atualiza faturamento dos anúncios"""
     cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
     if not cfg or not cfg.access_token:
         return {"ok": False, "msg": "Conta ML Vendedor não configurada"}
@@ -801,19 +820,42 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
         data = r.json()
         novos = 0
         for order in data.get("results", []):
-            ext_id = str(order.get("id", ""))
-            existe = db.query(VendedorPedido).filter_by(pedido_ext_id=ext_id).first()
-            if not existe:
-                for item in order.get("order_items", []):
+            ext_id    = str(order.get("id", ""))
+            status_ml = order.get("status", "novo").upper()
+            existe    = db.query(VendedorPedido).filter_by(pedido_ext_id=ext_id).first()
+
+            for item in order.get("order_items", []):
+                item_id   = item.get("item", {}).get("id", "")   # listing_id do ML
+                titulo    = item.get("item", {}).get("title", "")
+                qty       = int(item.get("quantity", 1))
+                valor     = float(item.get("unit_price", 0)) * qty
+
+                # Vincula ao VendedorAnuncio pelo listing_id
+                anuncio = db.query(VendedorAnuncio).filter_by(listing_id=item_id).first()
+
+                if not existe:
+                    lucro = 0.0
+                    if anuncio and anuncio.preco_custo:
+                        lucro = round((valor - anuncio.preco_custo * qty), 2)
                     p = VendedorPedido(
                         plataforma="ML_VENDEDOR",
                         pedido_ext_id=ext_id,
-                        titulo_produto=item.get("item", {}).get("title", ""),
-                        valor_venda=float(item.get("unit_price", 0)) * int(item.get("quantity", 1)),
-                        status=order.get("status", "NOVO").upper(),
+                        anuncio_id=anuncio.id if anuncio else None,
+                        titulo_produto=titulo,
+                        valor_venda=valor,
+                        lucro_estimado=lucro,
+                        status=status_ml,
                         data_pedido=datetime.utcnow(),
                     )
-                    db.add(p); novos += 1
+                    db.add(p)
+                    novos += 1
+
+                    # Atualiza faturamento e contagem de vendas no anúncio
+                    if anuncio and status_ml in ("PAID", "DELIVERED", "SHIPPED"):
+                        anuncio.faturamento   = (anuncio.faturamento or 0) + valor
+                        anuncio.vendas_count  = (anuncio.vendas_count or 0) + qty
+                elif existe and existe.status != status_ml:
+                    existe.status = status_ml
 
         db.commit()
         return {"ok": True, "novos_pedidos": novos}

@@ -810,12 +810,27 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
+            # Pega o seller_id real (necessário para /orders/search)
+            seller_id = cfg.seller_id
+            if not seller_id:
+                ru = await client.get(
+                    "https://api.mercadolibre.com/users/me",
+                    headers={"Authorization": f"Bearer {cfg.access_token}"}
+                )
+                if ru.status_code == 200:
+                    seller_id = str(ru.json().get("id", ""))
+                    cfg.seller_id = seller_id
+                    db.commit()
+
+            if not seller_id:
+                return {"ok": False, "msg": "Não foi possível obter seller_id"}
+
             r = await client.get(
-                "https://api.mercadolibre.com/orders/search?seller=me&sort=date_desc&limit=50",
+                f"https://api.mercadolibre.com/orders/search?seller={seller_id}&sort=date_desc&limit=50",
                 headers={"Authorization": f"Bearer {cfg.access_token}"}
             )
         if r.status_code != 200:
-            return {"ok": False, "msg": f"API ML retornou {r.status_code}"}
+            return {"ok": False, "msg": f"API ML retornou {r.status_code}: {r.text[:200]}"}
 
         data = r.json()
         novos = 0

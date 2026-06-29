@@ -51,10 +51,15 @@ export default function PainelVendedor() {
     try {
       const r = await fetch(`${API}/vendedor/sync-pedidos`, { method:'POST', headers:hdr() })
       const d = await r.json()
-      if (d.novos_pedidos > 0) alert(`✅ ${d.novos_pedidos} novo(s) pedido(s) sincronizado(s)!`)
-      else alert('Nenhum pedido novo. Já está tudo sincronizado.')
+      if (!d.ok && d.msg) {
+        alert(`❌ Erro ao sincronizar: ${d.msg}`)
+      } else if (d.novos_pedidos > 0) {
+        alert(`✅ ${d.novos_pedidos} novo(s) pedido(s) sincronizado(s)!`)
+      } else {
+        alert(`Sincronizado. Total de pedidos encontrados: ${d.total_encontrados ?? 0}. Novos salvos: 0.`)
+      }
       carregar()
-    } catch {}
+    } catch(e:any) { alert(`Erro: ${e.message}`) }
     setSyncing(false)
   }
 

@@ -833,19 +833,19 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
             return {"ok": False, "msg": f"API ML retornou {r.status_code}: {r.text[:200]}"}
 
         data = r.json()
+        results = data.get("results", [])
         novos = 0
-        for order in data.get("results", []):
+        for order in results:
             ext_id    = str(order.get("id", ""))
             status_ml = order.get("status", "novo").upper()
             existe    = db.query(VendedorPedido).filter_by(pedido_ext_id=ext_id).first()
 
             for item in order.get("order_items", []):
-                item_id   = item.get("item", {}).get("id", "")   # listing_id do ML
+                item_id   = item.get("item", {}).get("id", "")
                 titulo    = item.get("item", {}).get("title", "")
                 qty       = int(item.get("quantity", 1))
                 valor     = float(item.get("unit_price", 0)) * qty
 
-                # Vincula ao VendedorAnuncio pelo listing_id
                 anuncio = db.query(VendedorAnuncio).filter_by(listing_id=item_id).first()
 
                 if not existe:
@@ -865,14 +865,13 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
                     db.add(p)
                     novos += 1
 
-                    # Atualiza faturamento e contagem de vendas no anúncio
                     if anuncio and status_ml in ("PAID", "DELIVERED", "SHIPPED"):
-                        anuncio.faturamento   = (anuncio.faturamento or 0) + valor
-                        anuncio.vendas_count  = (anuncio.vendas_count or 0) + qty
+                        anuncio.faturamento  = (anuncio.faturamento or 0) + valor
+                        anuncio.vendas_count = (anuncio.vendas_count or 0) + qty
                 elif existe and existe.status != status_ml:
                     existe.status = status_ml
 
         db.commit()
-        return {"ok": True, "novos_pedidos": novos}
+        return {"ok": True, "novos_pedidos": novos, "total_encontrados": len(results), "seller_id_usado": seller_id}
     except Exception as e:
         return {"ok": False, "msg": str(e)[:200]}

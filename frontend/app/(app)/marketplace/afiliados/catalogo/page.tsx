@@ -197,14 +197,16 @@ export default function Catalogo() {
     const seen = new Set<string>()
     const todos: any[] = []
 
-    // Fase 1: por categoria ML — 2 categorias por vez, 3 páginas cada (offset 0, 50 e 100), com pausa entre lotes
-    // (lotes grandes demais fazem o ML bloquear o IP do navegador no meio da busca)
+    // Fase 1: por categoria ML — 2 categorias por vez, 4 páginas cada (offset 0/50/100/150), com pausa entre lotes
+    // (lotes grandes demais fazem o ML bloquear o IP do navegador no meio da busca; ir mais fundo em vez de
+    // mais largo evita repetir os mesmos best-sellers que já aparecem em categorias parecidas)
     for (let i = 0; i < CATS_ML.length; i += 2) {
       const lote = CATS_ML.slice(i, i + 2)
       const resultados = await Promise.all([
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 0)),
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 50)),
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 100)),
+        ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 150)),
       ])
       for (const prods of resultados) {
         for (const p of prods) {

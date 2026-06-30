@@ -658,6 +658,7 @@ _CATS_SYNC_ML = [
     "MLB1055", "MLB432", "MLB1648", "MLB1144", "MLB1574", "MLB109285", "MLB7195",
     "MLB1246", "MLB1276", "MLB1248", "MLB108562", "MLB1430", "MLB1459", "MLB1010",
     "MLB218519", "MLB1196", "MLB1132", "MLB1071", "MLB1499",
+    "MLB3025", "MLB1384", "MLB1747", "MLB1403", "MLB1168", "MLB1039",
 ]
 _TERMOS_SYNC_ML = [
     "samsung galaxy s", "motorola moto g edge", "xiaomi redmi note", "smart tv 65 4k",
@@ -666,6 +667,9 @@ _TERMOS_SYNC_ML = [
     "aspirador robô wifi", "tablet android", "câmera mirrorless", "caixa de som bluetooth",
     "panela elétrica", "mochila notebook", "óculos de sol", "relógio inteligente",
     "jogo de panelas", "colchão casal", "brinquedo educativo", "ração premium cachorro",
+    "tênis feminino casual", "perfume importado feminino", "fralda descartável", "carrinho de bebê",
+    "kit ferramentas elétricas", "pneu carro", "som automotivo", "livro best seller",
+    "console portátil", "luminária led", "bicicleta aro 29", "panela de pressão elétrica",
 ]
 
 @router.get("/ultima-sincronizacao")
@@ -694,18 +698,28 @@ async def sincronizar_top250(db: Session = Depends(get_db), _=Depends(get_curren
     seen: set = set()
     achados: list = []
 
+    # Por categoria: 4 páginas (offset 0/50/100/150) — vai além do topo do topo,
+    # senão os mesmos best-sellers se repetem entre categorias parecidas e o total
+    # de itens únicos emperra bem abaixo de 250.
     for i in range(0, len(_CATS_SYNC_ML), 4):
         lote = _CATS_SYNC_ML[i:i + 4]
-        res = await asyncio.gather(*[_buscar({"category": cat, "sort": "sold_quantity_desc", "limit": 50}) for cat in lote])
+        res = await asyncio.gather(*[
+            _buscar({"category": cat, "sort": "sold_quantity_desc", "limit": 50, "offset": off})
+            for cat in lote for off in (0, 50, 100, 150)
+        ])
         for items in res:
             for it in items:
                 pid = it.get("id")
                 if pid and pid not in seen:
                     seen.add(pid); achados.append(it)
 
+    # Por termo: 3 páginas (offset 0/30/60)
     for i in range(0, len(_TERMOS_SYNC_ML), 4):
         lote = _TERMOS_SYNC_ML[i:i + 4]
-        res = await asyncio.gather(*[_buscar({"q": termo, "sort": "sold_quantity_desc", "limit": 30}) for termo in lote])
+        res = await asyncio.gather(*[
+            _buscar({"q": termo, "sort": "sold_quantity_desc", "limit": 30, "offset": off})
+            for termo in lote for off in (0, 30, 60)
+        ])
         for items in res:
             for it in items:
                 pid = it.get("id")

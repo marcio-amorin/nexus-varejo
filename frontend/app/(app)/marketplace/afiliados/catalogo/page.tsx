@@ -298,6 +298,8 @@ export default function Catalogo() {
     setProgressoEnvio({ atual:0, total:pendentes.length })
     const falhas: { titulo:string, motivo:string }[] = []
     let sucesso = 0
+    let throttleSeguidas = 0
+    let parouPorThrottle = false
     for (let i = 0; i < pendentes.length; i++) {
       const p = pendentes[i]
       setProgressoEnvio({ atual:i+1, total:pendentes.length })
@@ -308,20 +310,23 @@ export default function Catalogo() {
         })
         const d = await r.json()
         const passoMl = (d.passos||[]).find((s:any) => s.passo === 'ML Vendedor')
-        if (passoMl?.status?.startsWith('✅')) sucesso++
+        if (passoMl?.status?.startsWith('✅')) { sucesso++; throttleSeguidas = 0 }
         else {
           const detalhe = passoMl?.detalhe ? ` — ${typeof passoMl.detalhe==='object' ? JSON.stringify(passoMl.detalhe) : passoMl.detalhe}` : ''
           falhas.push({ titulo:p.titulo, motivo: (passoMl?.status || 'Falha desconhecida') + detalhe })
+          // Mercado Livre limitando criação de anúncios grátis — parar de insistir nos restantes
+          throttleSeguidas = passoMl?.throttle ? throttleSeguidas + 1 : 0
+          if (throttleSeguidas >= 3) { parouPorThrottle = true; break }
         }
       } catch (e:any) {
         falhas.push({ titulo:p.titulo, motivo: 'Falha de conexão: ' + e.message })
       }
-      // Pausa entre envios para não sobrecarregar o backend (cada publicação faz várias chamadas à API do ML)
-      if (i < pendentes.length - 1) await new Promise(res => setTimeout(res, 1200))
+      // Pausa entre envios para não sobrecarregar o backend e reduzir risco de limite do ML
+      if (i < pendentes.length - 1) await new Promise(res => setTimeout(res, 3000))
     }
     await carregarCatalogo()
     setEnviandoTodos(false)
-    setResultadoEnvioTodos({ total:pendentes.length, sucesso, falhas })
+    setResultadoEnvioTodos({ total:pendentes.length, sucesso, falhas, parouPorThrottle, restantes: pendentes.length - sucesso - falhas.length })
   }
 
   async function importarLink() {
@@ -956,6 +961,14 @@ export default function Catalogo() {
                   <p className="text-[9px]" style={{ color:'var(--muted)' }}>Sem publicar (link afiliado gerado)</p>
                 </div>
               </div>
+              {resultadoEnvioTodos.parouPorThrottle && (
+                <div className="p-2.5 rounded-lg" style={{ background:'rgba(245,158,11,0.12)', border:'1px solid rgba(245,158,11,0.3)' }}>
+                  <p className="text-[10px] font-bold" style={{ color:'#f59e0b' }}>⏳ Parado: Mercado Livre limitou anúncios grátis temporariamente</p>
+                  <p className="text-[9px] mt-0.5" style={{ color:'var(--muted)' }}>
+                    {resultadoEnvioTodos.restantes} produto(s) nem chegou a tentar. Aguarde alguns minutos e clique em "Enviar Todos" de novo.
+                  </p>
+                </div>
+              )}
               {resultadoEnvioTodos.falhas.length > 0 && (
                 <div className="space-y-1.5 pt-1">
                   {resultadoEnvioTodos.falhas.map((f:any,i:number) => (

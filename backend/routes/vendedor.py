@@ -388,7 +388,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     {"id": "COLOR",               "value_name": cor},
                     {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                     {"id": "IS_DUAL_SIM",         "value_name": "Sim"},
-                    {"id": "CARRIER",             "value_name": "Não aplicável"},
+                    {"id": "CARRIER",             "value_name": "Desbloqueado"},
                 ]
                 if ram:              cat_attrs.append({"id": "RAM",             "value_name": ram})
                 if storage:          cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
@@ -409,7 +409,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     {"id": "MAIN_COLOR", "value_name": cor},
                     {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                     {"id": "IS_DUAL_SIM", "value_name": "Sim"},
-                    {"id": "CARRIER", "value_name": "Não aplicável"},
+                    {"id": "CARRIER", "value_name": "Desbloqueado"},
                 ]
             elif categoria in ("Smartwatches", "Áudio", "Roupas", "Acessórios", "Esporte", "Calçados"):
                 attrs.append({"id": "COLOR", "value_name": cor})
@@ -441,7 +441,10 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
 
             if not ml_ok and r.status_code == 400:
                 err_txt = r.text
-                if catalog_product_id and ("listing_type" in err_txt or "not_allowed" in err_txt or "forbidden" in err_txt.lower()):
+                if "listing_type_temporarily_unavailable" in err_txt:
+                    # Throttle do ML para criação de anúncios grátis — não é erro de dados, é limite temporário da conta
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
+                elif catalog_product_id and ("listing_type" in err_txt or "not_allowed" in err_txt or "forbidden" in err_txt.lower()):
                     # Catálogo não aceita free → tenta payload normal com atributos
                     attrs2: list = [{"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model}, {"id": "COLOR", "value_name": cor}]
                     p2 = {
@@ -457,65 +460,74 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     if not ml_ok:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 elif "shipping.lost_me" in err_txt or "4053" in err_txt:
-                    # Catalog força ME1 → retry sem catalog_product_id + me2 + busca Anatel
-                    ram2, storage2 = _extrair_memoria(produto.titulo)
-                    attrs_ship = [
-                        {"id": "BRAND",              "value_name": brand},
-                        {"id": "MANUFACTURER",       "value_name": brand},
-                        {"id": "MODEL",              "value_name": model},
-                        {"id": "COLOR",              "value_name": cor},
-                        {"id": "ALPHANUMERIC_MODELS","value_name": model},
-                        {"id": "IS_DUAL_SIM",        "value_name": "Sim"},
-                        {"id": "CARRIER",            "value_name": "Não aplicável"},
-                    ]
-                    if ram2:     attrs_ship.append({"id": "RAM",             "value_name": ram2})
-                    if storage2: attrs_ship.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
-                    # Busca Anatel: 1ª via /items/{ext_id}/attributes
-                    _anatel = ""
-                    if produto.produto_ext_id:
-                        try:
-                            async with httpx.AsyncClient(timeout=8) as _ca:
-                                _ra = await _ca.get(
-                                    f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
-                                    headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
-                                )
-                            if _ra.status_code == 200:
-                                for _a in _ra.json():
-                                    if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
-                                        _anatel = _a.get("value_name","") or ((_a.get("values") or [{}])[0].get("name",""))
-                                        break
-                        except Exception: pass
-                    # Busca Anatel: 2ª via /products/{catalog_id} (atributos do catálogo ML)
-                    if not _anatel and catalog_product_id:
-                        try:
-                            async with httpx.AsyncClient(timeout=8) as _cp:
-                                _rp = await _cp.get(
-                                    f"https://api.mercadolibre.com/products/{catalog_product_id}",
-                                    headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
-                                )
-                            if _rp.status_code == 200:
-                                for _a in _rp.json().get("attributes", []):
-                                    if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
-                                        _vals = _a.get("values") or []
-                                        _anatel = _a.get("value_name","") or (_vals[0].get("name","") if _vals else "")
-                                        break
-                        except Exception: pass
-                    if _anatel:
-                        attrs_ship.append({"id": "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER", "value_name": _anatel})
-                    p2 = {
-                        "title": produto.titulo[:60], "category_id": cat_id,
-                        "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
-                        "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
-                        "shipping": _SHIPPING,
-                        "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
-                        "attributes": attrs_ship,
-                    }
+                    # Catalog força ME1 → retry sem catalog_product_id + me2
+                    if categoria == "Celulares":
+                        # Celular: reconstrói atributos específicos + busca Anatel
+                        ram2, storage2 = _extrair_memoria(produto.titulo)
+                        attrs_ship = [
+                            {"id": "BRAND",              "value_name": brand},
+                            {"id": "MANUFACTURER",       "value_name": brand},
+                            {"id": "MODEL",              "value_name": model},
+                            {"id": "COLOR",              "value_name": cor},
+                            {"id": "ALPHANUMERIC_MODELS","value_name": model},
+                            {"id": "IS_DUAL_SIM",        "value_name": "Sim"},
+                            {"id": "CARRIER",            "value_name": "Desbloqueado"},
+                        ]
+                        if ram2:     attrs_ship.append({"id": "RAM",             "value_name": ram2})
+                        if storage2: attrs_ship.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
+                        # Busca Anatel: 1ª via /items/{ext_id}/attributes
+                        _anatel = ""
+                        if produto.produto_ext_id:
+                            try:
+                                async with httpx.AsyncClient(timeout=8) as _ca:
+                                    _ra = await _ca.get(
+                                        f"https://api.mercadolibre.com/items/{produto.produto_ext_id}/attributes",
+                                        headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                                    )
+                                if _ra.status_code == 200:
+                                    for _a in _ra.json():
+                                        if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
+                                            _anatel = _a.get("value_name","") or ((_a.get("values") or [{}])[0].get("name",""))
+                                            break
+                            except Exception: pass
+                        # Busca Anatel: 2ª via /products/{catalog_id} (atributos do catálogo ML)
+                        if not _anatel and catalog_product_id:
+                            try:
+                                async with httpx.AsyncClient(timeout=8) as _cp:
+                                    _rp = await _cp.get(
+                                        f"https://api.mercadolibre.com/products/{catalog_product_id}",
+                                        headers={"Authorization": f"Bearer {cfg_vendedor.access_token}"}
+                                    )
+                                if _rp.status_code == 200:
+                                    for _a in _rp.json().get("attributes", []):
+                                        if _a.get("id") == "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER":
+                                            _vals = _a.get("values") or []
+                                            _anatel = _a.get("value_name","") or (_vals[0].get("name","") if _vals else "")
+                                            break
+                            except Exception: pass
+                        if _anatel:
+                            attrs_ship.append({"id": "CELLPHONES_ANATEL_HOMOLOGATION_NUMBER", "value_name": _anatel})
+                        p2 = {
+                            "title": produto.titulo[:60], "category_id": cat_id,
+                            "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                            "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                            "shipping": _SHIPPING,
+                            "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                            "attributes": attrs_ship,
+                        }
+                    else:
+                        # Outras categorias: mantém os atributos originais (já corretos para a categoria),
+                        # só remove catalog_product_id e força shipping ME2.
+                        p2 = {k: v for k, v in payload.items() if k != "catalog_product_id"}
+                        p2["shipping"] = _SHIPPING
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
                         err2 = r.text
                         if "ANATEL" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ N° Anatel não encontrado para este modelo → link afiliado gerado."})
+                        elif "listing_type_temporarily_unavailable" in err2:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
                         elif "shipping" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Erro de frete (ME2/shipping) → link afiliado gerado.", "detalhe": err2[:300]})
                         else:
@@ -526,7 +538,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         {"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model},
                         {"id": "COLOR", "value_name": cor}, {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                         {"id": "IS_DUAL_SIM", "value_name": "Sim"},
-                        {"id": "CARRIER", "value_name": "Não aplicável"},
+                        {"id": "CARRIER", "value_name": "Desbloqueado"},
                     ]
                     if ram2: retry_attrs.append({"id": "RAM", "value_name": ram2})
                     if storage2: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
@@ -552,7 +564,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         {"id": "COLOR", "value_name": cor},
                     ]
                     if categoria == "Celulares":
-                        retry_attrs3.append({"id": "CARRIER", "value_name": "Não aplicável"})
+                        retry_attrs3.append({"id": "CARRIER", "value_name": "Desbloqueado"})
                     p2 = {**payload, "attributes": retry_attrs3}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)

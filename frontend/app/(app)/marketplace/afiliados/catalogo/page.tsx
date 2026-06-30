@@ -96,8 +96,10 @@ export default function Catalogo() {
     try {
       const r = await fetch(`${API}/afiliados/catalogo`, { headers: hdr() })
       const d = await r.json()
-      setCat(Array.isArray(d) ? d : [])
-    } catch { setCat([]) }
+      // Só substitui a lista se a resposta for válida — erro de rede/servidor
+      // não pode apagar o catálogo já carregado na tela.
+      if (Array.isArray(d)) setCat(d)
+    } catch { /* mantém o catálogo atual em caso de falha de rede */ }
   }
 
   async function getMLToken(): Promise<string|null> {
@@ -296,10 +298,15 @@ export default function Catalogo() {
         const d = await r.json()
         const passoMl = (d.passos||[]).find((s:any) => s.passo === 'ML Vendedor')
         if (passoMl?.status?.startsWith('✅')) sucesso++
-        else falhas.push({ titulo:p.titulo, motivo: passoMl?.status || 'Falha desconhecida' })
+        else {
+          const detalhe = passoMl?.detalhe ? ` — ${typeof passoMl.detalhe==='object' ? JSON.stringify(passoMl.detalhe) : passoMl.detalhe}` : ''
+          falhas.push({ titulo:p.titulo, motivo: (passoMl?.status || 'Falha desconhecida') + detalhe })
+        }
       } catch (e:any) {
-        falhas.push({ titulo:p.titulo, motivo: e.message })
+        falhas.push({ titulo:p.titulo, motivo: 'Falha de conexão: ' + e.message })
       }
+      // Pausa entre envios para não sobrecarregar o backend (cada publicação faz várias chamadas à API do ML)
+      if (i < pendentes.length - 1) await new Promise(res => setTimeout(res, 1200))
     }
     await carregarCatalogo()
     setEnviandoTodos(false)

@@ -143,9 +143,9 @@ export default function Catalogo() {
     setLoadingAuto(true); setRes([]); setErro('')
 
     // Busca direto do browser (IP residencial → ML não bloqueia)
-    // Fase 1: por CATEGORIA (top vendidos por categoria, sem sobreposição) — 15 cats × 50 = 750 raw
-    // Fase 2: por PALAVRA-CHAVE complementar — 15 termos × 30 = 450 raw
-    // Total esperado após dedup: 400–600 produtos únicos
+    // Fase 1: por CATEGORIA (top vendidos por categoria, sem sobreposição) — 19 cats × 150 = 2850 raw
+    // Fase 2: por PALAVRA-CHAVE complementar — 24 termos × 100 = 2400 raw
+    // Total esperado após dedup: bem maior que antes (estava limitado a 2 páginas/cat e 1 página/termo)
     const CATS_ML = [
       'MLB1055',  // Celulares e Smartphones
       'MLB432',   // Televisores
@@ -162,6 +162,10 @@ export default function Catalogo() {
       'MLB1459',  // Eletrônicos em geral
       'MLB1010',  // Câmeras e Foto
       'MLB218519',// Ferramentas e Construção
+      'MLB1196',  // Casa, Móveis e Decoração
+      'MLB1132',  // Brinquedos e Hobbies
+      'MLB1071',  // Animais (Pet Shop)
+      'MLB1499',  // Indústria e Comércio
     ]
     const TERMOS = [
       'samsung galaxy s', 'motorola moto g edge', 'xiaomi redmi note',
@@ -169,17 +173,21 @@ export default function Catalogo() {
       'tênis corrida masculino', 'perfume importado masculino', 'air fryer digital',
       'suplemento whey protein', 'cadeira gamer', 'kit skincare facial',
       'aspirador robô wifi', 'tablet android', 'câmera mirrorless',
+      'caixa de som bluetooth', 'panela elétrica', 'mochila notebook',
+      'óculos de sol', 'relógio inteligente', 'jogo de panelas',
+      'colchão casal', 'brinquedo educativo', 'ração premium cachorro',
     ]
 
     const seen = new Set<string>()
     const todos: any[] = []
 
-    // Fase 1: por categoria ML — 2 páginas por categoria (offset 0 e 50) → 15 cats × 100 = 1500 raw
+    // Fase 1: por categoria ML — 3 páginas por categoria (offset 0, 50 e 100)
     for (let i = 0; i < CATS_ML.length; i += 3) {
       const lote = CATS_ML.slice(i, i + 3)
       const resultados = await Promise.all([
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 0)),
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 50)),
+        ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 100)),
       ])
       for (const prods of resultados) {
         for (const p of prods) {
@@ -188,10 +196,13 @@ export default function Catalogo() {
       }
     }
 
-    // Fase 2: por palavra-chave (15 termos, lotes de 5 em paralelo)
+    // Fase 2: por palavra-chave (24 termos, lotes de 5 em paralelo) — 2 páginas por termo (offset 0 e 50)
     for (let i = 0; i < TERMOS.length; i += 5) {
       const lote = TERMOS.slice(i, i + 5)
-      const resultados = await Promise.all(lote.map(t => buscarMLBrowser(t, 50)))
+      const resultados = await Promise.all([
+        ...lote.map(t => buscarMLBrowser(t, 50, undefined, undefined, 0)),
+        ...lote.map(t => buscarMLBrowser(t, 50, undefined, undefined, 50)),
+      ])
       for (const prods of resultados) {
         for (const p of prods) {
           if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }

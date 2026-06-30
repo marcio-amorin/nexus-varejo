@@ -594,12 +594,12 @@ export default function Catalogo() {
     <div className="pg">
       {/* Header */}
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
-        <div className="px-5 py-4 flex items-center justify-between">
-          <div>
+        <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="w-full sm:w-auto">
             <h1 className="text-base font-black text-white flex items-center gap-2"><ShoppingBag size={16}/> Catálogo Produtos</h1>
             <p className="text-xs text-white/75 mt-0.5">Produtos mais vendidos — salve e promova</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button onClick={() => { setModalLink(true); setImportResult(null); setImportErro(''); setInputLink(''); setPrecoManual(''); setImagemManual(''); setTituloManual('') }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black"
               style={{ background:'rgba(255,255,255,0.2)', color:'#fff', border:'1px solid rgba(255,255,255,0.35)' }}>

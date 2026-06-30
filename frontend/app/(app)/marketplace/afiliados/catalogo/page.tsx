@@ -105,16 +105,22 @@ export default function Catalogo() {
   }
 
   // Renova os 250 melhores produtos do ML no catálogo 1x por dia (servidor — não depende do navegador)
-  async function sincronizarSeNecessario() {
+  // force=true ignora a checagem de 24h (botão "Atualizar agora")
+  async function sincronizarSeNecessario(force = false) {
+    if (sincronizandoAuto) return
     try {
-      const r = await fetch(`${API}/afiliados/ultima-sincronizacao`, { headers: hdr() })
-      const d = await r.json()
-      const ultima = d.ultima_sincronizacao ? new Date(d.ultima_sincronizacao).getTime() : 0
-      if (Date.now() - ultima < 24 * 60 * 60 * 1000) return
+      if (!force) {
+        const r = await fetch(`${API}/afiliados/ultima-sincronizacao`, { headers: hdr() })
+        const d = await r.json()
+        const ultima = d.ultima_sincronizacao ? new Date(d.ultima_sincronizacao).getTime() : 0
+        if (Date.now() - ultima < 24 * 60 * 60 * 1000) return
+      }
       setSincronizandoAuto(true)
-      await fetch(`${API}/afiliados/sincronizar-top250`, { method:'POST', headers:hdr() })
+      const r2 = await fetch(`${API}/afiliados/sincronizar-top250`, { method:'POST', headers:hdr() })
+      const d2 = await r2.json()
       await carregarCatalogo()
-    } catch { /* falha silenciosa — tenta de novo na próxima abertura */ }
+      if (force) alert(`✅ Catálogo atualizado: ${d2.criados||0} novos, ${d2.atualizados||0} repreçados.`)
+    } catch (e:any) { if (force) alert('❌ Erro ao atualizar: ' + e.message) }
     setSincronizandoAuto(false)
   }
 
@@ -610,11 +616,12 @@ export default function Catalogo() {
             <span className="text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
               {catalogo.length} salvos
             </span>
-            {sincronizandoAuto && (
-              <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
-                <RefreshCw size={11} className="animate-spin"/> Atualizando melhores produtos…
-              </span>
-            )}
+            <button onClick={() => sincronizarSeNecessario(true)} disabled={sincronizandoAuto}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black"
+              style={{ background:'rgba(255,255,255,0.2)', color:'#fff', border:'1px solid rgba(255,255,255,0.35)', opacity:sincronizandoAuto?0.7:1 }}>
+              <RefreshCw size={12} className={sincronizandoAuto ? 'animate-spin' : ''}/>
+              {sincronizandoAuto ? 'Atualizando melhores produtos…' : 'Atualizar agora'}
+            </button>
           </div>
         </div>
       </div>

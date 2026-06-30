@@ -73,6 +73,19 @@ export default function MeusAnuncios() {
     carregar()
   }
 
+  const [reparandoId, setReparandoId] = useState<number|null>(null)
+  async function reparar(id: number) {
+    setReparandoId(id)
+    try {
+      const r = await fetch(`${API}/vendedor/anuncios/${id}/reparar`, { method:'POST', headers:hdr() })
+      const d = await r.json()
+      if (!r.ok) { alert('❌ ' + (d.detail || 'Erro ao reparar')); return }
+      alert(d.atualizado_no_ml ? '✅ Preço e foto corrigidos no anúncio do ML.' : '✅ Corrigido localmente. (Não foi possível atualizar no ML — confira a conta vendedor)')
+    } catch (e:any) { alert('❌ ' + e.message) }
+    setReparandoId(null)
+    carregar()
+  }
+
   return (
     <div className="pg">
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
@@ -167,6 +180,13 @@ export default function MeusAnuncios() {
                       <span className="font-black" style={{ color:'#22c55e' }}>Margem: {a.margem_pct}%</span>
                     </div>
                     <p className="text-sm font-black" style={{ color:'#f97316' }}>{fmtR(a.preco_venda)}</p>
+                    {(!a.imagem_url || !a.preco_venda) && (
+                      <button onClick={() => reparar(a.id)} disabled={reparandoId===a.id}
+                        className="w-full py-1.5 rounded-lg text-[9px] font-black flex items-center justify-center gap-1"
+                        style={{ background:'rgba(245,158,11,0.18)', color:'#f59e0b', border:'1px solid rgba(245,158,11,0.4)', opacity:reparandoId===a.id?0.6:1 }}>
+                        {reparandoId===a.id ? <><RefreshCw size={9} className="animate-spin"/> Reparando...</> : '🛠️ Reparar preço/foto'}
+                      </button>
+                    )}
                     {/* Ações */}
                     <div className="flex gap-1 mt-auto pt-1">
                       {a.url_anuncio && (

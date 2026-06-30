@@ -702,6 +702,57 @@ def atualizar_anuncio(anuncio_id: int, data: AnuncioUpdateIn, db: Session = Depe
     db.commit()
     return {"ok": True}
 
+@router.post("/anuncios/{anuncio_id}/reparar")
+async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Busca preço/foto reais do produto de origem no ML e corrige o anúncio (local + ML, se já publicado)."""
+    a = db.query(VendedorAnuncio).filter_by(id=anuncio_id).first()
+    if not a:
+        raise HTTPException(404, "Anúncio não encontrado")
+    produto = db.query(AfiliadoProduto).filter_by(id=a.produto_afiliado_id).first() if a.produto_afiliado_id else None
+    if not produto or not produto.produto_ext_id:
+        raise HTTPException(400, "Anúncio sem produto de origem vinculado — não há de onde buscar preço/foto. Exclua e crie de novo.")
+
+    async with httpx.AsyncClient(timeout=12) as client:
+        r = await client.get(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}")
+    if r.status_code != 200:
+        raise HTTPException(400, f"Não foi possível consultar o produto original no ML (status {r.status_code})")
+    item = r.json()
+    preco_real = item.get("price") or 0
+    if not preco_real:
+        raise HTTPException(400, "O produto original também está sem preço no Mercado Livre")
+    imagens = item.get("pictures") or []
+    imagem_url = (imagens[0].get("url") if imagens else "") or item.get("thumbnail") or ""
+
+    preco_venda = round(preco_real * 1.15, 2)
+    margem = round((preco_venda - preco_real) / preco_real * 100, 1)
+
+    produto.preco = preco_real
+    if imagem_url: produto.imagem_url = imagem_url
+    a.preco_custo = preco_real
+    a.preco_venda = preco_venda
+    a.margem_pct = margem
+    if imagem_url: a.imagem_url = imagem_url
+
+    atualizado_no_ml = False
+    if a.listing_id:
+        cfg_vendedor = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+        if cfg_vendedor and cfg_vendedor.access_token:
+            update_payload: dict = {"price": preco_venda}
+            if imagem_url: update_payload["pictures"] = [{"source": imagem_url}]
+            try:
+                async with httpx.AsyncClient(timeout=15) as client2:
+                    rp = await client2.put(
+                        f"https://api.mercadolibre.com/items/{a.listing_id}",
+                        headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
+                        json=update_payload
+                    )
+                atualizado_no_ml = rp.status_code in (200, 201)
+            except Exception:
+                pass
+
+    db.commit()
+    return {"ok": True, "preco_venda": preco_venda, "imagem_url": imagem_url, "atualizado_no_ml": atualizado_no_ml}
+
 @router.delete("/anuncios/{anuncio_id}")
 def remover_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     a = db.query(VendedorAnuncio).filter_by(id=anuncio_id).first()

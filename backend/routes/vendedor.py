@@ -444,21 +444,6 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 if "listing_type_temporarily_unavailable" in err_txt:
                     # Throttle do ML para criação de anúncios grátis — não é erro de dados, é limite temporário da conta
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
-                elif catalog_product_id and ("listing_type" in err_txt or "not_allowed" in err_txt or "forbidden" in err_txt.lower()):
-                    # Catálogo não aceita free → tenta payload normal com atributos
-                    attrs2: list = [{"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model}, {"id": "COLOR", "value_name": cor}]
-                    p2 = {
-                        "title": produto.titulo[:60], "category_id": cat_id,
-                        "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
-                        "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
-                        "shipping": _SHIPPING,
-                        "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
-                        "attributes": attrs2,
-                    }
-                    r = await _publicar_ml(p2)
-                    ml_ok = r.status_code in (200, 201)
-                    if not ml_ok:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 elif "shipping.lost_me" in err_txt or "4053" in err_txt:
                     # Catalog força ME1 → retry sem catalog_product_id + me2
                     if categoria == "Celulares":
@@ -532,6 +517,21 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Erro de frete (ME2/shipping) → link afiliado gerado.", "detalhe": err2[:300]})
                         else:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:250]})
+                elif catalog_product_id and ("listing_type" in err_txt or "not_allowed" in err_txt or "forbidden" in err_txt.lower()):
+                    # Catálogo não aceita free → tenta payload normal com atributos
+                    attrs2: list = [{"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model}, {"id": "COLOR", "value_name": cor}]
+                    p2 = {
+                        "title": produto.titulo[:60], "category_id": cat_id,
+                        "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                        "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                        "shipping": _SHIPPING,
+                        "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                        "attributes": attrs2,
+                    }
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 elif "missing_catalog_required" in err_txt:
                     ram2, storage2 = _extrair_memoria(produto.titulo)
                     retry_attrs = [

@@ -90,7 +90,9 @@ export default function Catalogo() {
   const [imagemManual, setImagemManual] = useState('')
   const [tituloManual, setTituloManual] = useState('')
 
-  useEffect(() => { carregarCatalogo(); buscarAuto() }, [])
+  const [sincronizandoAuto, setSincronizandoAuto] = useState(false)
+
+  useEffect(() => { carregarCatalogo(); buscarAuto(); sincronizarSeNecessario() }, [])
 
   async function carregarCatalogo() {
     try {
@@ -100,6 +102,20 @@ export default function Catalogo() {
       // não pode apagar o catálogo já carregado na tela.
       if (Array.isArray(d)) setCat(d)
     } catch { /* mantém o catálogo atual em caso de falha de rede */ }
+  }
+
+  // Renova os 250 melhores produtos do ML no catálogo 1x por dia (servidor — não depende do navegador)
+  async function sincronizarSeNecessario() {
+    try {
+      const r = await fetch(`${API}/afiliados/ultima-sincronizacao`, { headers: hdr() })
+      const d = await r.json()
+      const ultima = d.ultima_sincronizacao ? new Date(d.ultima_sincronizacao).getTime() : 0
+      if (Date.now() - ultima < 24 * 60 * 60 * 1000) return
+      setSincronizandoAuto(true)
+      await fetch(`${API}/afiliados/sincronizar-top250`, { method:'POST', headers:hdr() })
+      await carregarCatalogo()
+    } catch { /* falha silenciosa — tenta de novo na próxima abertura */ }
+    setSincronizandoAuto(false)
   }
 
   async function getMLToken(): Promise<string|null> {
@@ -181,9 +197,10 @@ export default function Catalogo() {
     const seen = new Set<string>()
     const todos: any[] = []
 
-    // Fase 1: por categoria ML — 3 páginas por categoria (offset 0, 50 e 100)
-    for (let i = 0; i < CATS_ML.length; i += 3) {
-      const lote = CATS_ML.slice(i, i + 3)
+    // Fase 1: por categoria ML — 2 categorias por vez, 3 páginas cada (offset 0, 50 e 100), com pausa entre lotes
+    // (lotes grandes demais fazem o ML bloquear o IP do navegador no meio da busca)
+    for (let i = 0; i < CATS_ML.length; i += 2) {
+      const lote = CATS_ML.slice(i, i + 2)
       const resultados = await Promise.all([
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 0)),
         ...lote.map(cat => buscarMLBrowser('', 50, undefined, cat, 50)),
@@ -194,11 +211,12 @@ export default function Catalogo() {
           if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }
         }
       }
+      if (i + 2 < CATS_ML.length) await new Promise(res => setTimeout(res, 250))
     }
 
-    // Fase 2: por palavra-chave (24 termos, lotes de 5 em paralelo) — 2 páginas por termo (offset 0 e 50)
-    for (let i = 0; i < TERMOS.length; i += 5) {
-      const lote = TERMOS.slice(i, i + 5)
+    // Fase 2: por palavra-chave (24 termos, lotes de 3 em paralelo) — 2 páginas por termo (offset 0 e 50)
+    for (let i = 0; i < TERMOS.length; i += 3) {
+      const lote = TERMOS.slice(i, i + 3)
       const resultados = await Promise.all([
         ...lote.map(t => buscarMLBrowser(t, 50, undefined, undefined, 0)),
         ...lote.map(t => buscarMLBrowser(t, 50, undefined, undefined, 50)),
@@ -208,6 +226,7 @@ export default function Catalogo() {
           if (p.produto_ext_id && !seen.has(p.produto_ext_id)) { seen.add(p.produto_ext_id); todos.push(p) }
         }
       }
+      if (i + 3 < TERMOS.length) await new Promise(res => setTimeout(res, 250))
     }
 
     if (todos.length > 0) {
@@ -589,6 +608,11 @@ export default function Catalogo() {
             <span className="text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
               {catalogo.length} salvos
             </span>
+            {sincronizandoAuto && (
+              <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-bold" style={{ background:'rgba(255,255,255,0.2)', color:'#fff' }}>
+                <RefreshCw size={11} className="animate-spin"/> Atualizando melhores produtos…
+              </span>
+            )}
           </div>
         </div>
       </div>

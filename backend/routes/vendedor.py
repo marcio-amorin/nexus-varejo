@@ -704,6 +704,10 @@ def publicar_catalogo_tudo(db: Session = Depends(get_db), _=Depends(get_current_
     criados = 0
     atualizados = 0
     for produto in produtos:
+        # Sem preço ou foto válidos não há o que sincronizar — evita criar
+        # anúncio "ATIVO" fantasma com R$ 0,00 e sem imagem.
+        if not produto.preco or not produto.imagem_url:
+            continue
         existente = db.query(VendedorAnuncio).filter_by(
             produto_afiliado_id=produto.id, plataforma="ML_VENDEDOR"
         ).first()

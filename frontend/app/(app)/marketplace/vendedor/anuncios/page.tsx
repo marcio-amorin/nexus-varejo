@@ -90,7 +90,7 @@ export default function MeusAnuncios() {
     <div className="pg">
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
         <div className="px-4 py-3 flex flex-wrap items-center gap-2">
-          <div className="flex-1 min-w-0">
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0">
             <h1 className="text-base font-black text-white flex items-center gap-2"><Package size={16}/> Meus Anúncios</h1>
             <p className="text-xs text-white/75 mt-0.5">{anuncios.length} anúncios publicados nas plataformas</p>
           </div>

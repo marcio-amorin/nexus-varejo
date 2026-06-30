@@ -441,7 +441,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
 
             if not ml_ok and r.status_code == 400:
                 err_txt = r.text
-                if "listing_type_temporarily_unavailable" in err_txt:
+                if "temporarily_unavailable" in err_txt:
                     # Throttle do ML para criação de anúncios grátis — não é erro de dados, é limite temporário da conta
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
                 elif "shipping.lost_me" in err_txt or "4053" in err_txt:
@@ -511,7 +511,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         err2 = r.text
                         if "ANATEL" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ N° Anatel não encontrado para este modelo → link afiliado gerado."})
-                        elif "listing_type_temporarily_unavailable" in err2:
+                        elif "temporarily_unavailable" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
                         elif "shipping" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Erro de frete (ME2/shipping) → link afiliado gerado.", "detalhe": err2[:300]})

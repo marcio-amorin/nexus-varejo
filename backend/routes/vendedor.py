@@ -712,8 +712,12 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
     if not produto or not produto.produto_ext_id:
         raise HTTPException(400, "Anúncio sem produto de origem vinculado — não há de onde buscar preço/foto. Exclua e crie de novo.")
 
+    # A API pública do ML bloqueia IPs de datacenter (Render) sem autenticação — usa token do vendedor/afiliado
+    from routes.afiliados import _get_fresh_ml_token
+    token = await _get_fresh_ml_token(db)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     async with httpx.AsyncClient(timeout=12) as client:
-        r = await client.get(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}")
+        r = await client.get(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}", headers=headers)
     if r.status_code != 200:
         raise HTTPException(400, f"Não foi possível consultar o produto original no ML (status {r.status_code})")
     item = r.json()
@@ -734,21 +738,19 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
     if imagem_url: a.imagem_url = imagem_url
 
     atualizado_no_ml = False
-    if a.listing_id:
-        cfg_vendedor = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
-        if cfg_vendedor and cfg_vendedor.access_token:
-            update_payload: dict = {"price": preco_venda}
-            if imagem_url: update_payload["pictures"] = [{"source": imagem_url}]
-            try:
-                async with httpx.AsyncClient(timeout=15) as client2:
-                    rp = await client2.put(
-                        f"https://api.mercadolibre.com/items/{a.listing_id}",
-                        headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
-                        json=update_payload
-                    )
-                atualizado_no_ml = rp.status_code in (200, 201)
-            except Exception:
-                pass
+    if a.listing_id and token:
+        update_payload: dict = {"price": preco_venda}
+        if imagem_url: update_payload["pictures"] = [{"source": imagem_url}]
+        try:
+            async with httpx.AsyncClient(timeout=15) as client2:
+                rp = await client2.put(
+                    f"https://api.mercadolibre.com/items/{a.listing_id}",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json=update_payload
+                )
+            atualizado_no_ml = rp.status_code in (200, 201)
+        except Exception:
+            pass
 
     db.commit()
     return {"ok": True, "preco_venda": preco_venda, "imagem_url": imagem_url, "atualizado_no_ml": atualizado_no_ml}

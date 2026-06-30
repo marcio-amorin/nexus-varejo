@@ -514,7 +514,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         if "ANATEL" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ N° Anatel não encontrado para este modelo → link afiliado gerado."})
                         elif "shipping" in err2:
-                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Ative Mercado Envios ME2 na conta ML para publicar celulares → link afiliado gerado."})
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Erro de frete (ME2/shipping) → link afiliado gerado.", "detalhe": err2[:300]})
                         else:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:250]})
                 elif "missing_catalog_required" in err_txt:

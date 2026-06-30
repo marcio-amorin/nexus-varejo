@@ -75,6 +75,9 @@ export default function Catalogo() {
   const [catSel, setCatSel]           = useState('Todos')
   const [publicandoId, setPublicandoId] = useState<number|null>(null)
   const [resultadoPublicar, setResultadoPublicar] = useState<any>(null)
+  const [enviandoTodos, setEnviandoTodos] = useState(false)
+  const [progressoEnvio, setProgressoEnvio] = useState({ atual:0, total:0 })
+  const [resultadoEnvioTodos, setResultadoEnvioTodos] = useState<any>(null)
 
   // Modal importar por link
   const [modalLink, setModalLink]       = useState(false)
@@ -272,6 +275,35 @@ export default function Catalogo() {
       carregarCatalogo()
     } catch(e:any) { setResultadoPublicar({ erro: e.message }) }
     setPublicandoId(null)
+  }
+
+  async function enviarTodosNaoPublicados() {
+    const pendentes = catalogo.filter(p => p.pub_status !== 'ml_vendedor')
+    if (pendentes.length === 0 || enviandoTodos) return
+    setEnviandoTodos(true)
+    setResultadoEnvioTodos(null)
+    setProgressoEnvio({ atual:0, total:pendentes.length })
+    const falhas: { titulo:string, motivo:string }[] = []
+    let sucesso = 0
+    for (let i = 0; i < pendentes.length; i++) {
+      const p = pendentes[i]
+      setProgressoEnvio({ atual:i+1, total:pendentes.length })
+      try {
+        const r = await fetch(`${API}/vendedor/publicar-tudo`, {
+          method:'POST', headers:hdr(),
+          body:JSON.stringify({ produto_id:p.id, publicar_redes:true, modo_afiliado:false })
+        })
+        const d = await r.json()
+        const passoMl = (d.passos||[]).find((s:any) => s.passo === 'ML Vendedor')
+        if (passoMl?.status?.startsWith('✅')) sucesso++
+        else falhas.push({ titulo:p.titulo, motivo: passoMl?.status || 'Falha desconhecida' })
+      } catch (e:any) {
+        falhas.push({ titulo:p.titulo, motivo: e.message })
+      }
+    }
+    await carregarCatalogo()
+    setEnviandoTodos(false)
+    setResultadoEnvioTodos({ total:pendentes.length, sucesso, falhas })
   }
 
   async function importarLink() {
@@ -750,6 +782,15 @@ export default function Catalogo() {
                     {f.label}
                   </button>
                 ))}
+                {naoPublicados > 0 && (
+                  <button onClick={enviarTodosNaoPublicados} disabled={enviandoTodos}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-black text-white flex items-center gap-1.5 ml-auto"
+                    style={{ background: enviandoTodos ? 'var(--card2)' : 'linear-gradient(135deg,#7c3aed,#f97316)', opacity: enviandoTodos ? 0.7 : 1 }}>
+                    {enviandoTodos
+                      ? <><RefreshCw size={11} className="animate-spin"/> Enviando {progressoEnvio.atual}/{progressoEnvio.total}...</>
+                      : <><Zap size={11}/> Enviar Todos ({naoPublicados})</>}
+                  </button>
+                )}
               </div>
               <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
               {filtrados.map((p,i) => {
@@ -869,6 +910,43 @@ export default function Catalogo() {
                     </div>
                   </div>
                 </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Resultado Enviar Todos ─────────────────────────────────── */}
+      {resultadoEnvioTodos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:'rgba(0,0,0,0.75)' }}
+          onClick={e => { if (e.target===e.currentTarget) setResultadoEnvioTodos(null) }}>
+          <div className="w-full max-w-md mx-4 rounded-2xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid #f97316', maxHeight:'85vh', display:'flex', flexDirection:'column' }}>
+            <div className="px-4 py-3 flex items-center justify-between flex-shrink-0" style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)' }}>
+              <p className="font-black text-white text-sm flex items-center gap-2"><Zap size={14}/> Resultado — Enviar Todos</p>
+              <button onClick={() => setResultadoEnvioTodos(null)} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background:'rgba(255,255,255,0.2)' }}>
+                <X size={12} color="#fff"/>
+              </button>
+            </div>
+            <div className="p-4 space-y-2 overflow-y-auto">
+              <div className="flex gap-2">
+                <div className="flex-1 rounded-lg p-2 text-center" style={{ background:'rgba(34,197,94,0.1)', border:'1px solid rgba(34,197,94,0.2)' }}>
+                  <p className="text-sm font-black" style={{ color:'#22c55e' }}>{resultadoEnvioTodos.sucesso}</p>
+                  <p className="text-[9px]" style={{ color:'var(--muted)' }}>Publicados no ML</p>
+                </div>
+                <div className="flex-1 rounded-lg p-2 text-center" style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)' }}>
+                  <p className="text-sm font-black" style={{ color:'#ef4444' }}>{resultadoEnvioTodos.falhas.length}</p>
+                  <p className="text-[9px]" style={{ color:'var(--muted)' }}>Sem publicar (link afiliado gerado)</p>
+                </div>
+              </div>
+              {resultadoEnvioTodos.falhas.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  {resultadoEnvioTodos.falhas.map((f:any,i:number) => (
+                    <div key={i} className="p-2 rounded-lg" style={{ background:'var(--card2)' }}>
+                      <p className="text-[10px] font-bold text-white truncate">{f.titulo}</p>
+                      <p className="text-[9px]" style={{ color:'#ef4444' }}>{f.motivo}</p>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>

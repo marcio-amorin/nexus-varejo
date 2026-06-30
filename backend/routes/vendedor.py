@@ -388,6 +388,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     {"id": "COLOR",               "value_name": cor},
                     {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                     {"id": "IS_DUAL_SIM",         "value_name": "Sim"},
+                    {"id": "CARRIER",             "value_name": "Não aplicável"},
                 ]
                 if ram:              cat_attrs.append({"id": "RAM",             "value_name": ram})
                 if storage:          cat_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage})
@@ -408,6 +409,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     {"id": "MAIN_COLOR", "value_name": cor},
                     {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                     {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                    {"id": "CARRIER", "value_name": "Não aplicável"},
                 ]
             elif categoria in ("Smartwatches", "Áudio", "Roupas", "Acessórios", "Esporte", "Calçados"):
                 attrs.append({"id": "COLOR", "value_name": cor})
@@ -464,6 +466,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         {"id": "COLOR",              "value_name": cor},
                         {"id": "ALPHANUMERIC_MODELS","value_name": model},
                         {"id": "IS_DUAL_SIM",        "value_name": "Sim"},
+                        {"id": "CARRIER",            "value_name": "Não aplicável"},
                     ]
                     if ram2:     attrs_ship.append({"id": "RAM",             "value_name": ram2})
                     if storage2: attrs_ship.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
@@ -523,6 +526,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         {"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model},
                         {"id": "COLOR", "value_name": cor}, {"id": "ALPHANUMERIC_MODELS", "value_name": model},
                         {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                        {"id": "CARRIER", "value_name": "Não aplicável"},
                     ]
                     if ram2: retry_attrs.append({"id": "RAM", "value_name": ram2})
                     if storage2: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
@@ -542,11 +546,14 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     if not ml_ok:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 elif "missing_required" in err_txt:
-                    p2 = {**payload, "attributes": [
+                    retry_attrs3 = [
                         {"id": "BRAND", "value_name": brand},
                         {"id": "MODEL", "value_name": model},
                         {"id": "COLOR", "value_name": cor},
-                    ]}
+                    ]
+                    if categoria == "Celulares":
+                        retry_attrs3.append({"id": "CARRIER", "value_name": "Não aplicável"})
+                    p2 = {**payload, "attributes": retry_attrs3}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:

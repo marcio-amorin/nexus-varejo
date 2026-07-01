@@ -979,27 +979,26 @@ def listar_anuncios(
         for a in items
     ]
 
-def _extrair_cota_gratis(data: dict) -> dict:
+def _extrair_cota_gratis(data: dict, cat_id: str) -> dict:
     """O ML às vezes lista o "free" direto no nível consultado, e às vezes só dentro de
-    'exceptions_by_category' (subcategorias específicas com cota própria). Junta os dois
-    lugares — se "free" nunca aparece em lugar nenhum, a cota dessa categoria está esgotada."""
+    'exceptions_by_category' — mas essa lista de exceções vem cheia de OUTRAS categorias
+    que nada tem a ver com a que a gente perguntou (parece ser uma lista genérica da conta).
+    Só conta uma exceção se o category_id dela for exatamente o que consultamos."""
     achou_free = False
     restantes = None  # None = sem limite numérico informado (mas ainda disponível)
-    sub_categorias = []
     for t in (data.get("available") or []):
         if t.get("id") == "free":
             achou_free = True
             restantes = t.get("remaining_listings")
     for exc in (data.get("exceptions_by_category") or []):
+        if exc.get("category_id") != cat_id:
+            continue
         for t in (exc.get("available") or []):
             if t.get("id") == "free":
                 achou_free = True
-                qtd = t.get("remaining_listings")
-                sub_categorias.append({"cat_id": exc.get("category_id"), "restantes": qtd})
-                if qtd is not None and (restantes is None or qtd > restantes):
-                    restantes = qtd
+                restantes = t.get("remaining_listings")
     tem_gratis = achou_free and (restantes is None or restantes > 0)
-    return {"tem_gratis": tem_gratis, "restantes": restantes, "sub_categorias": sub_categorias}
+    return {"tem_gratis": tem_gratis, "restantes": restantes}
 
 @router.get("/cotas-categorias")
 async def cotas_categorias(db: Session = Depends(get_db), _=Depends(get_current_user)):
@@ -1019,7 +1018,7 @@ async def cotas_categorias(db: Session = Depends(get_db), _=Depends(get_current_
                     headers={"Authorization": f"Bearer {cfg.access_token}"}
                 )
                 if r.status_code == 200:
-                    info = _extrair_cota_gratis(r.json())
+                    info = _extrair_cota_gratis(r.json(), cat_id)
                     resultado.append({"categoria": nome, "cat_id": cat_id, **info})
                 else:
                     resultado.append({"categoria": nome, "cat_id": cat_id, "tem_gratis": None, "erro": r.text[:150]})

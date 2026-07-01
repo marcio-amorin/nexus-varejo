@@ -739,9 +739,9 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
             imagens = item.get("pictures") or []
             imagem_url = (imagens[0].get("url") if imagens else "") or ""
 
-    # Confirmado que o produto saiu do Mercado Livre (404 em /items e /products) — marca no anúncio
-    # mesmo que a gente consiga preencher preço/foto com o que já estava salvo no catálogo.
-    sumiu_do_ml = r.status_code == 404 and r2_status in (404, None) and r2_status != 200
+    # Não achou o produto nem em /items nem em /products — provavelmente saiu do ML.
+    # Marca no anúncio mesmo quando dá pra preencher preço/foto com o que já estava salvo no catálogo.
+    sumiu_do_ml = r.status_code != 200 and r2_status != 200
     a.erro_msg = "⚠️ Produto não encontrado no Mercado Livre — pode ter sido removido ou expirado." if sumiu_do_ml else None
 
     # Último recurso: usa o preço/foto já salvos no catálogo (podem já estar corretos,

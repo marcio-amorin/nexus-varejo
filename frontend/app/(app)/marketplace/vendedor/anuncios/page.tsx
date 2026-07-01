@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Package, RefreshCw, ExternalLink, Trash2, Zap } from 'lucide-react'
+import { Package, RefreshCw, ExternalLink, Trash2, Zap, CheckCircle2, Link2 } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#7c3aed 0%,#f97316 100%)'
@@ -29,6 +29,7 @@ export default function MeusAnuncios() {
   const [loading, setLoading]   = useState(true)
   const [filtroSt, setFiltroSt] = useState('')
   const [filtroPlat, setFiltroPlat] = useState('')
+  const [filtroConfirmado, setFiltroConfirmado] = useState<''|'confirmado'|'so_link'>('')
 
   useEffect(() => { carregar() }, [filtroSt, filtroPlat])
 
@@ -132,6 +133,18 @@ export default function MeusAnuncios() {
             {p ? PLAT_LABEL[p] : 'Plataformas'}
           </button>
         ))}
+        <div className="h-4 w-px mx-1" style={{ background:'var(--border)' }}/>
+        {([
+          { key:'',            label:'Todos',                          cor:'#f97316' },
+          { key:'confirmado',  label:'✅ Confirmado no ML',             cor:'#22c55e' },
+          { key:'so_link',     label:'🔗 Só link (não publicado)',      cor:'#f59e0b' },
+        ] as const).map(f => (
+          <button key={f.key} onClick={() => setFiltroConfirmado(f.key)}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-bold"
+            style={{ background:filtroConfirmado===f.key?f.cor+'25':'var(--card)', color:filtroConfirmado===f.key?f.cor:'var(--muted)', border:`1px solid ${filtroConfirmado===f.key?f.cor:'var(--border)'}` }}>
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Lista */}
@@ -156,7 +169,9 @@ export default function MeusAnuncios() {
           </div>
         ) : (
           <div className="grid gap-2 p-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))' }}>
-            {anuncios.map((a,i) => {
+            {anuncios
+              .filter(a => filtroConfirmado==='confirmado' ? !!a.listing_id : filtroConfirmado==='so_link' ? !a.listing_id : true)
+              .map((a,i) => {
               const sc = STATUS_COR[a.status] || STATUS_COR.PENDENTE
               return (
                 <div key={i} className="rounded-xl overflow-hidden flex flex-col" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
@@ -181,6 +196,15 @@ export default function MeusAnuncios() {
                       <span className="font-black" style={{ color:'#22c55e' }}>Margem: {a.margem_pct}%</span>
                     </div>
                     <p className="text-sm font-black" style={{ color:'#f97316' }}>{fmtR(a.preco_venda)}</p>
+                    <div className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-1 rounded-md"
+                      style={{
+                        background: a.listing_id ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: a.listing_id ? '#22c55e' : '#f59e0b',
+                      }}>
+                      {a.listing_id
+                        ? <><CheckCircle2 size={10}/> Confirmado no Mercado Livre</>
+                        : <><Link2 size={10}/> Só link — não publicado como vendedor</>}
+                    </div>
                     {a.erro_msg && (
                       <p className="text-[9px] font-bold px-1.5 py-1 rounded-md" style={{ background:'rgba(239,68,68,0.15)', color:'#ef4444' }}>
                         {a.erro_msg}

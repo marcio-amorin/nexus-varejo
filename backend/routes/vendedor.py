@@ -701,30 +701,50 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     # define os tamanhos válidos, não um "produto original", então adivinhar
                     # a partir do catálogo não funciona. Sem seleção, não há o que tentar.
                     if data.tamanhos:
+                        # 1ª tentativa: anúncio simples (sem "variations"/família), com o
+                        # tamanho como atributo direto — SIZE_GRID_ID só é exigido quando o
+                        # anúncio tenta juntar vários tamanhos numa família de variações.
                         p2 = {
                             "title": produto.titulo[:60], "category_id": cat_id,
-                            "currency_id": "BRL", "buying_mode": "buy_it_now",
-                            "listing_type_id": "free", "condition": "new",
+                            "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                            "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
                             "shipping": _SHIPPING,
                             "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
                             "attributes": [
                                 {"id": "BRAND", "value_name": brand},
                                 {"id": "MODEL", "value_name": model},
                                 {"id": "COLOR", "value_name": cor},
-                            ],
-                            "variations": [
-                                {
-                                    "attribute_combinations": [{"id": "SIZE", "value_name": t}],
-                                    "available_quantity": 1,
-                                    "price": preco_venda,
-                                }
-                                for t in data.tamanhos
+                                {"id": "SIZE", "value_name": data.tamanhos[0]},
                             ],
                         }
                         r = await _publicar_ml(p2)
                         ml_ok = r.status_code in (200, 201)
                         if not ml_ok:
-                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Tamanhos {', '.join(data.tamanhos)} não aceitos: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:250]})
+                            err_tam = r.text
+                            if "SIZE_GRID_ID" in err_tam or "fashion_grid" in err_tam or "size_grid" in err_tam.lower():
+                                # 2ª tentativa: com família de variações (exige grade real do ML —
+                                # sem um grid_id válido descoberto, essa tentativa deve falhar
+                                # de novo, mas deixamos registrado o motivo exato).
+                                p3 = {
+                                    "title": produto.titulo[:60], "category_id": cat_id,
+                                    "currency_id": "BRL", "buying_mode": "buy_it_now",
+                                    "listing_type_id": "free", "condition": "new",
+                                    "shipping": _SHIPPING,
+                                    "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                                    "attributes": [
+                                        {"id": "BRAND", "value_name": brand},
+                                        {"id": "MODEL", "value_name": model},
+                                        {"id": "COLOR", "value_name": cor},
+                                    ],
+                                    "variations": [
+                                        {"attribute_combinations": [{"id": "SIZE", "value_name": t}], "available_quantity": 1, "price": preco_venda}
+                                        for t in data.tamanhos
+                                    ],
+                                }
+                                r = await _publicar_ml(p3)
+                                ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Tamanhos {', '.join(data.tamanhos)} não aceitos: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:250]})
                     else:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → escolha os tamanhos e publique de novo.", "precisa_tamanhos": True})
                 elif "ANATEL" in err_txt:

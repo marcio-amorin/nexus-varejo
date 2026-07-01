@@ -41,7 +41,9 @@ export default function MeusAnuncios() {
       if (filtroPlat) p.set('plataforma', filtroPlat)
       const r = await fetch(`${API}/vendedor/anuncios?${p}`, { headers: hdr() })
       const d = await r.json()
-      setAnuncios(Array.isArray(d) ? d : [])
+      // Anúncio ainda em análise no ML não é "publicado de verdade" pra fins deste
+      // painel — fica visível só no Catálogo até o ML liberar (ml_status vira "active").
+      setAnuncios(Array.isArray(d) ? d.filter((a:any) => a.ml_status !== 'under_review') : [])
     } catch { setAnuncios([]) }
     setLoading(false)
   }

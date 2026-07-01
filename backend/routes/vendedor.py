@@ -979,6 +979,19 @@ def listar_anuncios(
         for a in items
     ]
 
+@router.get("/cotas-categorias-debug")
+async def cotas_categorias_debug(cat_id: str = "MLB1144", db: Session = Depends(get_db), _=Depends(get_current_user)):
+    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    if not cfg or not cfg.access_token or not cfg.seller_id:
+        raise HTTPException(400, "Conta vendedor não configurada")
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"https://api.mercadolibre.com/users/{cfg.seller_id}/available_listing_types",
+            params={"category_id": cat_id},
+            headers={"Authorization": f"Bearer {cfg.access_token}"}
+        )
+    return {"status": r.status_code, "raw": r.text, "seller_id": cfg.seller_id}
+
 @router.get("/cotas-categorias")
 async def cotas_categorias(db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Consulta na própria API do Mercado Livre se ainda tem anúncio grátis disponível

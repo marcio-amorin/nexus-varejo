@@ -1627,7 +1627,7 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
                             available_quantity = bbw.get("available_quantity")
                         else:
                             status_estoque = "sem_estoque"
-                            debug["products_body"] = json.dumps(d2)[:200]
+                            debug["products_body"] = json.dumps(d2)[:2000]
                     else:
                         debug["products_body"] = r2.text[:150]
             except Exception as e:

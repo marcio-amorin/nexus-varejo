@@ -556,6 +556,56 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                 if "temporarily_unavailable" in err_txt:
                     # Throttle do ML para criação de anúncios grátis — não é erro de dados, é limite temporário da conta
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
+                elif "[GTIN]" in err_txt or "missing_conditional_required" in err_txt:
+                    if produto.gtin:
+                        # A categoria pode exigir GTIN junto com outros atributos (ex: Cor) no
+                        # mesmo erro — resolve os outros primeiro pra não voltar incompleto.
+                        preenchidos_gtin, nao_resolvidos_gtin_raw = await _resolver_atributos_faltantes(
+                            cat_id, err_txt, produto.titulo, cfg_vendedor.access_token
+                        )
+                        nao_resolvidos_gtin = [n for n in nao_resolvidos_gtin_raw if "gtin" not in str(n).lower()]
+                        attrs_gtin = list(payload.get("attributes") or [])
+                        ids_gtin = {a["id"] for a in attrs_gtin}
+                        for a in preenchidos_gtin:
+                            if a["id"] not in ids_gtin:
+                                attrs_gtin.append(a)
+                                ids_gtin.add(a["id"])
+                        if "GTIN" not in ids_gtin:
+                            attrs_gtin.append({"id": "GTIN", "value_name": produto.gtin})
+                        p2 = {**payload, "attributes": attrs_gtin}
+                        r = await _publicar_ml(p2)
+                        ml_ok = r.status_code in (200, 201)
+                        if not ml_ok:
+                            err_gtin = r.text
+                            if "shipping.lost_me" in err_gtin or "4053" in err_gtin:
+                                # catalog_product_id força frete ME1 — remove o catálogo e publica
+                                # com atributos normais, mantendo o GTIN já validado no passo anterior.
+                                p3 = {k: v for k, v in p2.items() if k != "catalog_product_id"}
+                                p3["attributes"] = list(p3.get("attributes") or [])
+                                attrs_ids = {a["id"] for a in p3["attributes"]}
+                                if "BRAND" not in attrs_ids: p3["attributes"].append({"id": "BRAND", "value_name": brand})
+                                if "MODEL" not in attrs_ids: p3["attributes"].append({"id": "MODEL", "value_name": model})
+                                r = await _publicar_ml(p3)
+                                ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                if nao_resolvidos_gtin:
+                                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Faltam dados que não temos: {', '.join(nao_resolvidos_gtin)} → link afiliado gerado.", "detalhe": r.text[:200]})
+                                else:
+                                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {produto.gtin} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
+                    else:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) — cadastre no produto e publique de novo → link afiliado gerado.", "precisa_gtin": True})
+                elif "item.buying_mode.invalid" in err_txt or "only supports listing modes" in err_txt:
+                    # Categoria não aceita "buy_it_now" (ex.: só permite "classified") —
+                    # extrai o modo permitido da própria mensagem do ML e tenta de novo com ele.
+                    m_modo = re.search(r'listing modes:\s*\[([a-z_]+)', err_txt)
+                    modo = m_modo.group(1) if m_modo else "classified"
+                    p2 = {**payload, "buying_mode": modo}
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                elif "item.listing_type_id.unavailable" in err_txt:
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Cota de anúncio grátis esgotada para essa categoria na sua conta ML → link afiliado gerado.", "detalhe": err_txt[:300]})
                 elif "shipping.lost_me" in err_txt or "4053" in err_txt:
                     # Catalog força ME1 → retry sem catalog_product_id + me2
                     if categoria == "Celulares":
@@ -749,27 +799,6 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → escolha os tamanhos e publique de novo.", "precisa_tamanhos": True})
                 elif "ANATEL" in err_txt:
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Celular requer N° Anatel → link afiliado gerado."})
-                elif "[GTIN]" in err_txt or "missing_conditional_required" in err_txt:
-                    if produto.gtin:
-                        p2 = {**payload, "attributes": (payload.get("attributes") or []) + [{"id": "GTIN", "value_name": produto.gtin}]}
-                        r = await _publicar_ml(p2)
-                        ml_ok = r.status_code in (200, 201)
-                        if not ml_ok:
-                            err_gtin = r.text
-                            if "shipping.lost_me" in err_gtin or "4053" in err_gtin:
-                                # catalog_product_id força frete ME1 — remove o catálogo e publica
-                                # com atributos normais, mantendo o GTIN já validado no passo anterior.
-                                p3 = {k: v for k, v in p2.items() if k != "catalog_product_id"}
-                                p3["attributes"] = list(p3.get("attributes") or [])
-                                attrs_ids = {a["id"] for a in p3["attributes"]}
-                                if "BRAND" not in attrs_ids: p3["attributes"].append({"id": "BRAND", "value_name": brand})
-                                if "MODEL" not in attrs_ids: p3["attributes"].append({"id": "MODEL", "value_name": model})
-                                r = await _publicar_ml(p3)
-                                ml_ok = r.status_code in (200, 201)
-                            if not ml_ok:
-                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {produto.gtin} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
-                    else:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) — cadastre no produto e publique de novo → link afiliado gerado.", "precisa_gtin": True})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:
                     p2 = {k: v for k, v in payload.items() if k != "category_id"}
                     r = await _publicar_ml(p2)

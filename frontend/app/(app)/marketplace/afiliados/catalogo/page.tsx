@@ -69,7 +69,7 @@ export default function Catalogo() {
   const [catalogo, setCat]        = useState<any[]>([])
   const [loading, setLoading]         = useState(false)
   const [loadingAuto, setLoadingAuto] = useState(false)
-  const [filtroCat, setFiltroCat]     = useState<'todos'|'nao_publicado'|'ml_vendedor'|'afiliado'>('todos')
+  const [filtroCat, setFiltroCat]     = useState<'todos'|'nao_publicado'|'ml_vendedor'|'em_analise'|'afiliado'>('todos')
   const [erroBusca, setErro]          = useState('')
   const [msgLink, setMsgLink]         = useState('')
   const [catSel, setCatSel]           = useState('Todos')
@@ -78,6 +78,7 @@ export default function Catalogo() {
   const [enviandoTodos, setEnviandoTodos] = useState(false)
   const [progressoEnvio, setProgressoEnvio] = useState({ atual:0, total:0 })
   const [resultadoEnvioTodos, setResultadoEnvioTodos] = useState<any>(null)
+  const [linkParaCopiar, setLinkParaCopiar] = useState<{titulo:string, url:string}|null>(null)
 
   // Modal importar por link
   const [modalLink, setModalLink]       = useState(false)
@@ -655,9 +656,8 @@ export default function Catalogo() {
     const r = await fetch(`${API}/afiliados/gerar-link?produto_id=${id}`, { method:'POST', headers:hdr() })
     const d = await r.json()
     if (d.url_afiliado) {
-      await navigator.clipboard.writeText(d.url_afiliado)
-      setMsgLink(`Link copiado! ${titulo.slice(0,30)}`)
-      setTimeout(() => setMsgLink(''), 3000)
+      try { await navigator.clipboard.writeText(d.url_afiliado) } catch {}
+      setLinkParaCopiar({ titulo, url: d.url_afiliado })
     }
   }
 
@@ -872,12 +872,15 @@ export default function Catalogo() {
             </div>
           ) : (() => {
             const naoPublicados = catalogo.filter(p => p.pub_status !== 'ml_vendedor').length
-            const noML          = catalogo.filter(p => p.pub_status === 'ml_vendedor').length
+            const noML          = catalogo.filter(p => p.pub_status === 'ml_vendedor' && p.ml_status !== 'under_review').length
+            const emAnalise     = catalogo.filter(p => p.pub_status === 'ml_vendedor' && p.ml_status === 'under_review').length
             const afiliados     = catalogo.filter(p => p.pub_status === 'afiliado').length
             const filtrados = filtroCat === 'nao_publicado'
               ? catalogo.filter(p => p.pub_status !== 'ml_vendedor')
               : filtroCat === 'ml_vendedor'
-              ? catalogo.filter(p => p.pub_status === 'ml_vendedor')
+              ? catalogo.filter(p => p.pub_status === 'ml_vendedor' && p.ml_status !== 'under_review')
+              : filtroCat === 'em_analise'
+              ? catalogo.filter(p => p.pub_status === 'ml_vendedor' && p.ml_status === 'under_review')
               : filtroCat === 'afiliado'
               ? catalogo.filter(p => p.pub_status === 'afiliado')
               : catalogo
@@ -888,7 +891,8 @@ export default function Catalogo() {
                 {([
                   { key:'todos',         label:`Todos (${catalogo.length})`,          cor:'#f97316' },
                   { key:'nao_publicado', label:`⚡ Não publicados (${naoPublicados})`, cor:'#ef4444' },
-                  { key:'ml_vendedor',   label:`✅ No ML (${noML})`,                   cor:'#22c55e' },
+                  { key:'ml_vendedor',   label:`🟢 No ML (${noML})`,                   cor:'#22c55e' },
+                  { key:'em_analise',    label:`🔴 Em análise no ML (${emAnalise})`,   cor:'#ef4444' },
                   { key:'afiliado',      label:`🔗 Só afiliado (${afiliados})`,        cor:'#f59e0b' },
                 ] as const).map(f => (
                   <button key={f.key} onClick={() => setFiltroCat(f.key)}
@@ -945,8 +949,8 @@ export default function Catalogo() {
                     {p.pub_status === 'ml_vendedor' && p.pub_url ? (
                       <a href={p.pub_url} target="_blank"
                         className="w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white mb-1"
-                        style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)' }}>
-                        <ExternalLink size={10}/> Ver Anúncio ML
+                        style={{ background: p.ml_status === 'under_review' ? 'linear-gradient(135deg,#1d4ed8,#3b82f6)' : 'linear-gradient(135deg,#16a34a,#22c55e)' }}>
+                        <ExternalLink size={10}/> {p.ml_status === 'under_review' ? 'Em análise no ML' : 'Ver Anúncio ML'}
                       </a>
                     ) : (
                       <button onClick={() => publicarTudo(p)}
@@ -957,11 +961,18 @@ export default function Catalogo() {
                       </button>
                     )}
                     <div className="flex gap-1">
-                      <button onClick={() => gerarLink(p.id, p.titulo)}
-                        className="flex-1 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white"
-                        style={{ background:'var(--card2)', border:'1px solid var(--border)' }}>
-                        <Link2 size={10}/> Link
-                      </button>
+                      {(() => {
+                        const linkDisponivel = p.pub_status === 'afiliado' || (p.pub_status === 'ml_vendedor' && p.ml_status !== 'under_review')
+                        return (
+                          <button onClick={() => gerarLink(p.id, p.titulo)}
+                            className="flex-1 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 text-white"
+                            style={linkDisponivel
+                              ? { background:'rgba(34,197,94,0.15)', border:'1px solid rgba(34,197,94,0.5)', color:'#22c55e' }
+                              : { background:'var(--card2)', border:'1px solid var(--border)' }}>
+                            <Link2 size={10}/> Link
+                          </button>
+                        )
+                      })()}
                       <button onClick={() => remover(p.id)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)' }}>
                         <Trash2 size={11} color="#ef4444"/>
                       </button>
@@ -1121,6 +1132,32 @@ export default function Catalogo() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Copiar Link (pra colar nas redes sociais) ───────────────── */}
+      {linkParaCopiar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:'rgba(0,0,0,0.75)' }}
+          onClick={e => { if (e.target === e.currentTarget) setLinkParaCopiar(null) }}>
+          <div className="w-full max-w-md rounded-2xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-3" style={{ borderBottom:'1px solid var(--border)' }}>
+              <p className="text-xs font-black text-white truncate pr-2">🔗 {linkParaCopiar.titulo}</p>
+              <button onClick={() => setLinkParaCopiar(null)} className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background:'var(--card2)' }}>
+                <X size={12} color="var(--muted)"/>
+              </button>
+            </div>
+            <div className="p-3 flex flex-col gap-2">
+              <p className="text-[10px]" style={{ color:'var(--muted)' }}>Link já copiado — cole nas redes sociais, ou copie de novo abaixo:</p>
+              <input readOnly value={linkParaCopiar.url} onFocus={e => e.target.select()}
+                className="w-full px-2.5 py-2 rounded-lg text-[11px]"
+                style={{ background:'var(--card2)', border:'1px solid var(--border)', color:'var(--fg)' }}/>
+              <button onClick={async () => { try { await navigator.clipboard.writeText(linkParaCopiar.url) } catch {}; setMsgLink('Link copiado!'); setTimeout(() => setMsgLink(''), 2000) }}
+                className="w-full py-2 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1.5"
+                style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)' }}>
+                <Copy size={12}/> Copiar link de novo
+              </button>
             </div>
           </div>
         </div>

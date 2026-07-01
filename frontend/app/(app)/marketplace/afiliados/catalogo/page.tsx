@@ -321,7 +321,7 @@ export default function Catalogo() {
     carregarCatalogo(); setAba('catalogo')
   }
 
-  async function publicarTudo(p: any) {
+  async function publicarTudo(p: any, tamanhos?: string[]) {
     // Se já tem id (produto do catálogo), usa direto; senão salva primeiro
     let prodId = p.id || p.produto_id
     if (!prodId) {
@@ -333,14 +333,50 @@ export default function Catalogo() {
     setPublicandoId(prodId)
     setResultadoPublicar(null)
     try {
+      const body: any = { produto_id:prodId, publicar_redes:true, modo_afiliado:false }
+      if (tamanhos && tamanhos.length > 0) body.tamanhos = tamanhos
       const r = await fetch(`${API}/vendedor/publicar-tudo`, {
-        method:'POST', headers:hdr(),
-        body:JSON.stringify({ produto_id:prodId, publicar_redes:true, modo_afiliado:false })
+        method:'POST', headers:hdr(), body:JSON.stringify(body)
       })
-      setResultadoPublicar(await r.json())
+      const resultado = await r.json()
+      const passoMl = (resultado.passos||[]).find((s:any) => s.passo === 'ML Vendedor')
+      if (passoMl?.precisa_tamanhos && !tamanhos) {
+        setModalTamanhosProduto({ ...p, id: prodId })
+        await abrirSeletorTamanhos(prodId)
+      } else {
+        setResultadoPublicar(resultado)
+      }
       carregarCatalogo()
     } catch(e:any) { setResultadoPublicar({ erro: e.message }) }
     setPublicandoId(null)
+  }
+
+  // ── Seleção de tamanhos (Calçados/Roupas) ──────────────────────────────────
+  const [modalTamanhosProduto, setModalTamanhosProduto] = useState<any>(null)
+  const [tamanhosDisponiveis, setTamanhosDisponiveis] = useState<{id:string,nome:string}[]>([])
+  const [tamanhosEscolhidos, setTamanhosEscolhidos] = useState<Set<string>>(new Set())
+  const [carregandoTamanhos, setCarregandoTamanhos] = useState(false)
+
+  async function abrirSeletorTamanhos(prodId: number) {
+    setCarregandoTamanhos(true)
+    setTamanhosEscolhidos(new Set())
+    try {
+      const r = await fetch(`${API}/vendedor/produtos/${prodId}/tamanhos-disponiveis`, { headers:hdr() })
+      const d = await r.json()
+      setTamanhosDisponiveis(d.tamanhos || [])
+    } catch { setTamanhosDisponiveis([]) }
+    setCarregandoTamanhos(false)
+  }
+
+  function toggleTamanho(nome: string) {
+    setTamanhosEscolhidos(prev => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n })
+  }
+
+  async function confirmarTamanhosEPublicar() {
+    if (!modalTamanhosProduto || tamanhosEscolhidos.size === 0) return
+    const p = modalTamanhosProduto
+    setModalTamanhosProduto(null)
+    await publicarTudo(p, Array.from(tamanhosEscolhidos))
   }
 
   async function enviarTodosNaoPublicados() {
@@ -937,6 +973,50 @@ export default function Catalogo() {
           })()}
         </div>
       )}
+      {/* ── Modal Seleção de Tamanhos (Calçados/Roupas) ──────────────────── */}
+      {modalTamanhosProduto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:'rgba(0,0,0,0.75)' }}
+          onClick={e => { if (e.target===e.currentTarget) setModalTamanhosProduto(null) }}>
+          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid #f97316', maxHeight:'85vh', display:'flex', flexDirection:'column' }}>
+            <div className="px-4 py-3 flex items-center justify-between flex-shrink-0" style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)' }}>
+              <p className="font-black text-white text-sm truncate pr-2">📏 Escolha os tamanhos — {modalTamanhosProduto.titulo}</p>
+              <button onClick={() => setModalTamanhosProduto(null)} className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background:'rgba(255,255,255,0.2)' }}>
+                <X size={12} color="#fff"/>
+              </button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto">
+              <p className="text-xs" style={{ color:'var(--muted)' }}>
+                Essa categoria exige informar quais tamanhos você tem em estoque. Marca só os que você realmente tem (1 unidade cada).
+              </p>
+              {carregandoTamanhos ? (
+                <div className="flex items-center justify-center py-8"><RefreshCw size={20} className="animate-spin" color="#f97316"/></div>
+              ) : tamanhosDisponiveis.length === 0 ? (
+                <p className="text-xs text-center py-6" style={{ color:'var(--muted)' }}>Não achei os tamanhos válidos dessa categoria.</p>
+              ) : (
+                <div className="grid gap-1.5" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(56px,1fr))' }}>
+                  {tamanhosDisponiveis.map(t => (
+                    <button key={t.id} onClick={() => toggleTamanho(t.nome)}
+                      className="py-2 rounded-lg text-xs font-black"
+                      style={{
+                        background: tamanhosEscolhidos.has(t.nome) ? 'linear-gradient(135deg,#7c3aed,#f97316)' : 'var(--card2)',
+                        color: tamanhosEscolhidos.has(t.nome) ? '#fff' : 'var(--muted)',
+                        border: `1px solid ${tamanhosEscolhidos.has(t.nome) ? 'transparent' : 'var(--border)'}`,
+                      }}>
+                      {t.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button onClick={confirmarTamanhosEPublicar} disabled={tamanhosEscolhidos.size===0}
+                className="w-full py-2.5 rounded-lg text-xs font-black text-white flex items-center justify-center gap-1.5"
+                style={{ background: tamanhosEscolhidos.size===0 ? 'var(--card2)' : 'linear-gradient(135deg,#7c3aed,#f97316)', opacity: tamanhosEscolhidos.size===0?0.6:1 }}>
+                <Zap size={12}/> Publicar com {tamanhosEscolhidos.size} tamanho(s)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal Resultado Publicar Tudo ────────────────────────────────── */}
       {resultadoPublicar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:'rgba(0,0,0,0.75)' }}

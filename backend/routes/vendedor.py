@@ -4,7 +4,7 @@ from database import get_db
 from models import VendedorConfig, VendedorAnuncio, VendedorPedido, AfiliadoProduto, AfiliadoConfig, AfiliadoConteudo
 from utils.security import get_current_user
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, date
 import json, httpx, asyncio, re, os, urllib.parse
 
@@ -93,6 +93,7 @@ class PublicarTudoIn(BaseModel):
     quantidade:    int = 10
     publicar_redes: bool = True   # também posta nas redes sociais
     modo_afiliado: bool = False   # pula publicação ML Vendedor (só link afiliado)
+    tamanhos:      Optional[List[str]] = None  # tamanhos escolhidos p/ categorias com grade (Calçados/Roupas)
 
 class AnuncioUpdateIn(BaseModel):
     preco_venda: Optional[float] = None
@@ -350,6 +351,41 @@ def salvar_config(data: VendedorConfigIn, db: Session = Depends(get_db), _=Depen
     if data.extra_json:        cfg.extra_json = data.extra_json
     db.commit()
     return {"ok": True, "plataforma": data.plataforma}
+
+@router.get("/produtos/{produto_id}/tamanhos-disponiveis")
+async def tamanhos_disponiveis(produto_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Descobre os tamanhos válidos aceitos pelo Mercado Livre para a categoria do
+    produto (ex: 34 a 45 para Tênis), pra o usuário escolher quais tem em estoque
+    antes de publicar. Vem da definição da categoria no ML, não do produto em si."""
+    produto = db.query(AfiliadoProduto).filter_by(id=produto_id).first()
+    if not produto:
+        raise HTTPException(404, "Produto não encontrado")
+
+    cfg_vendedor = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    token = cfg_vendedor.access_token if cfg_vendedor else None
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    cat_id = await _predict_cat_ml(produto.titulo, token) if token else ""
+    if not cat_id:
+        categoria = _detectar_cat(produto.titulo)
+        cat_id = _CAT_ML.get(categoria, "MLB1459")
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"https://api.mercadolibre.com/categories/{cat_id}/attributes", headers=headers)
+        defs = r.json() if r.status_code == 200 else []
+    except Exception:
+        defs = []
+
+    attr_size = next((d for d in defs if d.get("id") == "SIZE"), None)
+    if not attr_size:
+        raise HTTPException(400, "Essa categoria não usa tamanhos — não deveria estar pedindo grade.")
+
+    return {
+        "categoria_id": cat_id,
+        "nome_atributo": attr_size.get("name", "Tamanho"),
+        "tamanhos": [{"id": v.get("id"), "nome": v.get("name")} for v in (attr_size.get("values") or [])],
+    }
 
 # ─── Publicar Tudo (ação principal) ──────────────────────────────────────────
 
@@ -661,12 +697,10 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         else:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:200]})
                 elif "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
-                    # Busca a grade de tamanhos do PRODUTO ORIGINAL (o que já está publicado de
-                    # verdade no ML) e replica no nosso anúncio — 1 unidade por tamanho disponível,
-                    # já que não temos estoque quebrado por tamanho no nosso catálogo.
-                    id_para_grade = catalog_product_id or produto.produto_ext_id
-                    size_grid_id, tamanhos = await _get_catalog_attrs(id_para_grade, cfg_vendedor.access_token) if id_para_grade else ("", [])
-                    if size_grid_id and tamanhos:
+                    # Usa os tamanhos que o usuário escolheu (tela de seleção) — a categoria
+                    # define os tamanhos válidos, não um "produto original", então adivinhar
+                    # a partir do catálogo não funciona. Sem seleção, não há o que tentar.
+                    if data.tamanhos:
                         p2 = {
                             "title": produto.titulo[:60], "category_id": cat_id,
                             "currency_id": "BRL", "buying_mode": "buy_it_now",
@@ -677,7 +711,6 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                                 {"id": "BRAND", "value_name": brand},
                                 {"id": "MODEL", "value_name": model},
                                 {"id": "COLOR", "value_name": cor},
-                                {"id": "SIZE_GRID_ID", "value_id": size_grid_id},
                             ],
                             "variations": [
                                 {
@@ -685,15 +718,15 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                                     "available_quantity": 1,
                                     "price": preco_venda,
                                 }
-                                for t in tamanhos
+                                for t in data.tamanhos
                             ],
                         }
                         r = await _publicar_ml(p2)
                         ml_ok = r.status_code in (200, 201)
                         if not ml_ok:
-                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Grade de tamanhos {', '.join(tamanhos)} não aceita: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:250]})
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Tamanhos {', '.join(data.tamanhos)} não aceitos: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:250]})
                     else:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos, mas não achei os tamanhos do produto original → link afiliado gerado."})
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → escolha os tamanhos e publique de novo.", "precisa_tamanhos": True})
                 elif "ANATEL" in err_txt:
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Celular requer N° Anatel → link afiliado gerado."})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:

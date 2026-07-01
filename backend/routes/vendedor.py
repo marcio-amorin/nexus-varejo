@@ -661,7 +661,39 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         else:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:200]})
                 elif "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
-                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → link afiliado gerado."})
+                    # Busca a grade de tamanhos do PRODUTO ORIGINAL (o que já está publicado de
+                    # verdade no ML) e replica no nosso anúncio — 1 unidade por tamanho disponível,
+                    # já que não temos estoque quebrado por tamanho no nosso catálogo.
+                    id_para_grade = catalog_product_id or produto.produto_ext_id
+                    size_grid_id, tamanhos = await _get_catalog_attrs(id_para_grade, cfg_vendedor.access_token) if id_para_grade else ("", [])
+                    if size_grid_id and tamanhos:
+                        p2 = {
+                            "title": produto.titulo[:60], "category_id": cat_id,
+                            "currency_id": "BRL", "buying_mode": "buy_it_now",
+                            "listing_type_id": "free", "condition": "new",
+                            "shipping": _SHIPPING,
+                            "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                            "attributes": [
+                                {"id": "BRAND", "value_name": brand},
+                                {"id": "MODEL", "value_name": model},
+                                {"id": "COLOR", "value_name": cor},
+                                {"id": "SIZE_GRID_ID", "value_id": size_grid_id},
+                            ],
+                            "variations": [
+                                {
+                                    "attribute_combinations": [{"id": "SIZE", "value_name": t}],
+                                    "available_quantity": 1,
+                                    "price": preco_venda,
+                                }
+                                for t in tamanhos
+                            ],
+                        }
+                        r = await _publicar_ml(p2)
+                        ml_ok = r.status_code in (200, 201)
+                        if not ml_ok:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Grade de tamanhos {', '.join(tamanhos)} não aceita: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:250]})
+                    else:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos, mas não achei os tamanhos do produto original → link afiliado gerado."})
                 elif "ANATEL" in err_txt:
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Celular requer N° Anatel → link afiliado gerado."})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:

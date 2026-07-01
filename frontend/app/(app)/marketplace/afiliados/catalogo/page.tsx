@@ -914,7 +914,9 @@ export default function Catalogo() {
               <div className="grid gap-2" style={{ gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))' }}>
               {filtrados.map((p,i) => {
                 const pubBadge = p.pub_status === 'ml_vendedor'
-                  ? { label:'✅ No ML',   bg:'rgba(34,197,94,0.2)',  cor:'#22c55e',  border:'rgba(34,197,94,0.5)'  }
+                  ? p.ml_status === 'under_review'
+                    ? { label:'🔴 Em análise no ML', bg:'rgba(239,68,68,0.2)', cor:'#ef4444', border:'rgba(239,68,68,0.5)' }
+                    : { label:'🟢 No ML',   bg:'rgba(34,197,94,0.2)',  cor:'#22c55e',  border:'rgba(34,197,94,0.5)'  }
                   : p.pub_status === 'afiliado'
                   ? { label:'🔗 Afiliado', bg:'rgba(249,115,22,0.2)', cor:'#f97316',  border:'rgba(249,115,22,0.5)' }
                   : p.pub_status === 'pendente'

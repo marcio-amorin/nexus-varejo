@@ -1284,27 +1284,50 @@ async def _buscar_amazon(q: str, categoria: str, limit: int, cfg):
 # ─── Catálogo de Produtos Salvos ─────────────────────────────────────────────
 
 @router.get("/catalogo")
-def listar_catalogo(
+async def listar_catalogo(
     plataforma: str = "",
     favorito: bool = False,
     db: Session = Depends(get_db),
     _=Depends(get_current_user)
 ):
-    from models import VendedorAnuncio
+    from models import VendedorAnuncio, VendedorConfig
     q = db.query(AfiliadoProduto).filter_by(ativo=True)
     if plataforma:
         q = q.filter_by(plataforma=plataforma)
     if favorito:
         q = q.filter_by(favorito=True)
     prods = q.order_by(AfiliadoProduto.comissao_valor.desc()).all()
+
+    anuncios_por_produto = {
+        a.produto_afiliado_id: a
+        for a in db.query(VendedorAnuncio).filter_by(plataforma="ML_VENDEDOR").all()
+    }
+
+    # Checa ao vivo se o anúncio "confirmado" já passou pela análise do ML — sem isso,
+    # um produto em moderação aparece igualzinho a um já liberado pra venda.
+    ml_status_por_listing: dict = {}
+    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    if cfg and cfg.access_token:
+        listing_ids = [a.listing_id for a in anuncios_por_produto.values() if a.listing_id]
+        if listing_ids:
+            headers = {"Authorization": f"Bearer {cfg.access_token}"}
+            async with httpx.AsyncClient(timeout=8) as client:
+                resultados = await asyncio.gather(*[
+                    client.get(f"https://api.mercadolibre.com/items/{lid}", headers=headers)
+                    for lid in listing_ids
+                ], return_exceptions=True)
+            for lid, r in zip(listing_ids, resultados):
+                if isinstance(r, Exception) or r.status_code != 200:
+                    continue
+                ml_status_por_listing[lid] = r.json().get("status")
+
     result = []
     for p in prods:
         d = _prod_dict(p)
-        anuncio = db.query(VendedorAnuncio).filter_by(
-            produto_afiliado_id=p.id, plataforma="ML_VENDEDOR"
-        ).first()
+        anuncio = anuncios_por_produto.get(p.id)
         if anuncio and anuncio.listing_id:
             d["pub_status"] = "ml_vendedor"   # publicado como vendedor no ML
+            d["ml_status"] = ml_status_por_listing.get(anuncio.listing_id)
         elif anuncio and anuncio.link_afiliado:
             d["pub_status"] = "afiliado"       # só link afiliado
         elif anuncio:

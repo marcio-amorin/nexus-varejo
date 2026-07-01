@@ -197,9 +197,14 @@ ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onr
 ML_AUTH_URL     = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL    = "https://api.mercadolibre.com/oauth/token"
 
+_ML_APP_ID_FALLBACK     = os.getenv("ML_CLIENT_ID", "3153350893755305")
+_ML_APP_SECRET_FALLBACK = os.getenv("ML_CLIENT_SECRET", "wCq5uo8Ytbu2AXfzd8fRN8Pa5hwgKFyB")
+
 async def _get_fresh_ml_token(db) -> str | None:
-    """Retorna token ML sempre fresco: tenta refresh → stored → client_credentials.
-    Verifica VendedorConfig e AfiliadoConfig automaticamente."""
+    """Retorna token ML sempre fresco: tenta refresh → client_credentials → stored.
+    Verifica VendedorConfig e AfiliadoConfig automaticamente. Cai para as credenciais
+    padrão do app quando a config não tem client_id/secret próprios salvos (comum
+    quando o OAuth foi feito com o app compartilhado)."""
     from models import VendedorConfig
     configs = []
     vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
@@ -209,15 +214,15 @@ async def _get_fresh_ml_token(db) -> str | None:
 
     async with httpx.AsyncClient(timeout=10) as c:
         for cfg in configs:
-            if not cfg.client_id or not cfg.client_secret:
-                continue
+            client_id     = cfg.client_id or _ML_APP_ID_FALLBACK
+            client_secret = cfg.client_secret or _ML_APP_SECRET_FALLBACK
             # 1) Tenta refresh_token (mais completo — tem permissões de usuário)
             if cfg.refresh_token:
                 try:
                     r = await c.post(ML_TOKEN_URL, data={
                         "grant_type": "refresh_token",
-                        "client_id": cfg.client_id,
-                        "client_secret": cfg.client_secret,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
                         "refresh_token": cfg.refresh_token,
                     })
                     if r.status_code == 200:
@@ -233,8 +238,8 @@ async def _get_fresh_ml_token(db) -> str | None:
             try:
                 r = await c.post(ML_TOKEN_URL, data={
                     "grant_type": "client_credentials",
-                    "client_id": cfg.client_id,
-                    "client_secret": cfg.client_secret,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
                 })
                 if r.status_code == 200:
                     d = r.json()
@@ -244,7 +249,8 @@ async def _get_fresh_ml_token(db) -> str | None:
                         return cfg.access_token
             except Exception:
                 pass
-            # 3) Token armazenado como último recurso
+            # 3) Token armazenado como último recurso — não depende de client_id/secret,
+            # só de já existir um access_token válido salvo (ex: da conta ML Vendedor conectada)
             if cfg.access_token:
                 return cfg.access_token
     return None

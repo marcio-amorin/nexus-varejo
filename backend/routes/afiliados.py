@@ -239,6 +239,33 @@ async def _get_fresh_ml_token(db) -> str | None:
                 pass
     return None
 
+async def _refresh_ml_access_token(db, cfg) -> str | None:
+    """Renova o access_token usando o refresh_token salvo — só chame reativamente,
+    depois de uma chamada real ao ML já ter falhado com 401 (nunca preventivamente:
+    ver _get_fresh_ml_token). Funciona com VendedorConfig ou AfiliadoConfig."""
+    if not cfg.refresh_token:
+        return None
+    client_id     = cfg.client_id or _ML_APP_ID_FALLBACK
+    client_secret = cfg.client_secret or _ML_APP_SECRET_FALLBACK
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(ML_TOKEN_URL, data={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": cfg.refresh_token,
+            })
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("access_token"):
+                cfg.access_token = d["access_token"]
+                cfg.refresh_token = d.get("refresh_token", cfg.refresh_token)
+                db.commit()
+                return cfg.access_token
+    except Exception:
+        pass
+    return None
+
 @router.get("/ml-auth-url")
 def ml_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()

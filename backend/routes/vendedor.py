@@ -429,11 +429,21 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
 
         async def _publicar_ml(pay: dict):
             async with httpx.AsyncClient(timeout=20) as client:
-                return await client.post(
+                r = await client.post(
                     "https://api.mercadolibre.com/items",
                     headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
                     json=pay
                 )
+            if r.status_code == 401:
+                from routes.afiliados import _refresh_ml_access_token
+                if await _refresh_ml_access_token(db, cfg_vendedor):
+                    async with httpx.AsyncClient(timeout=20) as client2:
+                        r = await client2.post(
+                            "https://api.mercadolibre.com/items",
+                            headers={"Authorization": f"Bearer {cfg_vendedor.access_token}", "Content-Type": "application/json"},
+                            json=pay
+                        )
+            return r
 
         try:
             r = await _publicar_ml(payload)
@@ -719,15 +729,29 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
         raise HTTPException(400, "Anúncio sem produto de origem vinculado — não há de onde buscar preço/foto. Exclua e crie de novo.")
 
     # A API pública do ML bloqueia IPs de datacenter (Render) sem autenticação — usa token do vendedor/afiliado
-    from routes.afiliados import _get_fresh_ml_token
+    from routes.afiliados import _get_fresh_ml_token, _refresh_ml_access_token
     token = await _get_fresh_ml_token(db)
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    cfg_refresh = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first() \
+        or db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
+
+    async def _get_com_renovacao(url: str):
+        nonlocal token, headers
+        async with httpx.AsyncClient(timeout=12) as client:
+            resp = await client.get(url, headers=headers)
+        if resp.status_code == 401 and cfg_refresh:
+            novo = await _refresh_ml_access_token(db, cfg_refresh)
+            if novo:
+                token = novo
+                headers = {"Authorization": f"Bearer {token}"}
+                async with httpx.AsyncClient(timeout=12) as client2:
+                    resp = await client2.get(url, headers=headers)
+        return resp
 
     preco_real = 0.0
     imagem_url = ""
     r2_status = None
-    async with httpx.AsyncClient(timeout=12) as client:
-        r = await client.get(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}", headers=headers)
+    r = await _get_com_renovacao(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}")
     if r.status_code == 200:
         item = r.json()
         preco_real = item.get("price") or 0
@@ -735,8 +759,7 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
         imagem_url = (imagens[0].get("url") if imagens else "") or item.get("thumbnail") or ""
     else:
         # ID salvo pode ser de catalogo (produto.mercadolivre.com.br/MLB-...), que vive em /products, não /items
-        async with httpx.AsyncClient(timeout=12) as client2:
-            r2 = await client2.get(f"https://api.mercadolibre.com/products/{produto.produto_ext_id}", headers=headers)
+        r2 = await _get_com_renovacao(f"https://api.mercadolibre.com/products/{produto.produto_ext_id}")
         r2_status = r2.status_code
         if r2.status_code == 200:
             item = r2.json()
@@ -781,6 +804,15 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                     json=update_payload
                 )
+            if rp.status_code == 401 and cfg_refresh:
+                novo = await _refresh_ml_access_token(db, cfg_refresh)
+                if novo:
+                    async with httpx.AsyncClient(timeout=15) as client3:
+                        rp = await client3.put(
+                            f"https://api.mercadolibre.com/items/{a.listing_id}",
+                            headers={"Authorization": f"Bearer {novo}", "Content-Type": "application/json"},
+                            json=update_payload
+                        )
             atualizado_no_ml = rp.status_code in (200, 201)
         except Exception:
             pass

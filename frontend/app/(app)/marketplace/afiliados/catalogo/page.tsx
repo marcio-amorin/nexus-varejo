@@ -92,6 +92,11 @@ export default function Catalogo() {
 
   const [sincronizandoAuto, setSincronizandoAuto] = useState(false)
 
+  // GTIN (código de barras) — edição inline no card do catálogo
+  const [gtinEditando, setGtinEditando] = useState<number|null>(null)
+  const [gtinValores, setGtinValores]   = useState<Record<number,string>>({})
+  const [salvandoGtin, setSalvandoGtin] = useState<number|null>(null)
+
   useEffect(() => {
     carregarCatalogo()
     ;(async () => {
@@ -377,6 +382,18 @@ export default function Catalogo() {
     const p = modalTamanhosProduto
     setModalTamanhosProduto(null)
     await publicarTudo(p, Array.from(tamanhosEscolhidos))
+  }
+
+  async function salvarGtin(id: number) {
+    const gtin = (gtinValores[id] || '').trim()
+    if (gtin && !/^\d+$/.test(gtin)) { alert('GTIN deve conter só números'); return }
+    setSalvandoGtin(id)
+    try {
+      await fetch(`${API}/afiliados/catalogo/${id}/gtin`, { method:'PATCH', headers:hdr(), body:JSON.stringify({ gtin }) })
+      setGtinEditando(null)
+      carregarCatalogo()
+    } catch { alert('Erro ao salvar GTIN') }
+    setSalvandoGtin(null)
   }
 
   async function enviarTodosNaoPublicados() {
@@ -962,6 +979,31 @@ export default function Catalogo() {
                       <button onClick={() => remover(p.id)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)' }}>
                         <Trash2 size={11} color="#ef4444"/>
                       </button>
+                    </div>
+                    {/* GTIN (código de barras) — necessário para publicar em algumas categorias */}
+                    <div className="mt-1">
+                      {gtinEditando === p.id ? (
+                        <div className="flex gap-1">
+                          <input autoFocus value={gtinValores[p.id] ?? p.gtin ?? ''}
+                            onChange={e => setGtinValores(v => ({ ...v, [p.id]: e.target.value.replace(/\D/g,'') }))}
+                            onKeyDown={e => { if (e.key==='Enter') salvarGtin(p.id); if (e.key==='Escape') setGtinEditando(null) }}
+                            placeholder="Código de barras"
+                            inputMode="numeric"
+                            className="flex-1 min-w-0 px-1.5 py-1 rounded-lg text-[10px]"
+                            style={{ background:'var(--card2)', border:'1px solid var(--border)', color:'var(--fg)' }}/>
+                          <button onClick={() => salvarGtin(p.id)} disabled={salvandoGtin===p.id}
+                            className="px-2 py-1 rounded-lg text-[10px] font-bold text-white"
+                            style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)', opacity: salvandoGtin===p.id?0.6:1 }}>
+                            {salvandoGtin===p.id ? '...' : 'OK'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setGtinEditando(p.id); setGtinValores(v => ({ ...v, [p.id]: p.gtin || '' })) }}
+                          className="w-full py-1 rounded-lg text-[9px] font-bold flex items-center justify-center gap-1"
+                          style={{ background:'var(--card2)', border:'1px solid var(--border)', color: p.gtin ? '#22c55e' : 'var(--muted)' }}>
+                          🔢 {p.gtin ? `GTIN: ${p.gtin}` : 'Adicionar GTIN (código de barras)'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

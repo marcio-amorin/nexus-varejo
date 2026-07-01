@@ -1224,6 +1224,7 @@ class AfiliadoProduto(Base):
     ativo           = Column(Boolean, default=True)
     favorito        = Column(Boolean, default=False)
     notas           = Column(Text, nullable=True)
+    gtin            = Column(String(20), nullable=True)     # código de barras (EAN/UPC) — exigido pelo ML em algumas categorias
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 

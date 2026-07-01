@@ -245,6 +245,7 @@ def _background_init():
                 ("contas_correntes","cor","VARCHAR(7) DEFAULT '#6366f1'"),
                 ("contas_correntes","icone","VARCHAR(10) DEFAULT '🏦'"),
                 ("contas_correntes","observacoes","TEXT"),
+                ("afiliado_produtos","gtin","VARCHAR(20)"),
             ]:
                 _add_col(conn, table, col, typ)
             conn.commit()

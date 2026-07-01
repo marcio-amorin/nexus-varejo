@@ -1573,6 +1573,21 @@ def toggle_favorito(id: int, db: Session = Depends(get_db), _=Depends(get_curren
     db.commit()
     return {"favorito": p.favorito}
 
+class GtinIn(BaseModel):
+    gtin: str
+
+@router.patch("/catalogo/{id}/gtin")
+def salvar_gtin(id: int, data: GtinIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    p = db.query(AfiliadoProduto).get(id)
+    if not p:
+        raise HTTPException(404, "Produto não encontrado")
+    gtin = (data.gtin or "").strip()
+    if gtin and not gtin.isdigit():
+        raise HTTPException(400, "GTIN deve conter só números")
+    p.gtin = gtin or None
+    db.commit()
+    return {"gtin": p.gtin}
+
 @router.delete("/catalogo/{id}")
 def remover_produto(id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     p = db.query(AfiliadoProduto).get(id)
@@ -2501,7 +2516,7 @@ def _prod_dict(p: AfiliadoProduto) -> dict:
         "categoria": p.categoria, "imagem_url": p.imagem_url, "url_produto": p.url_produto,
         "vendas_mes": p.vendas_mes, "avaliacao": p.avaliacao,
         "total_avaliacoes": p.total_avaliacoes, "favorito": p.favorito,
-        "notas": p.notas, "created_at": str(p.created_at),
+        "notas": p.notas, "gtin": p.gtin, "created_at": str(p.created_at),
     }
 
 def _meta_dict(m: AfiliadoMeta) -> dict:

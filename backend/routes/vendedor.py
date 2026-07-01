@@ -749,6 +749,15 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → escolha os tamanhos e publique de novo.", "precisa_tamanhos": True})
                 elif "ANATEL" in err_txt:
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Celular requer N° Anatel → link afiliado gerado."})
+                elif "[GTIN]" in err_txt or "missing_conditional_required" in err_txt:
+                    if produto.gtin:
+                        p2 = {**payload, "attributes": (payload.get("attributes") or []) + [{"id": "GTIN", "value_name": produto.gtin}]}
+                        r = await _publicar_ml(p2)
+                        ml_ok = r.status_code in (200, 201)
+                        if not ml_ok:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {produto.gtin} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
+                    else:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) — cadastre no produto e publique de novo → link afiliado gerado.", "precisa_gtin": True})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:
                     p2 = {k: v for k, v in payload.items() if k != "category_id"}
                     r = await _publicar_ml(p2)

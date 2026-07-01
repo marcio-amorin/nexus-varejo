@@ -163,7 +163,7 @@ export default function Catalogo() {
       if (r.ok) {
         const d = await r.json()
         if ((d.results || []).length > 0)
-          return d.results.map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+          return d.results.filter((item:any) => (item.available_quantity ?? 0) > 0).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
       }
     } catch {}
     // 2ª: com token OAuth / client_credentials (backend auto-gera se expirado)
@@ -173,7 +173,7 @@ export default function Catalogo() {
         const r = await fetch(url, { headers: { Authorization: `Bearer ${tok}` } })
         if (r.ok) {
           const d = await r.json()
-          return (d.results || []).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
+          return (d.results || []).filter((item:any) => (item.available_quantity ?? 0) > 0).map((item:any) => montarProduto(item, 'ML_AFILIADOS'))
         }
       } catch {}
     }

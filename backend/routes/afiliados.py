@@ -1590,58 +1590,48 @@ def salvar_gtin(id: int, data: GtinIn, db: Session = Depends(get_db), _=Depends(
 
 @router.get("/catalogo/verificar-estoque")
 async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Varre todo o catálogo ativo e confere direto na API do Mercado Livre se o produto
-    ainda tem estoque disponível — pra identificar o que pode ser removido com segurança."""
+    """Só faz sentido checar estoque de verdade nos produtos que já viraram anúncio
+    próprio no ML (têm listing_id, item de vendedor único — reporta estoque direito).
+    O produto_ext_id aponta pro catálogo/anúncio ORIGINAL de outro vendedor, cuja API
+    de catálogo não devolve oferta ativa (buy_box_winner) de forma confiável."""
+    from models import VendedorAnuncio
     token = await _get_fresh_ml_token(db)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     produtos = db.query(AfiliadoProduto).filter_by(ativo=True).all()
+    anuncios = {
+        a.produto_afiliado_id: a.listing_id
+        for a in db.query(VendedorAnuncio).filter_by(plataforma="ML_VENDEDOR").all()
+        if a.listing_id
+    }
 
     resultado = []
     async with httpx.AsyncClient(timeout=10) as client:
         for p in produtos:
-            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            listing_id = anuncios.get(p.id)
+            if not listing_id:
+                resultado.append({"id": p.id, "titulo": p.titulo, "publicado": False, "status_estoque": "nao_publicado"})
+                continue
             status_estoque = "desconhecido"
             available_quantity = None
-            item_status = None
-            debug = {"token_presente": bool(token)}
             try:
-                r = await client.get(f"https://api.mercadolibre.com/items/{p.produto_ext_id}", headers=headers)
-                debug["items_status"] = r.status_code
+                r = await client.get(f"https://api.mercadolibre.com/items/{listing_id}", headers=headers)
                 if r.status_code == 200:
                     d = r.json()
                     available_quantity = d.get("available_quantity")
                     item_status = d.get("status")
-                    if item_status == "active" and (available_quantity or 0) > 0:
-                        status_estoque = "com_estoque"
-                    else:
-                        status_estoque = "sem_estoque"
+                    status_estoque = "com_estoque" if (item_status == "active" and (available_quantity or 0) > 0) else "sem_estoque"
                 else:
-                    debug["items_body"] = r.text[:150]
-                    # Não é um item direto — pode ser página de catálogo (/p/), confere se tem oferta ativa
-                    r2 = await client.get(f"https://api.mercadolibre.com/products/{p.produto_ext_id}", headers=headers)
-                    debug["products_status"] = r2.status_code
-                    if r2.status_code == 200:
-                        d2 = r2.json()
-                        bbw = d2.get("buy_box_winner") or {}
-                        if bbw.get("item_id"):
-                            status_estoque = "com_estoque"
-                            available_quantity = bbw.get("available_quantity")
-                        else:
-                            status_estoque = "sem_estoque"
-                            debug["products_body"] = json.dumps(d2)[:2000]
-                    else:
-                        debug["products_body"] = r2.text[:150]
-            except Exception as e:
-                debug["excecao"] = str(e)[:150]
+                    status_estoque = "sem_estoque"
+            except Exception:
+                pass
 
             resultado.append({
                 "id": p.id,
                 "titulo": p.titulo,
-                "produto_ext_id": p.produto_ext_id,
-                "pub_status": "ml_vendedor" if False else None,  # preenchido pelo frontend via catalogo já carregado
+                "listing_id": listing_id,
+                "publicado": True,
                 "status_estoque": status_estoque,
                 "available_quantity": available_quantity,
-                "debug": debug,
-                "item_status": item_status,
             })
     return {"produtos": resultado}
 

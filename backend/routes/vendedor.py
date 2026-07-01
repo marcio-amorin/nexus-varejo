@@ -585,6 +585,15 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         # Celulares/Calçados/Roupas — sem catalog, BRAND/MODEL passam a ser obrigatórios.
                         if not p2.get("attributes"):
                             p2["attributes"] = [{"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model}]
+                        # O erro original pode já apontar atributos de catálogo faltando (ex: "Tamanho da
+                        # tela") — tenta preencher agora pra não bater no mesmo erro de novo no retry.
+                        preenchidos_ship, _ = await _resolver_atributos_faltantes(
+                            cat_id, err_txt, produto.titulo, cfg_vendedor.access_token
+                        )
+                        ids_ship = {a["id"] for a in p2["attributes"]}
+                        for a in preenchidos_ship:
+                            if a["id"] not in ids_ship:
+                                p2["attributes"].append(a)
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
@@ -593,6 +602,14 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ N° Anatel não encontrado para este modelo → link afiliado gerado."})
                         elif "temporarily_unavailable" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
+                        elif "item.listing_type_id.unavailable" in err2:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Cota de anúncio grátis esgotada para essa categoria na sua conta ML → link afiliado gerado.", "detalhe": err2[:300]})
+                        elif "missing_catalog_required" in err2 or "missing_required" in err2:
+                            _, nao_resolvidos_ship = await _resolver_atributos_faltantes(cat_id, err2, produto.titulo, cfg_vendedor.access_token)
+                            if nao_resolvidos_ship:
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Faltam dados que não temos: {', '.join(nao_resolvidos_ship)} → link afiliado gerado.", "detalhe": err2[:300]})
+                            else:
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": err2[:300]})
                         elif "shipping" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Erro de frete (ME2/shipping) → link afiliado gerado.", "detalhe": err2[:300]})
                         else:

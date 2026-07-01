@@ -505,6 +505,10 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         # só remove catalog_product_id e força shipping ME2.
                         p2 = {k: v for k, v in payload.items() if k != "catalog_product_id"}
                         p2["shipping"] = _SHIPPING
+                        # Payload com catalog_product_id não leva "attributes" pra categorias fora de
+                        # Celulares/Calçados/Roupas — sem catalog, BRAND/MODEL passam a ser obrigatórios.
+                        if not p2.get("attributes"):
+                            p2["attributes"] = [{"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model}]
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:

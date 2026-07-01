@@ -1602,8 +1602,10 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
             status_estoque = "desconhecido"
             available_quantity = None
             item_status = None
+            debug = {"token_presente": bool(token)}
             try:
                 r = await client.get(f"https://api.mercadolibre.com/items/{p.produto_ext_id}", headers=headers)
+                debug["items_status"] = r.status_code
                 if r.status_code == 200:
                     d = r.json()
                     available_quantity = d.get("available_quantity")
@@ -1613,8 +1615,10 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
                     else:
                         status_estoque = "sem_estoque"
                 else:
+                    debug["items_body"] = r.text[:150]
                     # Não é um item direto — pode ser página de catálogo (/p/), confere se tem oferta ativa
                     r2 = await client.get(f"https://api.mercadolibre.com/products/{p.produto_ext_id}", headers=headers)
+                    debug["products_status"] = r2.status_code
                     if r2.status_code == 200:
                         d2 = r2.json()
                         bbw = d2.get("buy_box_winner") or {}
@@ -1623,8 +1627,11 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
                             available_quantity = bbw.get("available_quantity")
                         else:
                             status_estoque = "sem_estoque"
-            except Exception:
-                pass
+                            debug["products_body"] = json.dumps(d2)[:200]
+                    else:
+                        debug["products_body"] = r2.text[:150]
+            except Exception as e:
+                debug["excecao"] = str(e)[:150]
 
             resultado.append({
                 "id": p.id,
@@ -1633,6 +1640,7 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
                 "pub_status": "ml_vendedor" if False else None,  # preenchido pelo frontend via catalogo já carregado
                 "status_estoque": status_estoque,
                 "available_quantity": available_quantity,
+                "debug": debug,
                 "item_status": item_status,
             })
     return {"produtos": resultado}

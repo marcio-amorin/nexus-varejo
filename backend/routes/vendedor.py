@@ -688,6 +688,7 @@ def listar_anuncios(
             "vendas_count": a.vendas_count,
             "faturamento": a.faturamento,
             "categoria_ml": a.categoria_ml,
+            "erro_msg": a.erro_msg,
             "publicado_em": a.publicado_em.isoformat() if a.publicado_em else None,
         }
         for a in items
@@ -719,6 +720,7 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
 
     preco_real = 0.0
     imagem_url = ""
+    r2_status = None
     async with httpx.AsyncClient(timeout=12) as client:
         r = await client.get(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}", headers=headers)
     if r.status_code == 200:
@@ -730,11 +732,17 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
         # ID salvo pode ser de catalogo (produto.mercadolivre.com.br/MLB-...), que vive em /products, não /items
         async with httpx.AsyncClient(timeout=12) as client2:
             r2 = await client2.get(f"https://api.mercadolibre.com/products/{produto.produto_ext_id}", headers=headers)
+        r2_status = r2.status_code
         if r2.status_code == 200:
             item = r2.json()
             preco_real = item.get("price") or ((item.get("buy_box_winner") or {}).get("price")) or 0
             imagens = item.get("pictures") or []
             imagem_url = (imagens[0].get("url") if imagens else "") or ""
+
+    # Confirmado que o produto saiu do Mercado Livre (404 em /items e /products) — marca no anúncio
+    # mesmo que a gente consiga preencher preço/foto com o que já estava salvo no catálogo.
+    sumiu_do_ml = r.status_code == 404 and r2_status in (404, None) and r2_status != 200
+    a.erro_msg = "⚠️ Produto não encontrado no Mercado Livre — pode ter sido removido ou expirado." if sumiu_do_ml else None
 
     # Último recurso: usa o preço/foto já salvos no catálogo (podem já estar corretos,
     # o anúncio é que ficou desatualizado — ex: item saiu do ML mas já tínhamos os dados certos)
@@ -744,6 +752,7 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
         imagem_url = produto.imagem_url or ""
 
     if not preco_real:
+        db.commit()
         raise HTTPException(400, "Não foi possível obter preço nem do Mercado Livre nem do catálogo salvo")
 
     preco_venda = round(preco_real * 1.15, 2)
@@ -772,7 +781,7 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
             pass
 
     db.commit()
-    return {"ok": True, "preco_venda": preco_venda, "imagem_url": imagem_url, "atualizado_no_ml": atualizado_no_ml}
+    return {"ok": True, "preco_venda": preco_venda, "imagem_url": imagem_url, "atualizado_no_ml": atualizado_no_ml, "sumiu_do_ml": sumiu_do_ml}
 
 @router.delete("/anuncios/{anuncio_id}")
 def remover_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):

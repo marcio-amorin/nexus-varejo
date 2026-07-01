@@ -80,7 +80,8 @@ export default function MeusAnuncios() {
       const r = await fetch(`${API}/vendedor/anuncios/${id}/reparar`, { method:'POST', headers:hdr() })
       const d = await r.json()
       if (!r.ok) { alert('❌ ' + (d.detail || 'Erro ao reparar')); return }
-      alert(d.atualizado_no_ml ? '✅ Preço e foto corrigidos no anúncio do ML.' : '✅ Corrigido localmente. (Não foi possível atualizar no ML — confira a conta vendedor)')
+      if (d.sumiu_do_ml) alert('⚠️ Produto não existe mais no Mercado Livre — usei os dados salvos aqui, mas vale conferir se ainda vale a pena divulgar.')
+      else alert(d.atualizado_no_ml ? '✅ Preço e foto corrigidos no anúncio do ML.' : '✅ Corrigido localmente. (Não foi possível atualizar no ML — confira a conta vendedor)')
     } catch (e:any) { alert('❌ ' + e.message) }
     setReparandoId(null)
     carregar()
@@ -180,6 +181,11 @@ export default function MeusAnuncios() {
                       <span className="font-black" style={{ color:'#22c55e' }}>Margem: {a.margem_pct}%</span>
                     </div>
                     <p className="text-sm font-black" style={{ color:'#f97316' }}>{fmtR(a.preco_venda)}</p>
+                    {a.erro_msg && (
+                      <p className="text-[9px] font-bold px-1.5 py-1 rounded-md" style={{ background:'rgba(239,68,68,0.15)', color:'#ef4444' }}>
+                        {a.erro_msg}
+                      </p>
+                    )}
                     {(!a.imagem_url || !a.preco_venda) && (
                       <button onClick={() => reparar(a.id)} disabled={reparandoId===a.id}
                         className="w-full py-1.5 rounded-lg text-[9px] font-black flex items-center justify-center gap-1"

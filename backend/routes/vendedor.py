@@ -755,7 +755,19 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         r = await _publicar_ml(p2)
                         ml_ok = r.status_code in (200, 201)
                         if not ml_ok:
-                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {produto.gtin} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
+                            err_gtin = r.text
+                            if "shipping.lost_me" in err_gtin or "4053" in err_gtin:
+                                # catalog_product_id força frete ME1 — remove o catálogo e publica
+                                # com atributos normais, mantendo o GTIN já validado no passo anterior.
+                                p3 = {k: v for k, v in p2.items() if k != "catalog_product_id"}
+                                p3["attributes"] = list(p3.get("attributes") or [])
+                                attrs_ids = {a["id"] for a in p3["attributes"]}
+                                if "BRAND" not in attrs_ids: p3["attributes"].append({"id": "BRAND", "value_name": brand})
+                                if "MODEL" not in attrs_ids: p3["attributes"].append({"id": "MODEL", "value_name": model})
+                                r = await _publicar_ml(p3)
+                                ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {produto.gtin} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
                     else:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) — cadastre no produto e publique de novo → link afiliado gerado.", "precisa_gtin": True})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:

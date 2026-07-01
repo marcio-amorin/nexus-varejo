@@ -58,32 +58,6 @@ def debug():
         resultado["erro"] = str(e)
     return resultado
 
-@app.get("/debug-size-grid")
-async def debug_size_grid(domain_id: str = "MLB-SNEAKERS"):
-    import httpx
-    from database import SessionLocal
-    from models import VendedorConfig
-    db = SessionLocal()
-    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
-    token = cfg.access_token if cfg else None
-    db.close()
-    out = {}
-    urls = [
-        f"https://api.mercadolibre.com/catalog_domains/{domain_id}/size_grids",
-        f"https://api.mercadolibre.com/catalog_domains/{domain_id}",
-        f"https://api.mercadolibre.com/catalog_domains/{domain_id}/attributes/SIZE_GRID_ID",
-    ]
-    async with httpx.AsyncClient(timeout=10) as c:
-        for u in urls:
-            try:
-                r = await c.get(u, headers={"Authorization": f"Bearer {token}"} if token else {})
-                try: body = r.json()
-                except Exception: body = r.text[:500]
-                out[u] = {"status": r.status_code, "body": body}
-            except Exception as e:
-                out[u] = {"erro": str(e)}
-    return out
-
 @app.get("/debug-ml")
 async def debug_ml():
     import httpx, time

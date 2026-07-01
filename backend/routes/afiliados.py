@@ -1835,9 +1835,9 @@ async def metas_analytics(mes_ano: str, db: Session = Depends(get_db), _=Depends
         "catalogo_confirmado": len(confirmados),
         "catalogo_em_analise": len(em_analise),
         "lucro_medio_atual": lucro_medio_atual,
-        "vendas_necessarias_atual": round(meta_renda / lucro_medio_atual) if lucro_medio_atual > 0 else None,
+        "vendas_necessarias_atual": round(meta_renda / lucro_medio_atual) if (lucro_medio_atual > 0 and meta_renda > 0) else None,
         "lucro_medio_projetado": lucro_medio_projetado,
-        "vendas_necessarias_projetado": round(meta_renda / lucro_medio_projetado) if lucro_medio_projetado > 0 else None,
+        "vendas_necessarias_projetado": round(meta_renda / lucro_medio_projetado) if (lucro_medio_projetado > 0 and meta_renda > 0) else None,
     }
 
     return {

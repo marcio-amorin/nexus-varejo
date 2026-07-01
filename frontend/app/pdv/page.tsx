@@ -889,11 +889,15 @@ export default function PDVPage() {
       </div>
 
       {/* CORPO: operador (esquerda) + cupom (direita) */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0" style={{ flexDirection: isMobile ? 'column' : 'row' }}>
 
         {/* ─ ESQUERDA: confirmação + NOVA VENDA ─ */}
-        <div className="flex flex-col items-center justify-center gap-5 p-8"
-          style={{ width: '42%', borderRight: '3px solid rgba(255,255,255,0.1)', background: '#0a0f1a' }}>
+        <div className="flex flex-col items-center justify-center gap-5 p-8" style={{
+          width: isMobile ? '100%' : '42%',
+          borderRight: isMobile ? 'none' : '3px solid rgba(255,255,255,0.1)',
+          borderBottom: isMobile ? '3px solid rgba(255,255,255,0.1)' : 'none',
+          background: '#0a0f1a',
+        }}>
 
           {ultimaVenda?.tipo_fiscal === 'NFE' ? (
             <>
@@ -987,19 +991,34 @@ export default function PDVPage() {
             </div>
           </div>
 
-          {/* Colunas */}
-          <div className="flex-shrink-0 grid px-3 py-1 text-[10px] font-black"
-            style={{ background: '#0f2236', borderBottom: '1px solid #1e3a5f', color: '#60a5fa',
-              gridTemplateColumns: '28px 1fr 56px 56px 68px' }}>
-            <span>N</span><span>Descrição</span>
-            <span className="text-right">Qtd</span>
-            <span className="text-right">Unit.</span>
-            <span className="text-right">Total</span>
-          </div>
+          {/* Colunas (só desktop) */}
+          {!isMobile && (
+            <div className="flex-shrink-0 grid px-3 py-1 text-[10px] font-black"
+              style={{ background: '#0f2236', borderBottom: '1px solid #1e3a5f', color: '#60a5fa',
+                gridTemplateColumns: '28px 1fr 56px 56px 68px' }}>
+              <span>N</span><span>Descrição</span>
+              <span className="text-right">Qtd</span>
+              <span className="text-right">Unit.</span>
+              <span className="text-right">Total</span>
+            </div>
+          )}
 
           {/* Itens — NÃO editáveis, apenas leitura */}
           <div className="flex-1 overflow-y-auto" style={{ background: '#0c1929' }}>
-            {cart.map((item, idx) => (
+            {isMobile ? cart.map((item, idx) => (
+              <div key={item.uid} className="px-3 py-2 border-b" style={{ borderColor: '#1e3a5f' }}>
+                <p className="font-black leading-snug text-white" style={{ fontSize: 13, textTransform: 'uppercase' }}>
+                  <span style={{ color: '#60a5fa' }}>{String(idx + 1).padStart(2, '0')}. </span>{item.produto.descricao}
+                </p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-[10px] font-mono" style={{ color: '#475569' }}>{item.produto.codigo}</p>
+                  <p className="font-bold" style={{ color: '#94a3b8', fontSize: 13 }}>
+                    {(item.peso_kg ? `${item.peso_kg.toFixed(3)}kg` : fmtQtd(item.quantidade))} × {fmtVal(item.preco)}
+                    <span className="font-black ml-2" style={{ color: '#f59e0b', fontSize: 16 }}>{fmtVal(item.quantidade * item.preco)}</span>
+                  </p>
+                </div>
+              </div>
+            )) : cart.map((item, idx) => (
               <div key={item.uid} className="border-b"
                 style={{ gridTemplateColumns: '28px 1fr 56px 56px 68px', borderColor: '#1e3a5f' }}>
                 <div className="grid px-3 py-1.5 text-sm items-start"
@@ -1056,7 +1075,7 @@ export default function PDVPage() {
         {/* Formas de pagamento */}
         <div>
           <p className="text-xs font-bold mb-3" style={{ color: '#71717A' }}>FORMA DE PAGAMENTO</p>
-          <div className="grid grid-cols-4 gap-2">
+          <div className={`grid gap-2 ${isMobile ? 'grid-cols-2' : 'grid-cols-4'}`}>
             {formasAPI.filter(f => f.chave !== 'CREDITO_DEVOLUCAO' || creditoDev > 0).map(f => {
               const sel      = formasSel.find(x => x.forma === f.chave)
               const desconto = sel ? descontoFormaPgto(f.chave, total) : 0
@@ -1109,7 +1128,7 @@ export default function PDVPage() {
         {formasSel.find(x => formasAPI.find(f => f.chave === x.forma && f.aceita_troco)) && (
           <div className="rounded-2xl p-4 space-y-3" style={{ background: '#18181B' }}>
             <p className="text-xs font-bold" style={{ color: '#71717A' }}>VALOR RECEBIDO (DINHEIRO)</p>
-            <div className="grid grid-cols-4 gap-2">
+            <div className={`grid gap-2 ${isMobile ? 'grid-cols-2' : 'grid-cols-4'}`}>
               {[50, 100, 200, total].map(v => (
                 <button key={v}
                   onClick={() => {
@@ -1511,27 +1530,48 @@ export default function PDVPage() {
       )}
 
       {/* ══ TOP BAR ══ */}
-      <div className="flex items-center gap-3 px-4 py-2.5 flex-shrink-0"
-        style={{ background: 'rgba(0,0,0,0.28)', borderBottom: '2px solid rgba(255,255,255,0.25)' }}>
-        <div className="flex items-center gap-3 flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg,#EA580C,#F97316)', borderRadius: 14, padding: '6px 16px 6px 10px', boxShadow: '0 4px 18px rgba(249,115,22,0.5)' }}>
-          <div className="flex items-center justify-center rounded-xl flex-shrink-0"
-            style={{ background: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}>
-            {params?.logo_url
-              ? <img src={params.logo_url} alt={params.nome_loja} className="h-full object-contain rounded-xl" style={{ maxWidth: 38 }} />
-              : <ShoppingCart size={20} color="white" />}
+      <div className="flex flex-shrink-0" style={{
+        background: 'rgba(0,0,0,0.28)', borderBottom: '2px solid rgba(255,255,255,0.25)',
+        flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? 8 : 12, padding: isMobile ? '8px 10px' : '10px 16px',
+      }}>
+        <div className="flex items-center" style={{
+          justifyContent: isMobile ? 'space-between' : 'flex-start', gap: 12,
+        }}>
+          <div className="flex items-center gap-3 flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg,#EA580C,#F97316)', borderRadius: 14, padding: '6px 16px 6px 10px', boxShadow: '0 4px 18px rgba(249,115,22,0.5)' }}>
+            <div className="flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{ background: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}>
+              {params?.logo_url
+                ? <img src={params.logo_url} alt={params.nome_loja} className="h-full object-contain rounded-xl" style={{ maxWidth: 38 }} />
+                : <ShoppingCart size={20} color="white" />}
+            </div>
+            <div className="leading-none">
+              <p style={{ color: 'white', fontWeight: 900, fontSize: 18, letterSpacing: -0.5, margin: 0, lineHeight: 1.1 }}>
+                {params?.nome_loja || 'NexusVarejo'}
+              </p>
+              <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10, fontWeight: 600, letterSpacing: 2, margin: 0 }}>
+                GESTÃO COMERCIAL · {params?.terminal || 'PDV-01'}
+              </p>
+            </div>
           </div>
-          <div className="leading-none">
-            <p style={{ color: 'white', fontWeight: 900, fontSize: 18, letterSpacing: -0.5, margin: 0, lineHeight: 1.1 }}>
-              {params?.nome_loja || 'NexusVarejo'}
-            </p>
-            <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10, fontWeight: 600, letterSpacing: 2, margin: 0 }}>
-              GESTÃO COMERCIAL · {params?.terminal || 'PDV-01'}
-            </p>
-          </div>
+
+          {isMobile && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button onClick={() => setShowMenu(v => !v)}
+                className="px-2.5 py-1.5 rounded-xl text-[11px] font-black"
+                style={{ background: showMenu ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.3)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }}>
+                [M] MENU
+              </button>
+              <button onClick={logout} className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ background: 'rgba(180,0,0,0.5)', color: 'white' }}>
+                <LogOut size={14} />
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1 relative" style={{ maxWidth: 560 }}>
+        <div className="flex-1 relative" style={{ maxWidth: isMobile ? '100%' : 560 }}>
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: '#f97316' }} />
           <input ref={buscaRef} value={busca} onChange={e => setBusca(e.target.value)} autoFocus
             placeholder="Código de barras ou nome do produto..."
@@ -1577,17 +1617,19 @@ export default function PDVPage() {
           />
         </div>
 
-        <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
-          <button onClick={() => setShowMenu(v => !v)}
-            className="px-2.5 py-1.5 rounded-xl text-[11px] font-black"
-            style={{ background: showMenu ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.3)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }}>
-            [M] MENU
-          </button>
-          <button onClick={logout} className="w-8 h-8 rounded-xl flex items-center justify-center"
-            style={{ background: 'rgba(180,0,0,0.5)', color: 'white' }}>
-            <LogOut size={14} />
-          </button>
-        </div>
+        {!isMobile && (
+          <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+            <button onClick={() => setShowMenu(v => !v)}
+              className="px-2.5 py-1.5 rounded-xl text-[11px] font-black"
+              style={{ background: showMenu ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.3)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }}>
+              [M] MENU
+            </button>
+            <button onClick={logout} className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ background: 'rgba(180,0,0,0.5)', color: 'white' }}>
+              <LogOut size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ══ CORPO: 2 colunas estilo Logus ══ */}
@@ -1596,7 +1638,30 @@ export default function PDVPage() {
         {/* ─── COLUNA ESQUERDA: Operador ─── */}
         <div className="flex flex-col" style={{ width: isMobile ? '100%' : '42%', maxHeight: isMobile ? '35%' : undefined, borderRight: isMobile ? 'none' : '3px solid rgba(0,0,0,0.2)', borderBottom: isMobile ? '3px solid rgba(0,0,0,0.2)' : 'none', background: 'rgba(255,255,255,0.97)' }}>
 
-          {/* ── TOPO: Logo da empresa | Foto do produto ── */}
+          {/* ── TOPO: Logo da empresa | Foto do produto (tira compacta no mobile) ── */}
+          {isMobile ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
+              style={{ borderBottom: '2px solid #e2e8f0', background: '#0e1520', minHeight: 40 }}>
+              {lastScanned ? (
+                <>
+                  {lastScanned.imagem_url
+                    ? <img src={imgSrc(lastScanned.imagem_url)} alt={lastScanned.descricao}
+                        className="rounded-lg flex-shrink-0" style={{ width: 32, height: 32, objectFit: 'contain', background: '#fff' }} />
+                    : <Package size={20} color="#64748b" className="flex-shrink-0" />}
+                  <p className="text-[11px] font-black leading-tight truncate" style={{ color: '#e2e8f0', textTransform: 'uppercase' }}>
+                    {lastScanned.descricao}
+                  </p>
+                </>
+              ) : qtdPendente > 1 ? (
+                <p className="text-[11px] font-black" style={{ color: '#f97316' }}>QTD {qtdPendente} → escaneie o produto</p>
+              ) : (
+                <>
+                  <ShoppingCart size={16} color="#64748b" className="flex-shrink-0" />
+                  <p className="text-[11px] font-bold" style={{ color: '#64748b' }}>{params?.nome_loja || 'NexusVarejo'} · aguardando produto</p>
+                </>
+              )}
+            </div>
+          ) : (
           <div className="flex flex-1 min-h-0" style={{ borderBottom: '2px solid #e2e8f0' }}>
 
             {/* Quadro LOGO DA EMPRESA */}
@@ -1652,6 +1717,7 @@ export default function PDVPage() {
               )}
             </div>
           </div>
+          )}
 
           {/* ── BLOCO UNIFICADO: Formas + Inputs ── */}
           <div className="flex-shrink-0 px-3 pt-2 pb-2"
@@ -1820,15 +1886,17 @@ export default function PDVPage() {
             </div>
           )}
 
-          {/* Header colunas */}
-          <div className="flex-shrink-0 grid px-3 py-1 text-[10px] font-black"
-            style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', color: '#64748b',
-              gridTemplateColumns: '28px 1fr 56px 56px 68px' }}>
-            <span>N</span><span>Descrição</span>
-            <span className="text-right">Qtd</span>
-            <span className="text-right">Unit.</span>
-            <span className="text-right">Total</span>
-          </div>
+          {/* Header colunas (só desktop — no mobile o cartão já mostra tudo) */}
+          {!isMobile && (
+            <div className="flex-shrink-0 grid px-3 py-1 text-[10px] font-black"
+              style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', color: '#64748b',
+                gridTemplateColumns: '28px 1fr 56px 56px 68px' }}>
+              <span>N</span><span>Descrição</span>
+              <span className="text-right">Qtd</span>
+              <span className="text-right">Unit.</span>
+              <span className="text-right">Total</span>
+            </div>
+          )}
 
           {/* Itens */}
           <div className="flex-1 overflow-y-auto relative"
@@ -1840,7 +1908,20 @@ export default function PDVPage() {
                 <p className="text-sm font-bold">Cupom vazio</p>
                 <p className="text-xs">Escaneie ou digite o código do produto</p>
               </div>
-            ) : cart.map((item, idx) => (
+            ) : isMobile ? cart.map((item, idx) => (
+              <div key={item.uid} className="px-3 py-2 border-b" style={{ borderColor: '#f1f5f9' }}>
+                <p className="font-black leading-snug" style={{ color: '#111', fontSize: 13, textTransform: 'uppercase' }}>
+                  <span style={{ color: '#94a3b8' }}>{String(idx + 1).padStart(2, '0')}. </span>{item.produto.descricao}
+                </p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-[10px] font-mono" style={{ color: '#94a3b8' }}>{item.produto.codigo}</p>
+                  <p className="font-bold" style={{ color: '#475569', fontSize: 13 }}>
+                    {(item.peso_kg ? `${item.peso_kg.toFixed(3)}kg` : fmtQtd(item.quantidade))} × {fmtVal(item.preco)}
+                    <span className="font-black ml-2" style={{ color: '#f97316', fontSize: 16 }}>{fmtVal(item.quantidade * item.preco)}</span>
+                  </p>
+                </div>
+              </div>
+            )) : cart.map((item, idx) => (
               <div key={item.uid} className="border-b" style={{ borderColor: '#f1f5f9' }}>
                 <div className="grid px-3 py-1.5 text-sm items-start"
                   style={{ gridTemplateColumns: '28px 1fr 56px 56px 68px' }}>
@@ -1879,13 +1960,16 @@ export default function PDVPage() {
           )}
 
           {/* Subtotal */}
-          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3"
-            style={{ background: '#1e3a5f', borderTop: '3px solid #f97316' }}>
+          <div className="flex-shrink-0 flex px-4 py-3" style={{
+            background: '#1e3a5f', borderTop: '3px solid #f97316',
+            flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center',
+            justifyContent: 'space-between', gap: isMobile ? 2 : 0,
+          }}>
             <div className="flex items-baseline gap-2">
-              <span className="font-black tracking-wider" style={{ color: '#93c5fd', fontSize: 16 }}>SUBTOTAL R$</span>
+              <span className="font-black tracking-wider" style={{ color: '#93c5fd', fontSize: isMobile ? 13 : 16 }}>SUBTOTAL R$</span>
               <span className="font-bold" style={{ color: '#60a5fa', fontSize: 11 }}>{cart.length} item(s)</span>
             </div>
-            <span className="font-black" style={{ color: 'white', fontFamily: 'monospace', fontSize: 32 }}>{fmtVal(subtotal)}</span>
+            <span className="font-black" style={{ color: 'white', fontFamily: 'monospace', fontSize: isMobile ? 26 : 32 }}>{fmtVal(subtotal)}</span>
           </div>
 
           {/* Banner FINALIZADO — abaixo do subtotal */}

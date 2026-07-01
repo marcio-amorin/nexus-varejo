@@ -231,6 +231,72 @@ def _detectar_cor(titulo: str) -> str:
         if k in t: return v
     return 'Preto'
 
+def _extrair_nomes_atributos_faltantes(err_txt: str) -> tuple[set, set]:
+    """Lê o erro do ML e extrai os atributos que faltam — tanto no formato
+    'The attributes [X, Y] are required' (já vem com o ID) quanto no formato
+    'O campo "X" é obrigatório' (vem com o nome em português)."""
+    ids_faltando: set = set()
+    nomes_pt_faltando: set = set()
+    for m in re.finditer(r'attributes?\s*\[([A-Z0-9_,\s]+)\]', err_txt):
+        for aid in m.group(1).split(','):
+            aid = aid.strip()
+            if aid:
+                ids_faltando.add(aid)
+    for m in re.finditer(r'campo\s+\\?"([^"\\]+)\\?"\s+é obrigat[oó]rio', err_txt):
+        nomes_pt_faltando.add(m.group(1).strip())
+    return ids_faltando, nomes_pt_faltando
+
+async def _resolver_atributos_faltantes(cat_id: str, err_txt: str, titulo: str, token: str) -> tuple[list, list]:
+    """Descobre os atributos que o ML disse estar faltando, busca a definição real
+    deles na categoria (valores aceitos) e tenta preencher usando o próprio título
+    do produto. Retorna (atributos_preenchidos, nomes_que_não_deu_pra_resolver)."""
+    ids_faltando, nomes_pt_faltando = _extrair_nomes_atributos_faltantes(err_txt)
+    if not ids_faltando and not nomes_pt_faltando:
+        return [], []
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(
+                f"https://api.mercadolibre.com/categories/{cat_id}/attributes",
+                headers={"Authorization": f"Bearer {token}"} if token else {}
+            )
+        defs = r.json() if r.status_code == 200 else []
+    except Exception:
+        defs = []
+
+    nomes_pt_lower = {n.lower() for n in nomes_pt_faltando}
+    alvo = [
+        d for d in defs
+        if d.get("id") in ids_faltando or (d.get("name") or "").strip().lower() in nomes_pt_lower
+    ]
+
+    titulo_low = titulo.lower()
+    numeros_titulo = re.findall(r'\d+', titulo_low)
+    preenchidos: list = []
+    nao_resolvidos: list = []
+    for d in alvo:
+        valor = None
+        if d.get("value_type") == "list":
+            for v in (d.get("values") or []):
+                nome_v = (v.get("name") or "")
+                if nome_v and nome_v.lower() in titulo_low:
+                    valor = {"id": d["id"], "value_name": nome_v}
+                    break
+            if not valor:
+                # Ex: opção "32\"" e o título tem "32" solto — casa pelo número
+                for v in (d.get("values") or []):
+                    nome_v = (v.get("name") or "")
+                    nums_v = re.findall(r'\d+', nome_v)
+                    if nums_v and nums_v[0] in numeros_titulo:
+                        valor = {"id": d["id"], "value_name": nome_v}
+                        break
+        if valor:
+            preenchidos.append(valor)
+        else:
+            nao_resolvidos.append(d.get("name") or d.get("id"))
+
+    return preenchidos, nao_resolvidos
+
 def _detectar_cat(titulo: str) -> str:
     t = titulo.lower()
     if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|redmi', t): return 'Celulares'
@@ -547,20 +613,36 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     if not ml_ok:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 elif "missing_catalog_required" in err_txt:
-                    ram2, storage2 = _extrair_memoria(produto.titulo)
                     retry_attrs = [
                         {"id": "BRAND", "value_name": brand}, {"id": "MODEL", "value_name": model},
-                        {"id": "COLOR", "value_name": cor}, {"id": "ALPHANUMERIC_MODELS", "value_name": model},
-                        {"id": "IS_DUAL_SIM", "value_name": "Sim"},
-                        {"id": "CARRIER", "value_name": "Desbloqueado"},
+                        {"id": "COLOR", "value_name": cor},
                     ]
-                    if ram2: retry_attrs.append({"id": "RAM", "value_name": ram2})
-                    if storage2: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
+                    if categoria == "Celulares":
+                        ram2, storage2 = _extrair_memoria(produto.titulo)
+                        retry_attrs += [
+                            {"id": "ALPHANUMERIC_MODELS", "value_name": model},
+                            {"id": "IS_DUAL_SIM", "value_name": "Sim"},
+                            {"id": "CARRIER", "value_name": "Desbloqueado"},
+                        ]
+                        if ram2: retry_attrs.append({"id": "RAM", "value_name": ram2})
+                        if storage2: retry_attrs.append({"id": "INTERNAL_MEMORY", "value_name": storage2})
+                    # Descobre e preenche automaticamente os atributos que o ML disse faltar,
+                    # usando os valores reais aceitos pela categoria + o título do produto.
+                    preenchidos, nao_resolvidos = await _resolver_atributos_faltantes(
+                        cat_id, err_txt, produto.titulo, cfg_vendedor.access_token
+                    )
+                    ids_ja_incluidos = {a["id"] for a in retry_attrs}
+                    for a in preenchidos:
+                        if a["id"] not in ids_ja_incluidos:
+                            retry_attrs.append(a)
                     p2 = {**payload, "attributes": retry_attrs}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:200]})
+                        if nao_resolvidos:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Faltam dados que não temos: {', '.join(nao_resolvidos)} → link afiliado gerado.", "detalhe": r.text[:200]})
+                        else:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:200]})
                 elif "SIZE_GRID_ID" in err_txt or "fashion_grid" in err_txt or "size_grid" in err_txt.lower():
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → link afiliado gerado."})
                 elif "ANATEL" in err_txt:
@@ -579,11 +661,21 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     ]
                     if categoria == "Celulares":
                         retry_attrs3.append({"id": "CARRIER", "value_name": "Desbloqueado"})
+                    preenchidos3, nao_resolvidos3 = await _resolver_atributos_faltantes(
+                        cat_id, err_txt, produto.titulo, cfg_vendedor.access_token
+                    )
+                    ids_ja_incluidos3 = {a["id"] for a in retry_attrs3}
+                    for a in preenchidos3:
+                        if a["id"] not in ids_ja_incluidos3:
+                            retry_attrs3.append(a)
                     p2 = {**payload, "attributes": retry_attrs3}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                        if nao_resolvidos3:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Faltam dados que não temos: {', '.join(nao_resolvidos3)} → link afiliado gerado.", "detalhe": r.text[:200]})
+                        else:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 else:
                     try: err_detail = r.json()
                     except: err_detail = r.text[:300]

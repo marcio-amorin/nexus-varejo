@@ -92,7 +92,13 @@ export default function Catalogo() {
 
   const [sincronizandoAuto, setSincronizandoAuto] = useState(false)
 
-  useEffect(() => { carregarCatalogo(); buscarAuto(); sincronizarSeNecessario() }, [])
+  useEffect(() => {
+    carregarCatalogo()
+    ;(async () => {
+      const resultados = await buscarAuto()
+      await sincronizarSeNecessario(false, resultados)
+    })()
+  }, [])
 
   async function carregarCatalogo() {
     try {
@@ -104,9 +110,11 @@ export default function Catalogo() {
     } catch { /* mantém o catálogo atual em caso de falha de rede */ }
   }
 
-  // Renova os 250 melhores produtos do ML no catálogo 1x por dia (servidor — não depende do navegador)
+  // Renova os 250 melhores produtos do ML no catálogo 1x por dia. A busca em si roda
+  // no NAVEGADOR (IP residencial — o ML bloqueia /sites/MLB/search por IP de
+  // datacenter mesmo com token válido); o backend só recebe a lista e salva.
   // force=true ignora a checagem de 24h (botão "Atualizar agora")
-  async function sincronizarSeNecessario(force = false) {
+  async function sincronizarSeNecessario(force = false, resultadosPreCarregados?: any[]) {
     if (sincronizandoAuto) return
     try {
       if (!force) {
@@ -116,7 +124,18 @@ export default function Catalogo() {
         if (Date.now() - ultima < 24 * 60 * 60 * 1000) return
       }
       setSincronizandoAuto(true)
-      const r2 = await fetch(`${API}/afiliados/sincronizar-top250`, { method:'POST', headers:hdr() })
+      const resultados = (resultadosPreCarregados && resultadosPreCarregados.length > 0)
+        ? resultadosPreCarregados
+        : await coletarMelhoresML()
+      const produtos = resultados.slice(0, 250).map(p => ({
+        produto_ext_id: p.produto_ext_id, titulo: p.titulo, preco: p.preco || 0,
+        imagem_url: p.imagem_url || '', url_produto: p.url_produto || '',
+        categoria: p.categoria || null, comissao_pct: p.comissao_pct || 6,
+        vendas_mes: p.vendas_mes || 0,
+      }))
+      const r2 = await fetch(`${API}/afiliados/sincronizar-top250`, {
+        method:'POST', headers:hdr(), body:JSON.stringify({ produtos })
+      })
       const d2 = await r2.json()
       await carregarCatalogo()
       if (force) alert(`✅ Catálogo atualizado: ${d2.criados||0} novos, ${d2.atualizados||0} repreçados.`)
@@ -161,13 +180,12 @@ export default function Catalogo() {
     return []
   }
 
-  async function buscarAuto() {
-    setLoadingAuto(true); setRes([]); setErro('')
-
-    // Busca direto do browser (IP residencial → ML não bloqueia)
+  // Busca direto do browser (IP residencial → ML não bloqueia). Retorna a lista
+  // deduplicada e ordenada, sem mexer em estado — usada tanto pela aba Buscar
+  // quanto pela sincronização automática do catálogo.
+  async function coletarMelhoresML(): Promise<any[]> {
     // Fase 1: por CATEGORIA (top vendidos por categoria, sem sobreposição) — 19 cats × 150 = 2850 raw
     // Fase 2: por PALAVRA-CHAVE complementar — 24 termos × 100 = 2400 raw
-    // Total esperado após dedup: bem maior que antes (estava limitado a 2 páginas/cat e 1 página/termo)
     const CATS_ML = [
       'MLB1055',  // Celulares e Smartphones
       'MLB432',   // Televisores
@@ -237,12 +255,19 @@ export default function Catalogo() {
       if (i + 3 < TERMOS.length) await new Promise(res => setTimeout(res, 250))
     }
 
+    // Ordena por maior comissão estimada
+    todos.sort((a, b) => (b.comissao_valor || 0) - (a.comissao_valor || 0))
+    return todos
+  }
+
+  async function buscarAuto(): Promise<any[]> {
+    setLoadingAuto(true); setRes([]); setErro('')
+
+    const todos = await coletarMelhoresML()
     if (todos.length > 0) {
-      // Ordena por maior comissão estimada
-      todos.sort((a, b) => (b.comissao_valor || 0) - (a.comissao_valor || 0))
       setRes(todos)
       setLoadingAuto(false)
-      return
+      return todos
     }
 
     // Fallback: backend (cold start Render)
@@ -254,12 +279,13 @@ export default function Catalogo() {
       if (r.ok) {
         const d = await r.json()
         const prods: any[] = d.resultados || []
-        if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return }
+        if (prods.length > 0) { setRes(prods); setLoadingAuto(false); return prods }
       }
     } catch {}
 
     setErro('sem_produtos')
     setLoadingAuto(false)
+    return []
   }
 
   async function buscar() {

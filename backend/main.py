@@ -109,36 +109,6 @@ async def debug_ml():
         except Exception as e:
             resultados["com_token"] = {"erro": str(e)}
 
-    # Teste 3: com token do VendedorConfig (ML_VENDEDOR) — token que sabemos funcionar em /users/me
-    token_v = None
-    try:
-        from database import SessionLocal
-        from models import VendedorConfig
-        db2 = SessionLocal()
-        cfgv = db2.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
-        if cfgv:
-            token_v = cfgv.access_token
-        db2.close()
-    except Exception as e:
-        resultados["db_erro_vendedor"] = str(e)
-    resultados["token_vendedor_disponivel"] = bool(token_v)
-    if token_v:
-        t3 = time.time()
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r3 = await client.get(
-                    "https://api.mercadolibre.com/sites/MLB/search",
-                    params={"q": "smartphone", "limit": 3},
-                    headers={"Authorization": f"Bearer {token_v}", "User-Agent": "Mozilla/5.0"}
-                )
-            try:
-                data3 = r3.json()
-            except Exception:
-                data3 = {"raw": r3.text[:300]}
-            resultados["com_token_vendedor"] = {"status": r3.status_code, "body": data3, "tempo": round(time.time()-t3,2)}
-        except Exception as e:
-            resultados["com_token_vendedor"] = {"erro": str(e)}
-
     resultados["tempo_total"] = round(time.time()-t0, 2)
     return resultados
 

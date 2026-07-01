@@ -643,109 +643,52 @@ async def top_oportunidades(
     }
 
 # ─── Sincronização diária dos melhores produtos do ML ────────────────────────
-
-_CATS_SYNC_ML = [
-    "MLB1055", "MLB432", "MLB1648", "MLB1144", "MLB1574", "MLB109285", "MLB7195",
-    "MLB1246", "MLB1276", "MLB1248", "MLB108562", "MLB1430", "MLB1459", "MLB1010",
-    "MLB218519", "MLB1196", "MLB1132", "MLB1071", "MLB1499",
-    "MLB3025", "MLB1384", "MLB1747", "MLB1403", "MLB1168", "MLB1039",
-]
-_TERMOS_SYNC_ML = [
-    "samsung galaxy s", "motorola moto g edge", "xiaomi redmi note", "smart tv 65 4k",
-    "notebook gamer i7", "fone bluetooth anc", "tênis corrida masculino", "perfume importado masculino",
-    "air fryer digital", "suplemento whey protein", "cadeira gamer", "kit skincare facial",
-    "aspirador robô wifi", "tablet android", "câmera mirrorless", "caixa de som bluetooth",
-    "panela elétrica", "mochila notebook", "óculos de sol", "relógio inteligente",
-    "jogo de panelas", "colchão casal", "brinquedo educativo", "ração premium cachorro",
-    "tênis feminino casual", "perfume importado feminino", "fralda descartável", "carrinho de bebê",
-    "kit ferramentas elétricas", "pneu carro", "som automotivo", "livro best seller",
-    "console portátil", "luminária led", "bicicleta aro 29", "panela de pressão elétrica",
-]
+# Busca em si roda no NAVEGADOR (IP residencial — /sites/MLB/search bloqueia
+# datacenter mesmo com token válido); o backend só recebe e salva o resultado.
 
 @router.get("/ultima-sincronizacao")
 def ultima_sincronizacao(db: Session = Depends(get_db), _=Depends(get_current_user)):
     cfg = db.query(AfiliadoConfig).filter_by(plataforma="CATALOGO_SYNC_250").first()
     return {"ultima_sincronizacao": cfg.updated_at.isoformat() if cfg and cfg.updated_at else None}
 
+class ProdutoSync(BaseModel):
+    produto_ext_id: str
+    titulo: str
+    preco: float = 0
+    imagem_url: str = ""
+    url_produto: str = ""
+    categoria: Optional[str] = None
+    comissao_pct: float = 6
+    vendas_mes: int = 0
+
+class SincronizarTop250In(BaseModel):
+    produtos: List[ProdutoSync]
+
 @router.post("/sincronizar-top250")
-async def sincronizar_top250(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Busca (autenticado, server-side) os melhores produtos do ML por categoria + termo
-    e atualiza o catálogo com até 250 itens — preço/foto/comissão sempre frescos.
-    Não remove produtos já salvos manualmente, só cria/atualiza os encontrados."""
-    token = await _get_fresh_ml_token(db)
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-
-    async def _buscar(params: dict) -> list:
-        try:
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get("https://api.mercadolibre.com/sites/MLB/search", params=params, headers=headers)
-                if r.status_code == 200:
-                    return r.json().get("results", [])
-        except Exception:
-            pass
-        return []
-
-    seen: set = set()
-    achados: list = []
-
-    # Por categoria: 4 páginas (offset 0/50/100/150) — vai além do topo do topo,
-    # senão os mesmos best-sellers se repetem entre categorias parecidas e o total
-    # de itens únicos emperra bem abaixo de 250.
-    for i in range(0, len(_CATS_SYNC_ML), 4):
-        lote = _CATS_SYNC_ML[i:i + 4]
-        res = await asyncio.gather(*[
-            _buscar({"category": cat, "sort": "sold_quantity_desc", "limit": 50, "offset": off})
-            for cat in lote for off in (0, 50, 100, 150)
-        ])
-        for items in res:
-            for it in items:
-                pid = it.get("id")
-                if pid and pid not in seen:
-                    seen.add(pid); achados.append(it)
-
-    # Por termo: 3 páginas (offset 0/30/60)
-    for i in range(0, len(_TERMOS_SYNC_ML), 4):
-        lote = _TERMOS_SYNC_ML[i:i + 4]
-        res = await asyncio.gather(*[
-            _buscar({"q": termo, "sort": "sold_quantity_desc", "limit": 30, "offset": off})
-            for termo in lote for off in (0, 30, 60)
-        ])
-        for items in res:
-            for it in items:
-                pid = it.get("id")
-                if pid and pid not in seen:
-                    seen.add(pid); achados.append(it)
-
-    def _score(it: dict) -> float:
-        preco = float(it.get("price") or 0)
-        pct = _comissao_ml_by_cat(it.get("category_id") or "")
-        vendas = it.get("sold_quantity") or 0
-        return (preco * pct / 100) * max(vendas, 1)
-
-    achados.sort(key=_score, reverse=True)
-    top250 = achados[:250]
+def sincronizar_top250(data: SincronizarTop250In, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Recebe os melhores produtos já buscados pelo NAVEGADOR (o servidor não consegue
+    chamar /sites/MLB/search — o ML bloqueia esse endpoint por IP de datacenter mesmo
+    com token válido) e atualiza o catálogo com até 250 itens. Não remove produtos já
+    salvos manualmente, só cria/atualiza os encontrados."""
+    top250 = data.produtos[:250]
 
     criados = 0
     atualizados = 0
     for it in top250:
-        preco = float(it.get("price") or 0)
-        imagem = (it.get("thumbnail") or "").replace("I.jpg", "O.jpg")
-        if not preco or not imagem:
+        if not it.preco or not it.imagem_url:
             continue
-        pid = it.get("id")
-        pct = _comissao_ml_by_cat(it.get("category_id") or "")
-        existente = db.query(AfiliadoProduto).filter_by(produto_ext_id=pid, plataforma="ML_AFILIADOS").first()
+        existente = db.query(AfiliadoProduto).filter_by(produto_ext_id=it.produto_ext_id, plataforma="ML_AFILIADOS").first()
         if existente:
-            existente.preco = preco
-            existente.imagem_url = imagem
-            existente.vendas_mes = it.get("sold_quantity") or existente.vendas_mes
+            existente.preco = it.preco
+            existente.imagem_url = it.imagem_url
+            existente.vendas_mes = it.vendas_mes or existente.vendas_mes
             atualizados += 1
         else:
             db.add(AfiliadoProduto(
-                plataforma="ML_AFILIADOS", produto_ext_id=pid, titulo=(it.get("title") or "")[:500],
-                preco=preco, comissao_pct=pct, comissao_valor=round(preco * pct / 100, 2),
-                categoria=it.get("category_id"), imagem_url=imagem,
-                url_produto=it.get("permalink", ""), vendas_mes=it.get("sold_quantity") or 0,
+                plataforma="ML_AFILIADOS", produto_ext_id=it.produto_ext_id, titulo=it.titulo[:500],
+                preco=it.preco, comissao_pct=it.comissao_pct, comissao_valor=round(it.preco * it.comissao_pct / 100, 2),
+                categoria=it.categoria, imagem_url=it.imagem_url,
+                url_produto=it.url_produto, vendas_mes=it.vendas_mes,
             ))
             criados += 1
 
@@ -756,7 +699,7 @@ async def sincronizar_top250(db: Session = Depends(get_db), _=Depends(get_curren
     cfg.extra_json = json.dumps({"total_sincronizado": len(top250)})
 
     db.commit()
-    return {"ok": True, "criados": criados, "atualizados": atualizados, "total_avaliados": len(achados)}
+    return {"ok": True, "criados": criados, "atualizados": atualizados, "total_avaliados": len(data.produtos)}
 
 def _estrategia_top(meta: float, top_prods: list) -> dict:
     import math as _math

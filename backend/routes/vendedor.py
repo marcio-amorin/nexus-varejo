@@ -716,16 +716,35 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
     from routes.afiliados import _get_fresh_ml_token
     token = await _get_fresh_ml_token(db)
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    preco_real = 0.0
+    imagem_url = ""
     async with httpx.AsyncClient(timeout=12) as client:
         r = await client.get(f"https://api.mercadolibre.com/items/{produto.produto_ext_id}", headers=headers)
-    if r.status_code != 200:
-        raise HTTPException(400, f"Não foi possível consultar o produto original no ML (status {r.status_code})")
-    item = r.json()
-    preco_real = item.get("price") or 0
+    if r.status_code == 200:
+        item = r.json()
+        preco_real = item.get("price") or 0
+        imagens = item.get("pictures") or []
+        imagem_url = (imagens[0].get("url") if imagens else "") or item.get("thumbnail") or ""
+    else:
+        # ID salvo pode ser de catalogo (produto.mercadolivre.com.br/MLB-...), que vive em /products, não /items
+        async with httpx.AsyncClient(timeout=12) as client2:
+            r2 = await client2.get(f"https://api.mercadolibre.com/products/{produto.produto_ext_id}", headers=headers)
+        if r2.status_code == 200:
+            item = r2.json()
+            preco_real = item.get("price") or ((item.get("buy_box_winner") or {}).get("price")) or 0
+            imagens = item.get("pictures") or []
+            imagem_url = (imagens[0].get("url") if imagens else "") or ""
+
+    # Último recurso: usa o preço/foto já salvos no catálogo (podem já estar corretos,
+    # o anúncio é que ficou desatualizado — ex: item saiu do ML mas já tínhamos os dados certos)
     if not preco_real:
-        raise HTTPException(400, "O produto original também está sem preço no Mercado Livre")
-    imagens = item.get("pictures") or []
-    imagem_url = (imagens[0].get("url") if imagens else "") or item.get("thumbnail") or ""
+        preco_real = produto.preco or 0
+    if not imagem_url:
+        imagem_url = produto.imagem_url or ""
+
+    if not preco_real:
+        raise HTTPException(400, "Não foi possível obter preço nem do Mercado Livre nem do catálogo salvo")
 
     preco_venda = round(preco_real * 1.15, 2)
     margem = round((preco_venda - preco_real) / preco_real * 100, 1)

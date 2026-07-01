@@ -71,6 +71,7 @@ async def debug_size_grid(domain_id: str = "MLB-SNEAKERS"):
     urls = [
         f"https://api.mercadolibre.com/catalog_domains/{domain_id}/size_grids",
         f"https://api.mercadolibre.com/catalog_domains/{domain_id}",
+        f"https://api.mercadolibre.com/catalog_domains/{domain_id}/attributes/SIZE_GRID_ID",
     ]
     async with httpx.AsyncClient(timeout=10) as c:
         for u in urls:

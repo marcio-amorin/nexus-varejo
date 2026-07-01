@@ -1613,8 +1613,11 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
                 continue
             status_estoque = "desconhecido"
             available_quantity = None
+            item_status = None
+            http_status = None
             try:
                 r = await client.get(f"https://api.mercadolibre.com/items/{listing_id}", headers=headers)
+                http_status = r.status_code
                 if r.status_code == 200:
                     d = r.json()
                     available_quantity = d.get("available_quantity")
@@ -1632,6 +1635,8 @@ async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(ge
                 "publicado": True,
                 "status_estoque": status_estoque,
                 "available_quantity": available_quantity,
+                "item_status": item_status,
+                "http_status": http_status,
             })
     return {"produtos": resultado}
 

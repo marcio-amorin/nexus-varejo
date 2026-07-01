@@ -563,7 +563,10 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         preenchidos_gtin, nao_resolvidos_gtin_raw = await _resolver_atributos_faltantes(
                             cat_id, err_txt, produto.titulo, cfg_vendedor.access_token
                         )
-                        nao_resolvidos_gtin = [n for n in nao_resolvidos_gtin_raw if "gtin" not in str(n).lower()]
+                        nao_resolvidos_gtin = [
+                            n for n in nao_resolvidos_gtin_raw
+                            if "gtin" not in str(n).lower() and "universal de produto" not in str(n).lower()
+                        ]
                         attrs_gtin = list(payload.get("attributes") or [])
                         ids_gtin = {a["id"] for a in attrs_gtin}
                         for a in preenchidos_gtin:
@@ -595,15 +598,10 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     else:
                         resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) — cadastre no produto e publique de novo → link afiliado gerado.", "precisa_gtin": True})
                 elif "item.buying_mode.invalid" in err_txt or "only supports listing modes" in err_txt:
-                    # Categoria não aceita "buy_it_now" (ex.: só permite "classified") —
-                    # extrai o modo permitido da própria mensagem do ML e tenta de novo com ele.
-                    m_modo = re.search(r'listing modes:\s*\[([a-z_]+)', err_txt)
-                    modo = m_modo.group(1) if m_modo else "classified"
-                    p2 = {**payload, "buying_mode": modo}
-                    r = await _publicar_ml(p2)
-                    ml_ok = r.status_code in (200, 201)
-                    if not ml_ok:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                    # Categoria só aceita anúncio clássico ("classified"), não "compre já" —
+                    # é um formato de anúncio incompatível com o payload atual (sem publicação
+                    # automática); só cadastro manual no site do ML resolve isso.
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria só aceita anúncio clássico no Mercado Livre (fora do que publicamos automático) → link afiliado gerado."})
                 elif "item.listing_type_id.unavailable" in err_txt:
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Cota de anúncio grátis esgotada para essa categoria na sua conta ML → link afiliado gerado.", "detalhe": err_txt[:300]})
                 elif "shipping.lost_me" in err_txt or "4053" in err_txt:

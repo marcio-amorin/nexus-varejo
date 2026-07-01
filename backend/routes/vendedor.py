@@ -979,6 +979,33 @@ def listar_anuncios(
         for a in items
     ]
 
+@router.get("/cotas-categorias")
+async def cotas_categorias(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Consulta na própria API do Mercado Livre se ainda tem anúncio grátis disponível
+    em cada categoria que a gente usa — pra saber onde vale a pena insistir em publicar."""
+    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    if not cfg or not cfg.access_token or not cfg.seller_id:
+        raise HTTPException(400, "Conta vendedor não configurada")
+
+    resultado = []
+    async with httpx.AsyncClient(timeout=10) as client:
+        for nome, cat_id in _CAT_ML.items():
+            try:
+                r = await client.get(
+                    f"https://api.mercadolibre.com/users/{cfg.seller_id}/available_listing_types",
+                    params={"category_id": cat_id},
+                    headers={"Authorization": f"Bearer {cfg.access_token}"}
+                )
+                if r.status_code == 200:
+                    tipos = [t.get("id") for t in r.json().get("listing_types_allowed", r.json() if isinstance(r.json(), list) else [])]
+                    tem_gratis = "free" in tipos
+                    resultado.append({"categoria": nome, "cat_id": cat_id, "tem_gratis": tem_gratis, "tipos_disponiveis": tipos})
+                else:
+                    resultado.append({"categoria": nome, "cat_id": cat_id, "tem_gratis": None, "erro": r.text[:150]})
+            except Exception as e:
+                resultado.append({"categoria": nome, "cat_id": cat_id, "tem_gratis": None, "erro": str(e)[:150]})
+    return {"categorias": resultado}
+
 @router.patch("/anuncios/{anuncio_id}")
 def atualizar_anuncio(anuncio_id: int, data: AnuncioUpdateIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
     a = db.query(VendedorAnuncio).filter_by(id=anuncio_id).first()

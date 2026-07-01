@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Package, RefreshCw, ExternalLink, Trash2, Zap, CheckCircle2, Link2 } from 'lucide-react'
+import { Package, RefreshCw, ExternalLink, Trash2, Zap, CheckCircle2, Link2, Clock } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#7c3aed 0%,#f97316 100%)'
@@ -216,12 +216,14 @@ export default function MeusAnuncios() {
                     <p className="text-sm font-black" style={{ color:'#f97316' }}>{fmtR(a.preco_venda)}</p>
                     <div className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-1 rounded-md"
                       style={{
-                        background: a.listing_id ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
-                        color: a.listing_id ? '#22c55e' : '#f59e0b',
+                        background: !a.listing_id ? 'rgba(245,158,11,0.15)' : a.ml_status === 'under_review' ? 'rgba(59,130,246,0.15)' : 'rgba(34,197,94,0.15)',
+                        color: !a.listing_id ? '#f59e0b' : a.ml_status === 'under_review' ? '#3b82f6' : '#22c55e',
                       }}>
-                      {a.listing_id
-                        ? <><CheckCircle2 size={10}/> Confirmado no Mercado Livre</>
-                        : <><Link2 size={10}/> Só link — não publicado como vendedor</>}
+                      {!a.listing_id
+                        ? <><Link2 size={10}/> Só link — não publicado como vendedor</>
+                        : a.ml_status === 'under_review'
+                        ? <><Clock size={10}/> Em análise no Mercado Livre</>
+                        : <><CheckCircle2 size={10}/> Confirmado no Mercado Livre</>}
                     </div>
                     {!a.listing_id && (
                       <button onClick={() => publicarComoVendedor(a)} disabled={publicandoId===a.id}

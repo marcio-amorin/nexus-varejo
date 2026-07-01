@@ -947,7 +947,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
 # ─── Anúncios ─────────────────────────────────────────────────────────────────
 
 @router.get("/anuncios")
-def listar_anuncios(
+async def listar_anuncios(
     plataforma: Optional[str] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db), _=Depends(get_current_user)
@@ -956,6 +956,25 @@ def listar_anuncios(
     if plataforma: q = q.filter_by(plataforma=plataforma)
     if status:     q = q.filter_by(status=status)
     items = q.order_by(VendedorAnuncio.created_at.desc()).all()
+
+    # Checa ao vivo se o anúncio ainda está em análise no ML — status "ATIVO" no nosso
+    # banco só significa que a publicação foi aceita, não que já passou pela moderação.
+    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    ml_status_por_listing: dict = {}
+    if cfg and cfg.access_token:
+        listing_ids = [a.listing_id for a in items if a.listing_id]
+        if listing_ids:
+            headers = {"Authorization": f"Bearer {cfg.access_token}"}
+            async with httpx.AsyncClient(timeout=8) as client:
+                resultados = await asyncio.gather(*[
+                    client.get(f"https://api.mercadolibre.com/items/{lid}", headers=headers)
+                    for lid in listing_ids
+                ], return_exceptions=True)
+            for lid, r in zip(listing_ids, resultados):
+                if isinstance(r, Exception) or r.status_code != 200:
+                    continue
+                ml_status_por_listing[lid] = r.json().get("status")
+
     return [
         {
             "id": a.id,
@@ -970,6 +989,7 @@ def listar_anuncios(
             "url_anuncio": a.url_anuncio,
             "link_afiliado": a.link_afiliado,
             "status": a.status,
+            "ml_status": ml_status_por_listing.get(a.listing_id),
             "vendas_count": a.vendas_count,
             "faturamento": a.faturamento,
             "categoria_ml": a.categoria_ml,

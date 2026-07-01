@@ -979,22 +979,31 @@ def listar_anuncios(
         for a in items
     ]
 
-@router.get("/cotas-categorias-debug")
-async def cotas_categorias_debug(cat_id: str = "MLB1144", db: Session = Depends(get_db), _=Depends(get_current_user)):
-    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
-    if not cfg or not cfg.access_token or not cfg.seller_id:
-        raise HTTPException(400, "Conta vendedor não configurada")
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(
-            f"https://api.mercadolibre.com/users/{cfg.seller_id}/available_listing_types",
-            params={"category_id": cat_id},
-            headers={"Authorization": f"Bearer {cfg.access_token}"}
-        )
-    return {"status": r.status_code, "raw": r.text, "seller_id": cfg.seller_id}
+def _extrair_cota_gratis(data: dict) -> dict:
+    """O ML às vezes lista o "free" direto no nível consultado, e às vezes só dentro de
+    'exceptions_by_category' (subcategorias específicas com cota própria). Junta os dois
+    lugares — se "free" nunca aparece em lugar nenhum, a cota dessa categoria está esgotada."""
+    achou_free = False
+    restantes = None  # None = sem limite numérico informado (mas ainda disponível)
+    sub_categorias = []
+    for t in (data.get("available") or []):
+        if t.get("id") == "free":
+            achou_free = True
+            restantes = t.get("remaining_listings")
+    for exc in (data.get("exceptions_by_category") or []):
+        for t in (exc.get("available") or []):
+            if t.get("id") == "free":
+                achou_free = True
+                qtd = t.get("remaining_listings")
+                sub_categorias.append({"cat_id": exc.get("category_id"), "restantes": qtd})
+                if qtd is not None and (restantes is None or qtd > restantes):
+                    restantes = qtd
+    tem_gratis = achou_free and (restantes is None or restantes > 0)
+    return {"tem_gratis": tem_gratis, "restantes": restantes, "sub_categorias": sub_categorias}
 
 @router.get("/cotas-categorias")
 async def cotas_categorias(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Consulta na própria API do Mercado Livre se ainda tem anúncio grátis disponível
+    """Consulta na própria API do Mercado Livre quantos anúncios grátis ainda restam
     em cada categoria que a gente usa — pra saber onde vale a pena insistir em publicar."""
     cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
     if not cfg or not cfg.access_token or not cfg.seller_id:
@@ -1010,9 +1019,8 @@ async def cotas_categorias(db: Session = Depends(get_db), _=Depends(get_current_
                     headers={"Authorization": f"Bearer {cfg.access_token}"}
                 )
                 if r.status_code == 200:
-                    tipos = [t.get("id") for t in r.json().get("listing_types_allowed", r.json() if isinstance(r.json(), list) else [])]
-                    tem_gratis = "free" in tipos
-                    resultado.append({"categoria": nome, "cat_id": cat_id, "tem_gratis": tem_gratis, "tipos_disponiveis": tipos})
+                    info = _extrair_cota_gratis(r.json())
+                    resultado.append({"categoria": nome, "cat_id": cat_id, **info})
                 else:
                     resultado.append({"categoria": nome, "cat_id": cat_id, "tem_gratis": None, "erro": r.text[:150]})
             except Exception as e:

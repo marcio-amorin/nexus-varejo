@@ -31,11 +31,12 @@ export default function MetaVendas() {
   const [loading, setLoading]     = useState(false)
   const [salvando, setSalvando]   = useState(false)
   const [salvou, setSalvou]       = useState(false)
-  const [aba, setAba]             = useState<'roadmap'|'produtos'|'historico'>('roadmap')
+  const [aba, setAba]             = useState<'roadmap'|'produtos'|'vendas'|'historico'>('roadmap')
   const [checados, setChecados]   = useState<Set<number>>(new Set())
   const [editandoMeta, setEditandoMeta] = useState(false)
+  const [analytics, setAnalytics] = useState<any>(null)
 
-  useEffect(() => { carregarMetas(); escanear() }, [])
+  useEffect(() => { carregarMetas(); escanear(); carregarAnalytics() }, [])
 
   async function carregarMetas() {
     try {
@@ -44,6 +45,14 @@ export default function MetaVendas() {
       setMetas(d)
       const ma = d.find((m: any) => m.mes_ano === mesAtual)
       if (ma) setMetaRenda(String(ma.meta_renda))
+    } catch {}
+  }
+
+  async function carregarAnalytics() {
+    try {
+      const r = await fetch(`${API}/afiliados/metas/${mesAtual}/analytics`, { headers: hdr() })
+      const d = await r.json()
+      setAnalytics(d)
     } catch {}
   }
 
@@ -79,7 +88,16 @@ export default function MetaVendas() {
   const metaNum   = parseFloat(metaRenda) || 20000
   const mesAtualMeta = metas.find(m => m.mes_ano === mesAtual)
   const realizado = mesAtualMeta?.realizado_renda || 0
+  const vendasRealizadas = mesAtualMeta?.realizado_vendas || 0
   const pct       = Math.min(100, Math.round(realizado / metaNum * 100))
+
+  // Projeção com base no ritmo real do mês (não é só a fórmula fixa /30)
+  const diaAtual   = hoje.getDate()
+  const diasNoMes  = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate()
+  const diasRestantes = Math.max(0, diasNoMes - diaAtual)
+  const mediaDiaria   = diaAtual > 0 ? realizado / diaAtual : 0
+  const projecaoFimMes = Math.round(mediaDiaria * diasNoMes)
+  const faltaNecessarioPorDia = diasRestantes > 0 ? Math.max(0, metaNum - realizado) / diasRestantes : 0
 
   function toggleCheck(i: number) {
     setChecados(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
@@ -140,13 +158,29 @@ export default function MetaVendas() {
         </div>
         <div className="flex justify-between mt-1.5">
           <p className="text-[9px]" style={{ color:'var(--muted)' }}>Falta: {fmtR(Math.max(0, metaNum - realizado))}</p>
-          {estrategia && <p className="text-[9px]" style={{ color:'var(--muted)' }}>Meta/dia: {fmtR(estrategia.meta_dia)}</p>}
+          <p className="text-[9px]" style={{ color:'var(--muted)' }}>{vendasRealizadas} vendas confirmadas</p>
         </div>
+        {realizado > 0 && diaAtual > 1 && (
+          <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop:'1px solid var(--border)' }}>
+            <div>
+              <p className="text-[9px]" style={{ color:'var(--muted)' }}>No ritmo atual, fecha o mês em</p>
+              <p className="text-sm font-black" style={{ color: projecaoFimMes >= metaNum ? '#22c55e' : '#f59e0b' }}>
+                {fmtR(projecaoFimMes)} <span className="text-[10px] font-bold" style={{ color:'var(--muted)' }}>({Math.round(projecaoFimMes/metaNum*100)}%)</span>
+              </p>
+            </div>
+            {diasRestantes > 0 && (
+              <div className="text-right">
+                <p className="text-[9px]" style={{ color:'var(--muted)' }}>Precisa/dia pelos {diasRestantes} dias restantes</p>
+                <p className="text-sm font-black" style={{ color:'#f97316' }}>{fmtR(faltaNecessarioPorDia)}</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Abas */}
-      <div className="pg-stats flex gap-1">
-        {([['roadmap','🗺️ Roadmap IA'],['produtos',`🛍️ Produtos (${opors.length})`],['historico','📊 Histórico']] as [string,string][]).map(([v,l]) => (
+      <div className="pg-stats flex gap-1 flex-wrap">
+        {([['roadmap','🗺️ Roadmap IA'],['produtos',`🛍️ Produtos (${opors.length})`],['vendas','💰 Vendas Reais'],['historico','📊 Histórico']] as [string,string][]).map(([v,l]) => (
           <button key={v} onClick={() => setAba(v as any)}
             className="px-3 py-1.5 rounded-lg text-xs font-bold"
             style={{ background:aba===v?GRAD:'var(--card2)', color:aba===v?'#fff':'var(--muted)', border:aba===v?'none':'1px solid var(--border)' }}>
@@ -375,6 +409,86 @@ export default function MetaVendas() {
               </>
             )}
           </>
+        )}
+
+        {/* ── ABA VENDAS REAIS ─────────────────────────────────────────────── */}
+        {!loading && aba === 'vendas' && (
+          <div className="space-y-3">
+            {!analytics ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2" style={{ color:'var(--muted)' }}>
+                <RefreshCw size={28} className="animate-spin"/>
+                <p className="text-xs">Carregando vendas reais...</p>
+              </div>
+            ) : (
+              <>
+                {/* Comparação com mês anterior */}
+                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+                  <div>
+                    <p className="text-[9px] font-black tracking-widest" style={{ color:'var(--muted)' }}>MÊS ANTERIOR ({analytics.mes_anterior?.mes_ano})</p>
+                    <p className="text-sm font-black text-white mt-0.5">{fmtR(analytics.mes_anterior?.renda || 0)}</p>
+                    <p className="text-[9px]" style={{ color:'var(--muted)' }}>{analytics.mes_anterior?.vendas || 0} vendas</p>
+                  </div>
+                  <ArrowRight size={16} color="var(--muted)"/>
+                  <div className="text-right">
+                    <p className="text-[9px] font-black tracking-widest" style={{ color:'var(--muted)' }}>ESTE MÊS</p>
+                    <p className="text-sm font-black" style={{ color: realizado >= (analytics.mes_anterior?.renda||0) ? '#22c55e' : '#f97316' }}>{fmtR(realizado)}</p>
+                    <p className="text-[9px]" style={{ color:'var(--muted)' }}>{vendasRealizadas} vendas</p>
+                  </div>
+                </div>
+
+                {/* Evolução diária */}
+                <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+                  <div className="px-3 py-2" style={{ borderBottom:'1px solid var(--border)' }}>
+                    <p className="text-[9px] font-black tracking-widest" style={{ color:'var(--muted)' }}>📈 EVOLUÇÃO DIÁRIA — {mesAtual.replace('-','/')}</p>
+                  </div>
+                  <div className="p-3">
+                    {(() => {
+                      const dias: any[] = analytics.evolucao_diaria || []
+                      const max = Math.max(1, ...dias.map(d => d.renda))
+                      return (
+                        <div className="flex items-end gap-[2px] overflow-x-auto" style={{ height:90 }}>
+                          {dias.map((d, i) => (
+                            <div key={i} className="flex-1 min-w-[6px] flex flex-col items-center justify-end h-full" title={`Dia ${d.dia}: ${fmtR(d.renda)}`}>
+                              <div className="w-full rounded-t"
+                                style={{
+                                  height: `${Math.max(2, (d.renda / max) * 100)}%`,
+                                  background: d.dia === diaAtual ? '#22c55e' : d.renda > 0 ? GRAD : 'var(--card2)',
+                                }}/>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                    <div className="flex justify-between mt-1">
+                      <span className="text-[8px]" style={{ color:'var(--muted)' }}>dia 1</span>
+                      <span className="text-[8px]" style={{ color:'var(--muted)' }}>hoje (dia {diaAtual})</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top produtos por vendas reais */}
+                <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+                  <div className="px-3 py-2" style={{ borderBottom:'1px solid var(--border)' }}>
+                    <p className="text-[9px] font-black tracking-widest" style={{ color:'var(--muted)' }}>🏆 TOP PRODUTOS — VENDAS CONFIRMADAS</p>
+                  </div>
+                  {(analytics.top_produtos_reais || []).length === 0 ? (
+                    <p className="text-xs text-center py-8" style={{ color:'var(--muted)' }}>Nenhuma venda confirmada ainda</p>
+                  ) : (analytics.top_produtos_reais || []).map((p: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2.5 px-3 py-2.5" style={{ borderBottom:'1px solid var(--border)' }}>
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background:'var(--card2)' }}>
+                        {p.imagem_url ? <img src={p.imagem_url} className="w-full h-full object-contain"/> : <ShoppingBag size={16} color="var(--muted)"/>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold text-white truncate">{p.titulo}</p>
+                        <p className="text-[9px]" style={{ color:'var(--muted)' }}>{p.vendas} vendas confirmadas</p>
+                      </div>
+                      <p className="text-xs font-black flex-shrink-0" style={{ color:'#22c55e' }}>{fmtR(p.faturamento)}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {/* ── ABA HISTÓRICO ────────────────────────────────────────────────── */}

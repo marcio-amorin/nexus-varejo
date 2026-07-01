@@ -1617,10 +1617,105 @@ async def gerar_link(
 
 # ─── Metas ───────────────────────────────────────────────────────────────────
 
+def _renda_real_do_mes(db, mes_ano: str) -> dict:
+    """Soma vendas reais do mês: pedidos confirmados na conta vendedor (lucro_estimado)
+    + comissões de afiliado aprovadas/pagas. Isso é o que realmente entrou, não estimativa."""
+    from models import VendedorPedido
+    from sqlalchemy import func, extract
+    ano_s, mes_s = mes_ano.split("-")
+    ano, mes = int(ano_s), int(mes_s)
+
+    pedidos = db.query(
+        func.coalesce(func.sum(VendedorPedido.lucro_estimado), 0),
+        func.count(VendedorPedido.id),
+    ).filter(
+        VendedorPedido.status != "CANCELADO",
+        extract("year", VendedorPedido.data_pedido) == ano,
+        extract("month", VendedorPedido.data_pedido) == mes,
+    ).first()
+    lucro_vendedor = float(pedidos[0] or 0)
+    vendas_vendedor = int(pedidos[1] or 0)
+
+    com = db.query(
+        func.coalesce(func.sum(AfiliadoComissao.comissao_valor), 0),
+        func.count(AfiliadoComissao.id),
+    ).filter(
+        AfiliadoComissao.status.in_(["APROVADO", "PAGO"]),
+        extract("year", AfiliadoComissao.data_venda) == ano,
+        extract("month", AfiliadoComissao.data_venda) == mes,
+    ).first()
+    com_afiliado = float(com[0] or 0)
+    vendas_afiliado = int(com[1] or 0)
+
+    return {
+        "renda_total": round(lucro_vendedor + com_afiliado, 2),
+        "vendas_total": vendas_vendedor + vendas_afiliado,
+        "renda_vendedor": round(lucro_vendedor, 2),
+        "vendas_vendedor": vendas_vendedor,
+        "renda_afiliado": round(com_afiliado, 2),
+        "vendas_afiliado": vendas_afiliado,
+    }
+
 @router.get("/metas")
 def listar_metas(db: Session = Depends(get_db), _=Depends(get_current_user)):
     metas = db.query(AfiliadoMeta).order_by(AfiliadoMeta.mes_ano.desc()).limit(12).all()
+    # Sincroniza com as vendas reais (pedidos do vendedor + comissões aprovadas) sempre que carrega
+    for m in metas:
+        real = _renda_real_do_mes(db, m.mes_ano)
+        m.realizado_renda = real["renda_total"]
+        m.realizado_vendas = real["vendas_total"]
+    db.commit()
     return [_meta_dict(m) for m in metas]
+
+@router.get("/metas/{mes_ano}/analytics")
+def metas_analytics(mes_ano: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Evolução diária, top produtos por vendas reais e comparação com o mês anterior."""
+    from models import VendedorPedido, VendedorAnuncio
+    from sqlalchemy import extract
+    import calendar
+    ano_s, mes_s = mes_ano.split("-")
+    ano, mes = int(ano_s), int(mes_s)
+
+    pedidos = db.query(VendedorPedido).filter(
+        VendedorPedido.status != "CANCELADO",
+        extract("year", VendedorPedido.data_pedido) == ano,
+        extract("month", VendedorPedido.data_pedido) == mes,
+    ).all()
+    comissoes = db.query(AfiliadoComissao).filter(
+        AfiliadoComissao.status.in_(["APROVADO", "PAGO"]),
+        extract("year", AfiliadoComissao.data_venda) == ano,
+        extract("month", AfiliadoComissao.data_venda) == mes,
+    ).all()
+
+    por_dia: dict = {}
+    for p in pedidos:
+        if not p.data_pedido: continue
+        d = p.data_pedido.day
+        por_dia[d] = por_dia.get(d, 0) + (p.lucro_estimado or 0)
+    for c in comissoes:
+        if not c.data_venda: continue
+        d = c.data_venda.day
+        por_dia[d] = por_dia.get(d, 0) + (c.comissao_valor or 0)
+
+    dias_no_mes = calendar.monthrange(ano, mes)[1]
+    evolucao_diaria = [{"dia": d, "renda": round(por_dia.get(d, 0), 2)} for d in range(1, dias_no_mes + 1)]
+
+    top_reais = db.query(VendedorAnuncio).filter(VendedorAnuncio.vendas_count > 0) \
+        .order_by(VendedorAnuncio.faturamento.desc()).limit(10).all()
+
+    mes_ant, ano_ant = (mes - 1, ano) if mes > 1 else (12, ano - 1)
+    mes_ant_str = f"{ano_ant}-{str(mes_ant).zfill(2)}"
+    real_ant = _renda_real_do_mes(db, mes_ant_str)
+
+    return {
+        "evolucao_diaria": evolucao_diaria,
+        "top_produtos_reais": [
+            {"id": a.id, "titulo": a.titulo, "vendas": a.vendas_count,
+             "faturamento": round(a.faturamento or 0, 2), "imagem_url": a.imagem_url}
+            for a in top_reais
+        ],
+        "mes_anterior": {"mes_ano": mes_ant_str, "renda": real_ant["renda_total"], "vendas": real_ant["vendas_total"]},
+    }
 
 @router.post("/metas")
 def criar_meta(body: MetaIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
@@ -2413,7 +2508,7 @@ def _meta_dict(m: AfiliadoMeta) -> dict:
     pct = round(m.realizado_renda / m.meta_renda * 100, 1) if m.meta_renda else 0
     return {
         "id": m.id, "mes_ano": m.mes_ano, "meta_renda": m.meta_renda,
-        "realizado_renda": m.realizado_renda, "pct": pct,
+        "realizado_renda": m.realizado_renda, "realizado_vendas": m.realizado_vendas, "pct": pct,
         "status": m.status, "estrategia_ia": json.loads(m.estrategia_ia) if m.estrategia_ia else None,
     }
 

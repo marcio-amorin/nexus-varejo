@@ -88,6 +88,24 @@ export default function MeusAnuncios() {
     carregar()
   }
 
+  const [publicandoId, setPublicandoId] = useState<number|null>(null)
+  async function publicarComoVendedor(a: any) {
+    if (!a.produto_afiliado_id) { alert('❌ Esse anúncio não tem produto de origem vinculado — exclua e crie de novo pelo Catálogo.'); return }
+    setPublicandoId(a.id)
+    try {
+      const r = await fetch(`${API}/vendedor/publicar-tudo`, {
+        method:'POST', headers:hdr(),
+        body:JSON.stringify({ produto_id:a.produto_afiliado_id, publicar_redes:true, modo_afiliado:false })
+      })
+      const d = await r.json()
+      const passoMl = (d.passos||[]).find((s:any) => s.passo === 'ML Vendedor')
+      if (passoMl?.status?.startsWith('✅')) alert('✅ Publicado como vendedor no Mercado Livre!')
+      else alert('⚠️ Ainda não deu: ' + (passoMl?.status || 'motivo desconhecido'))
+    } catch (e:any) { alert('❌ ' + e.message) }
+    setPublicandoId(null)
+    carregar()
+  }
+
   return (
     <div className="pg">
       <div className="pg-header rounded-xl overflow-hidden" style={{ background: GRAD }}>
@@ -205,6 +223,13 @@ export default function MeusAnuncios() {
                         ? <><CheckCircle2 size={10}/> Confirmado no Mercado Livre</>
                         : <><Link2 size={10}/> Só link — não publicado como vendedor</>}
                     </div>
+                    {!a.listing_id && (
+                      <button onClick={() => publicarComoVendedor(a)} disabled={publicandoId===a.id}
+                        className="w-full py-1.5 rounded-lg text-[9px] font-black flex items-center justify-center gap-1"
+                        style={{ background:'linear-gradient(135deg,#7c3aed,#f97316)', color:'#fff', opacity:publicandoId===a.id?0.6:1 }}>
+                        {publicandoId===a.id ? <><RefreshCw size={9} className="animate-spin"/> Publicando...</> : <><Zap size={9}/> Publicar para Vendedor</>}
+                      </button>
+                    )}
                     {a.erro_msg && (
                       <p className="text-[9px] font-bold px-1.5 py-1 rounded-md" style={{ background:'rgba(239,68,68,0.15)', color:'#ef4444' }}>
                         {a.erro_msg}

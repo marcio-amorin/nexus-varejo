@@ -679,6 +679,7 @@ def listar_anuncios(
     return [
         {
             "id": a.id,
+            "produto_afiliado_id": a.produto_afiliado_id,
             "titulo": a.titulo,
             "plataforma": a.plataforma,
             "listing_id": a.listing_id,

@@ -1588,6 +1588,55 @@ def salvar_gtin(id: int, data: GtinIn, db: Session = Depends(get_db), _=Depends(
     db.commit()
     return {"gtin": p.gtin}
 
+@router.get("/catalogo/verificar-estoque")
+async def verificar_estoque_catalogo(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Varre todo o catálogo ativo e confere direto na API do Mercado Livre se o produto
+    ainda tem estoque disponível — pra identificar o que pode ser removido com segurança."""
+    token = await _get_fresh_ml_token(db)
+    produtos = db.query(AfiliadoProduto).filter_by(ativo=True).all()
+
+    resultado = []
+    async with httpx.AsyncClient(timeout=10) as client:
+        for p in produtos:
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            status_estoque = "desconhecido"
+            available_quantity = None
+            item_status = None
+            try:
+                r = await client.get(f"https://api.mercadolibre.com/items/{p.produto_ext_id}", headers=headers)
+                if r.status_code == 200:
+                    d = r.json()
+                    available_quantity = d.get("available_quantity")
+                    item_status = d.get("status")
+                    if item_status == "active" and (available_quantity or 0) > 0:
+                        status_estoque = "com_estoque"
+                    else:
+                        status_estoque = "sem_estoque"
+                else:
+                    # Não é um item direto — pode ser página de catálogo (/p/), confere se tem oferta ativa
+                    r2 = await client.get(f"https://api.mercadolibre.com/products/{p.produto_ext_id}", headers=headers)
+                    if r2.status_code == 200:
+                        d2 = r2.json()
+                        bbw = d2.get("buy_box_winner") or {}
+                        if bbw.get("item_id"):
+                            status_estoque = "com_estoque"
+                            available_quantity = bbw.get("available_quantity")
+                        else:
+                            status_estoque = "sem_estoque"
+            except Exception:
+                pass
+
+            resultado.append({
+                "id": p.id,
+                "titulo": p.titulo,
+                "produto_ext_id": p.produto_ext_id,
+                "pub_status": "ml_vendedor" if False else None,  # preenchido pelo frontend via catalogo já carregado
+                "status_estoque": status_estoque,
+                "available_quantity": available_quantity,
+                "item_status": item_status,
+            })
+    return {"produtos": resultado}
+
 @router.delete("/catalogo/{id}")
 def remover_produto(id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     p = db.query(AfiliadoProduto).get(id)

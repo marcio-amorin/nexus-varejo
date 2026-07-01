@@ -1758,9 +1758,9 @@ def listar_metas(db: Session = Depends(get_db), _=Depends(get_current_user)):
     return [_meta_dict(m) for m in metas]
 
 @router.get("/metas/{mes_ano}/analytics")
-def metas_analytics(mes_ano: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+async def metas_analytics(mes_ano: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Evolução diária, top produtos por vendas reais e comparação com o mês anterior."""
-    from models import VendedorPedido, VendedorAnuncio
+    from models import VendedorPedido, VendedorAnuncio, VendedorConfig
     from sqlalchemy import extract
     import calendar
     ano_s, mes_s = mes_ano.split("-")
@@ -1797,6 +1797,49 @@ def metas_analytics(mes_ano: str, db: Session = Depends(get_db), _=Depends(get_c
     mes_ant_str = f"{ano_ant}-{str(mes_ant).zfill(2)}"
     real_ant = _renda_real_do_mes(db, mes_ant_str)
 
+    # ── Capacidade de venda: quantas vendas faltam pra bater a meta, com o
+    # catálogo de hoje (só confirmado no ML) e projetado (incluindo o que
+    # ainda está em análise, assumindo que libera). Lucro = preço - custo.
+    meta = db.query(AfiliadoMeta).filter_by(mes_ano=mes_ano).first()
+    meta_renda = meta.meta_renda if meta else 0
+    anuncios_ml = db.query(VendedorAnuncio).filter(
+        VendedorAnuncio.plataforma == "ML_VENDEDOR", VendedorAnuncio.listing_id.isnot(None)
+    ).all()
+
+    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    ml_status_por_listing: dict = {}
+    if cfg and cfg.access_token and anuncios_ml:
+        headers = {"Authorization": f"Bearer {cfg.access_token}"}
+        async with httpx.AsyncClient(timeout=8) as client:
+            resultados = await asyncio.gather(*[
+                client.get(f"https://api.mercadolibre.com/items/{a.listing_id}", headers=headers)
+                for a in anuncios_ml
+            ], return_exceptions=True)
+        for a, r in zip(anuncios_ml, resultados):
+            if isinstance(r, Exception) or r.status_code != 200:
+                continue
+            ml_status_por_listing[a.id] = r.json().get("status")
+
+    confirmados = [a for a in anuncios_ml if ml_status_por_listing.get(a.id) != "under_review"]
+    em_analise = [a for a in anuncios_ml if ml_status_por_listing.get(a.id) == "under_review"]
+
+    def _lucro_medio(lista):
+        lucros = [(a.preco_venda or 0) - (a.preco_custo or 0) for a in lista if a.preco_venda and a.preco_custo]
+        return round(sum(lucros) / len(lucros), 2) if lucros else 0
+
+    lucro_medio_atual = _lucro_medio(confirmados)
+    lucro_medio_projetado = _lucro_medio(confirmados + em_analise)
+
+    capacidade_venda = {
+        "meta_renda": meta_renda,
+        "catalogo_confirmado": len(confirmados),
+        "catalogo_em_analise": len(em_analise),
+        "lucro_medio_atual": lucro_medio_atual,
+        "vendas_necessarias_atual": round(meta_renda / lucro_medio_atual) if lucro_medio_atual > 0 else None,
+        "lucro_medio_projetado": lucro_medio_projetado,
+        "vendas_necessarias_projetado": round(meta_renda / lucro_medio_projetado) if lucro_medio_projetado > 0 else None,
+    }
+
     return {
         "evolucao_diaria": evolucao_diaria,
         "top_produtos_reais": [
@@ -1805,6 +1848,7 @@ def metas_analytics(mes_ano: str, db: Session = Depends(get_db), _=Depends(get_c
             for a in top_reais
         ],
         "mes_anterior": {"mes_ano": mes_ant_str, "renda": real_ant["renda_total"], "vendas": real_ant["vendas_total"]},
+        "capacidade_venda": capacidade_venda,
     }
 
 @router.post("/metas")

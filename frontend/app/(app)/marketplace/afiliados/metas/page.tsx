@@ -436,6 +436,31 @@ export default function MetaVendas() {
                   </div>
                 </div>
 
+                {/* Capacidade de venda — quantas vendas faltam pra bater a meta com o catálogo real */}
+                {analytics.capacidade_venda && (
+                  <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
+                    <div className="px-3 py-2" style={{ borderBottom:'1px solid var(--border)' }}>
+                      <p className="text-[9px] font-black tracking-widest" style={{ color:'var(--muted)' }}>🎯 QUANTO FALTA PRA BATER A META</p>
+                    </div>
+                    <div className="p-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-lg p-2" style={{ background:'var(--card2)' }}>
+                        <p className="text-[9px] font-bold" style={{ color:'var(--muted)' }}>HOJE ({analytics.capacidade_venda.catalogo_confirmado} confirmados)</p>
+                        <p className="text-sm font-black text-white mt-0.5">
+                          {analytics.capacidade_venda.vendas_necessarias_atual != null ? `${analytics.capacidade_venda.vendas_necessarias_atual} vendas/mês` : '—'}
+                        </p>
+                        <p className="text-[9px]" style={{ color:'var(--muted)' }}>lucro médio {fmtR(analytics.capacidade_venda.lucro_medio_atual)}/venda</p>
+                      </div>
+                      <div className="rounded-lg p-2" style={{ background:'rgba(34,197,94,0.1)', border:'1px solid rgba(34,197,94,0.3)' }}>
+                        <p className="text-[9px] font-bold" style={{ color:'#22c55e' }}>SE LIBERAR OS {analytics.capacidade_venda.catalogo_em_analise} EM ANÁLISE</p>
+                        <p className="text-sm font-black text-white mt-0.5">
+                          {analytics.capacidade_venda.vendas_necessarias_projetado != null ? `${analytics.capacidade_venda.vendas_necessarias_projetado} vendas/mês` : '—'}
+                        </p>
+                        <p className="text-[9px]" style={{ color:'var(--muted)' }}>lucro médio {fmtR(analytics.capacidade_venda.lucro_medio_projetado)}/venda</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Evolução diária */}
                 <div className="rounded-xl overflow-hidden" style={{ background:'var(--card)', border:'1px solid var(--border)' }}>
                   <div className="px-3 py-2" style={{ borderBottom:'1px solid var(--border)' }}>

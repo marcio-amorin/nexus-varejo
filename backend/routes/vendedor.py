@@ -298,6 +298,25 @@ async def _resolver_atributos_faltantes(cat_id: str, err_txt: str, titulo: str, 
 
     return preenchidos, nao_resolvidos
 
+async def _buscar_gtin_automatico(catalog_product_id: str, produto_ext_id: str, token: str) -> str:
+    """Busca o GTIN já declarado na página de catálogo/anúncio original do ML (mesmo
+    produto físico revendido, então o código de barras é o mesmo de quem publicou antes)."""
+    for pid in [p for p in (catalog_product_id, produto_ext_id) if p]:
+        for url in (f"https://api.mercadolibre.com/products/{pid}", f"https://api.mercadolibre.com/items/{pid}"):
+            try:
+                async with httpx.AsyncClient(timeout=8) as c:
+                    r = await c.get(url, headers={"Authorization": f"Bearer {token}"} if token else {})
+                if r.status_code == 200:
+                    for a in r.json().get("attributes", []):
+                        if a.get("id") == "GTIN":
+                            vals = a.get("values") or []
+                            val = a.get("value_name") or (vals[0].get("name") if vals else "")
+                            if val and val.strip().isdigit():
+                                return val.strip()
+            except Exception:
+                pass
+    return ""
+
 def _detectar_cat(titulo: str) -> str:
     t = titulo.lower()
     if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|redmi', t): return 'Celulares'
@@ -557,7 +576,16 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                     # Throttle do ML para criação de anúncios grátis — não é erro de dados, é limite temporário da conta
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
                 elif "[GTIN]" in err_txt or "missing_conditional_required" in err_txt:
-                    if produto.gtin:
+                    gtin_val = produto.gtin
+                    if not gtin_val:
+                        # Sem GTIN cadastrado: o código de barras é do produto físico, não do
+                        # vendedor — se o anúncio/catálogo original do ML já declarou um, é o
+                        # mesmo produto sendo revendido, então dá pra reaproveitar sem inventar nada.
+                        gtin_val = await _buscar_gtin_automatico(catalog_product_id, produto.produto_ext_id, cfg_vendedor.access_token)
+                        if gtin_val:
+                            produto.gtin = gtin_val
+                            db.commit()
+                    if gtin_val:
                         # A categoria pode exigir GTIN junto com outros atributos (ex: Cor) no
                         # mesmo erro — resolve os outros primeiro pra não voltar incompleto.
                         preenchidos_gtin, nao_resolvidos_gtin_raw = await _resolver_atributos_faltantes(
@@ -574,7 +602,7 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                                 attrs_gtin.append(a)
                                 ids_gtin.add(a["id"])
                         if "GTIN" not in ids_gtin:
-                            attrs_gtin.append({"id": "GTIN", "value_name": produto.gtin})
+                            attrs_gtin.append({"id": "GTIN", "value_name": gtin_val})
                         p2 = {**payload, "attributes": attrs_gtin}
                         r = await _publicar_ml(p2)
                         ml_ok = r.status_code in (200, 201)
@@ -594,9 +622,9 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                                 if nao_resolvidos_gtin:
                                     resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Faltam dados que não temos: {', '.join(nao_resolvidos_gtin)} → link afiliado gerado.", "detalhe": r.text[:200]})
                                 else:
-                                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {produto.gtin} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
+                                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {gtin_val} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
                     else:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) — cadastre no produto e publique de novo → link afiliado gerado.", "precisa_gtin": True})
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) e não achamos um automático — cadastre manualmente e publique de novo → link afiliado gerado.", "precisa_gtin": True})
                 elif "item.buying_mode.invalid" in err_txt or "only supports listing modes" in err_txt:
                     # Categoria só aceita anúncio clássico ("classified"), não "compre já" —
                     # é um formato de anúncio incompatível com o payload atual (sem publicação

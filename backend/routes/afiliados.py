@@ -201,10 +201,13 @@ _ML_APP_ID_FALLBACK     = os.getenv("ML_CLIENT_ID", "3153350893755305")
 _ML_APP_SECRET_FALLBACK = os.getenv("ML_CLIENT_SECRET", "wCq5uo8Ytbu2AXfzd8fRN8Pa5hwgKFyB")
 
 async def _get_fresh_ml_token(db) -> str | None:
-    """Retorna token ML sempre fresco: tenta refresh → client_credentials → stored.
-    Verifica VendedorConfig e AfiliadoConfig automaticamente. Cai para as credenciais
-    padrão do app quando a config não tem client_id/secret próprios salvos (comum
-    quando o OAuth foi feito com o app compartilhado)."""
+    """Retorna um token ML válido: prioriza o access_token já salvo (veio do OAuth
+    real do usuário, comprovadamente funcional) e só tenta gerar um novo via
+    client_credentials se não houver nenhum salvo. Tentar "renovar" antes de usar
+    o token bom é arriscado: se o client_id/secret usado não for exatamente o
+    app que emitiu o token original, a renovação falha ou gera um token
+    client_credentials (sem permissão de usuário) que sobrescreve um token bom.
+    Verifica VendedorConfig e AfiliadoConfig automaticamente."""
     from models import VendedorConfig
     configs = []
     vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
@@ -212,29 +215,16 @@ async def _get_fresh_ml_token(db) -> str | None:
     if vcfg: configs.append(vcfg)
     if acfg: configs.append(acfg)
 
+    # 1) Token já salvo — prioridade máxima, é o único garantidamente ligado à conta do usuário
+    for cfg in configs:
+        if cfg.access_token:
+            return cfg.access_token
+
+    # 2) Sem nenhum token salvo — última tentativa via client_credentials (app-only)
     async with httpx.AsyncClient(timeout=10) as c:
         for cfg in configs:
             client_id     = cfg.client_id or _ML_APP_ID_FALLBACK
             client_secret = cfg.client_secret or _ML_APP_SECRET_FALLBACK
-            # 1) Tenta refresh_token (mais completo — tem permissões de usuário)
-            if cfg.refresh_token:
-                try:
-                    r = await c.post(ML_TOKEN_URL, data={
-                        "grant_type": "refresh_token",
-                        "client_id": client_id,
-                        "client_secret": client_secret,
-                        "refresh_token": cfg.refresh_token,
-                    })
-                    if r.status_code == 200:
-                        d = r.json()
-                        if d.get("access_token"):
-                            cfg.access_token = d["access_token"]
-                            cfg.refresh_token = d.get("refresh_token", cfg.refresh_token)
-                            db.commit()
-                            return cfg.access_token
-                except Exception:
-                    pass
-            # 2) client_credentials — gera token fresco com as credenciais atuais
             try:
                 r = await c.post(ML_TOKEN_URL, data={
                     "grant_type": "client_credentials",
@@ -244,15 +234,9 @@ async def _get_fresh_ml_token(db) -> str | None:
                 if r.status_code == 200:
                     d = r.json()
                     if d.get("access_token"):
-                        cfg.access_token = d["access_token"]
-                        db.commit()
-                        return cfg.access_token
+                        return d["access_token"]
             except Exception:
                 pass
-            # 3) Token armazenado como último recurso — não depende de client_id/secret,
-            # só de já existir um access_token válido salvo (ex: da conta ML Vendedor conectada)
-            if cfg.access_token:
-                return cfg.access_token
     return None
 
 @router.get("/ml-auth-url")

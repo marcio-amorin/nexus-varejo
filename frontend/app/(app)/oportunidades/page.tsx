@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Search, RefreshCw, ExternalLink, TrendingDown, Building2, ShoppingBag, Clock, Tag, MapPin, AlertCircle, Gavel, Percent } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, TrendingDown, Building2, ShoppingTag, Clock, Tag, MapPin, AlertCircle, Gavel, Percent } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -204,31 +204,7 @@ export default function Oportunidades() {
         {/* ── ABA LEILÕES ─────────────────────────────────────────────── */}
         {!loading && aba === 'leiloes' && (
           <div>
-            {/* Plataformas externas */}
-            <h2 className="text-xs font-black mb-2" style={{ color: 'var(--fg-muted)' }}>PLATAFORMAS EXTERNAS — ACESSE DIRETAMENTE</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-              {(leiloes.plataformas || PLATAFORMAS_LEILAO_FE).map((p: any, i: number) => (
-                <a key={i} href={p.url} target="_blank" rel="noopener noreferrer"
-                  className="flex flex-col gap-1 p-3 rounded-xl border transition-all hover:shadow-md"
-                  style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-lg">{p.icone}</span>
-                    <span className="font-bold text-xs" style={{ color: 'var(--fg)' }}>{p.nome}</span>
-                    <ExternalLink size={9} className="ml-auto" style={{ color: 'var(--fg-muted)' }} />
-                  </div>
-                  <p className="text-[10px]" style={{ color: 'var(--fg-muted)' }}>{p.desc}</p>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full w-fit"
-                    style={{
-                      background: p.tipo === 'governo' ? '#dbeafe' : p.tipo === 'banco' ? '#d1fae5' : '#fef9c3',
-                      color: p.tipo === 'governo' ? '#1d4ed8' : p.tipo === 'banco' ? '#065f46' : '#92400e',
-                    }}>
-                    {p.tipo}
-                  </span>
-                </a>
-              ))}
-            </div>
-
-            {/* Leilões do PNCP */}
+            {/* Leilões do PNCP — dado real, direto na tela, sem abrir site de terceiro */}
             {leiloes.itens.length > 0 && (
               <>
                 <h2 className="text-xs font-black mb-2" style={{ color: 'var(--fg-muted)' }}>LEILÕES PÚBLICOS — PNCP ({leiloes.itens.length})</h2>
@@ -243,7 +219,6 @@ export default function Oportunidades() {
               <div className="text-center py-8" style={{ color: 'var(--fg-muted)' }}>
                 <Gavel size={32} className="mx-auto mb-2 opacity-30" />
                 <p className="text-sm">Nenhum leilão público encontrado no PNCP agora.</p>
-                <p className="text-xs mt-1">Use as plataformas externas acima para encontrar leilões privados.</p>
               </div>
             )}
           </div>
@@ -281,7 +256,7 @@ export default function Oportunidades() {
             </div>
             {ofertas.itens.length === 0 && !isAtu ? (
               <div className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
-                <ShoppingBag size={32} className="mx-auto mb-2 opacity-30" />
+                <ShoppingTag size={32} className="mx-auto mb-2 opacity-30" />
                 <p className="text-sm">Aguardando dados do Mercado Livre...</p>
                 <button onClick={() => forcarAtualizacao('ofertas')} className="mt-3 px-4 py-2 rounded-lg text-xs font-bold text-white" style={{ background: '#10b981' }}>
                   Buscar Agora
@@ -379,16 +354,16 @@ function CardOferta({ item }: { item: any }) {
         <div className="flex items-end justify-between">
           <div>
             <p className="text-[10px] line-through" style={{ color: 'var(--fg-muted)' }}>
-              {item.preco_original.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+              {fmtR(item.preco_original)}
             </p>
             <p className="text-base font-black" style={{ color: '#10b981' }}>
-              {item.preco.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+              {fmtR(item.preco)}
             </p>
           </div>
           <div className="text-right">
             <p className="text-[9px]" style={{ color: 'var(--fg-muted)' }}>margem est.</p>
             <p className="text-xs font-bold" style={{ color: '#f97316' }}>
-              +{item.margem_estimada.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+              +{fmtR(item.margem_estimada)}
             </p>
           </div>
         </div>
@@ -410,13 +385,3 @@ function CardOferta({ item }: { item: any }) {
   )
 }
 
-const PLATAFORMAS_LEILAO_FE = [
-  { nome: 'Receita Federal', url: 'https://www.gov.br/receitafederal/pt-br/servicos/leilao/leiloes-de-mercadorias', tipo: 'governo', icone: '🏛️', desc: 'Mercadorias apreendidas' },
-  { nome: 'Leilão.com.br',   url: 'https://www.leilao.com.br',       tipo: 'privado', icone: '🔨', desc: 'Maior do Brasil' },
-  { nome: 'SuperUsados',     url: 'https://www.superusados.com.br',   tipo: 'privado', icone: '📦', desc: 'Paletes e estoque' },
-  { nome: 'Lex Leilões',     url: 'https://www.lexleiloes.com.br',    tipo: 'privado', icone: '⚖️', desc: 'Judiciais e extrajudiciais' },
-  { nome: 'Zukerman',        url: 'https://www.zukerman.com.br',      tipo: 'privado', icone: '🔨', desc: 'Industriais' },
-  { nome: 'BB Leilões',      url: 'https://www.lbb.com.br',           tipo: 'banco',   icone: '🏦', desc: 'Bens recuperados BB' },
-  { nome: 'Caixa Leilões',   url: 'https://venda.caixa.gov.br',       tipo: 'banco',   icone: '🏦', desc: 'Imóveis Caixa' },
-  { nome: 'OLX Paletes',     url: 'https://www.olx.com.br/brasil?q=palete', tipo: 'privado', icone: '🏷️', desc: 'Liquidação OLX' },
-]

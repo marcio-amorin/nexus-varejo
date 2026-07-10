@@ -2,7 +2,7 @@
 Módulo Radar de Oportunidades — atualiza automaticamente a cada 30 minutos.
 
 Fontes:
-  - Leilões: PNCP (modalidade Leilão) + plataformas externas
+  - Leilões: PNCP (modalidade Leilão Eletrônico + Presencial)
   - Licitações: PNCP (Portal Nacional de Compras Públicas)
   - Ofertas ML: Mercado Livre com alto desconto para revenda
 """
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/oportunidades", tags=["oportunidades"])
 
 # ── Cache em memória (atualiza a cada 30 min) ─────────────────────────────────
 _cache: dict = {
-    "leiloes":    {"itens": [], "plataformas": [], "atualizado_em": None, "total": 0},
+    "leiloes":    {"itens": [], "atualizado_em": None, "total": 0},
     "licitacoes": {"itens": [], "atualizado_em": None, "total": 0},
     "ofertas":    {"itens": [], "atualizado_em": None, "total": 0},
 }
@@ -27,18 +27,6 @@ _atualizando = {"leiloes": False, "licitacoes": False, "ofertas": False}
 
 PNCP_BASE = "https://pncp.gov.br/api/consulta/v1"
 INTERVALO_MINUTOS = 30
-
-# ── Plataformas de leilão externas (sempre exibidas) ─────────────────────────
-PLATAFORMAS_LEILAO = [
-    {"nome": "Receita Federal",      "url": "https://www.gov.br/receitafederal/pt-br/servicos/leilao/leiloes-de-mercadorias", "tipo": "governo",  "icone": "🏛️", "desc": "Mercadorias apreendidas e abandonadas"},
-    {"nome": "Leilão.com.br",        "url": "https://www.leilao.com.br",         "tipo": "privado",  "icone": "🔨", "desc": "Maior plataforma de leilões do Brasil"},
-    {"nome": "SuperUsados",          "url": "https://www.superusados.com.br",     "tipo": "privado",  "icone": "📦", "desc": "Leilões de paletes e estoque"},
-    {"nome": "Lex Leilões",          "url": "https://www.lexleiloes.com.br",      "tipo": "privado",  "icone": "⚖️", "desc": "Leilões judiciais e extrajudiciais"},
-    {"nome": "Zukerman Leilões",     "url": "https://www.zukerman.com.br",        "tipo": "privado",  "icone": "🔨", "desc": "Leilões industriais e equipamentos"},
-    {"nome": "Banco do Brasil",      "url": "https://www.lbb.com.br",             "tipo": "banco",    "icone": "🏦", "desc": "Bens recuperados pelo BB"},
-    {"nome": "Caixa Econômica",      "url": "https://venda.caixa.gov.br",         "tipo": "banco",    "icone": "🏦", "desc": "Imóveis e bens da Caixa"},
-    {"nome": "OLX Paletes",          "url": "https://www.olx.com.br/brasil?q=palete+leilao", "tipo": "privado", "icone": "🏷️", "desc": "Paletes e liquidação no OLX"},
-]
 
 def _em_cache_valido(chave: str) -> bool:
     at = _cache[chave].get("atualizado_em")
@@ -58,7 +46,7 @@ async def _fetch_pncp(data_ini: str, data_fim: str, tam: int, pagina: int, q: st
     if q:
         params["q"] = q
     if modalidade_id:
-        params["modalidadeId"] = modalidade_id
+        params["codigoModalidadeContratacao"] = modalidade_id
     try:
         async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "NexusVarejo/2.0"}) as c:
             r = await c.get(f"{PNCP_BASE}/contratacoes/publicacao", params=params)
@@ -97,18 +85,33 @@ async def _atualizar_leiloes():
         d_ini   = (hoje - timedelta(days=90)).strftime("%Y%m%d")
         d_fim   = (hoje + timedelta(days=60)).strftime("%Y%m%d")
 
-        # Tenta modalidade 1 (Leilão) — se der erro tenta sem filtro de modalidade
-        data = await _fetch_pncp(d_ini, d_fim, 50, 1, q="leilão", modalidade_id=1)
-        if not data.get("data"):
-            data = await _fetch_pncp(d_ini, d_fim, 50, 1, q="leilão")
+        # PNCP tem dois códigos de modalidade pra leilão: 1 = Eletrônico,
+        # 13 = Presencial — busca os dois e junta, evitando duplicata pelo
+        # número de controle. Só cai pra busca livre por palavra-chave se
+        # nenhum dos dois trouxer nada (situação rara, mas evita ficar sem
+        # resultado quando um dos dois códigos falha isoladamente).
+        eletronico  = await _fetch_pncp(d_ini, d_fim, 50, 1, modalidade_id=1)
+        presencial  = await _fetch_pncp(d_ini, d_fim, 50, 1, modalidade_id=13)
+        itens_raw = (eletronico.get("data") or []) + (presencial.get("data") or [])
+        total = (eletronico.get("totalRegistros") or 0) + (presencial.get("totalRegistros") or 0)
 
-        itens_raw = data.get("data") or []
-        itens = [_parse_item_pncp(i, "leilao") for i in itens_raw]
+        if not itens_raw:
+            data = await _fetch_pncp(d_ini, d_fim, 50, 1, q="leilão")
+            itens_raw = data.get("data") or []
+            total = data.get("totalRegistros", len(itens_raw))
+
+        vistos = set()
+        itens = []
+        for i in itens_raw:
+            item = _parse_item_pncp(i, "leilao")
+            if item["id"] in vistos:
+                continue
+            vistos.add(item["id"])
+            itens.append(item)
 
         _cache["leiloes"] = {
             "itens": itens,
-            "plataformas": PLATAFORMAS_LEILAO,
-            "total": data.get("totalRegistros", len(itens)),
+            "total": total,
             "atualizado_em": datetime.now(),
         }
     except Exception as e:
@@ -294,7 +297,6 @@ def get_leiloes(
     return {
         "ok": True,
         "itens": itens,
-        "plataformas": _cache["leiloes"].get("plataformas", PLATAFORMAS_LEILAO),
         "total": len(itens),
         "atualizado_em": at.strftime("%d/%m/%Y %H:%M") if at else None,
         "atualizando": _atualizando["leiloes"],

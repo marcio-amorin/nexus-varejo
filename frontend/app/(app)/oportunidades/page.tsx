@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Search, RefreshCw, ExternalLink, TrendingDown, Building2, ShoppingTag, Clock, Tag, MapPin, AlertCircle, Gavel, Percent } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, TrendingDown, Building2, ShoppingBag, Clock, Tag, MapPin, AlertCircle, Gavel, Percent } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -256,7 +256,7 @@ export default function Oportunidades() {
             </div>
             {ofertas.itens.length === 0 && !isAtu ? (
               <div className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
-                <ShoppingTag size={32} className="mx-auto mb-2 opacity-30" />
+                <ShoppingBag size={32} className="mx-auto mb-2 opacity-30" />
                 <p className="text-sm">Aguardando dados do Mercado Livre...</p>
                 <button onClick={() => forcarAtualizacao('ofertas')} className="mt-3 px-4 py-2 rounded-lg text-xs font-bold text-white" style={{ background: '#10b981' }}>
                   Buscar Agora

@@ -11,7 +11,7 @@ import {
   Monitor, History, Pencil, CalendarClock, Megaphone, Scale,
   Building2, ReceiptText, Calendar, Wallet, ArrowLeftRight, Receipt,
   CreditCard, Heart, BarChart, Send, FileOutput, Printer, ShoppingBasket, Zap,
-  Target, Link2, BookOpen, Image, DollarSign,
+  Target, Link2, BookOpen, Image, DollarSign, Radar,
 } from 'lucide-react'
 
 // Tipo de item de navegação (suporta sub-itens)
@@ -103,6 +103,9 @@ const NAV: NavItem[] = [
   { href: '/configuracoes/impressoras',         icon: Printer,     label: 'Impressoras',            group: 'configuracoes' },
   { href: '/configuracoes/contas-correntes',    icon: Building2,   label: 'Contas Correntes',       group: 'configuracoes' },
   { href: '/configuracoes/apis',                icon: Zap,         label: 'APIs de Produtos (EAN)', group: 'configuracoes' },
+
+  // ── RADAR DE OPORTUNIDADES ────────────────────────────────────────────────
+  { href: '/oportunidades',  icon: Radar,  label: '🎯 Radar de Oportunidades',  group: 'oportunidades' },
 ]
 
 const GROUPS = [
@@ -116,7 +119,8 @@ const GROUPS = [
   { key: 'cadastros',     label: 'CADASTROS'     },
   { key: 'financeiro',    label: 'FINANCEIRO'    },
   { key: 'relatorios',    label: 'GESTÃO / RELATÓRIOS' },
-  { key: 'configuracoes', label: 'CONFIGURAÇÕES' },
+  { key: 'configuracoes',  label: 'CONFIGURAÇÕES'          },
+  { key: 'oportunidades',  label: 'RADAR DE OPORTUNIDADES' },
 ]
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -130,7 +134,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     principal: true, pdv: false, marketplace: false,
     compras: false, notas: false, estoque: false,
     gestao_precos: false, cadastros: false, financeiro: false,
-    relatorios: false, configuracoes: false, corporativos: false,
+    relatorios: false, configuracoes: false, corporativos: false, oportunidades: false,
   })
   // sub-acordeão (ex: PDV)
   const [subOpen, setSubOpen] = useState<Record<string, boolean>>({ pdv: false })

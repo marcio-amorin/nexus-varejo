@@ -158,7 +158,7 @@ _ROUTES = [
     "agenda_compras", "verba_compras", "nf_saida", "trocas", "precos_nf",
     "formas_recebimento", "campanhas_v2", "pedido_venda", "impressoras",
     "contas_correntes", "convenio", "compradores", "apis_externas", "caixa",
-    "afiliados", "vendedor",
+    "afiliados", "vendedor", "oportunidades",
 ]
 
 def _background_init():
@@ -381,6 +381,12 @@ def _background_init():
 @app.on_event("startup")
 async def _startup():
     threading.Thread(target=_background_init, daemon=True).start()
+    # Inicia loop automático do Radar de Oportunidades (a cada 30 min)
+    try:
+        from routes.oportunidades import iniciar_loop_oportunidades
+        iniciar_loop_oportunidades()
+    except Exception as _oe:
+        print(f"[WARN] oportunidades loop: {_oe}", file=sys.stderr)
 
 print("[BOOT] App criado. Aguardando uvicorn vincular porta...", file=sys.stderr)
 sys.stderr.flush()

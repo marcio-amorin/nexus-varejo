@@ -2625,6 +2625,206 @@ def projecao_financeira(db: Session = Depends(get_db), _=Depends(get_current_use
         "por_plataforma": [{"plataforma": p, "total": round(v, 2)} for p, v in por_plat],
     }
 
+# ─── TikTok Shop OAuth2 & API ────────────────────────────────────────────────
+
+import hmac as _hmac, hashlib as _hashlib, time as _time_module
+
+TIKTOK_SHOP_AUTH_URL  = "https://services.tiktokshop.com/open/authorize"
+TIKTOK_SHOP_TOKEN_URL = "https://auth.tiktok-shops.com/api/v2/token/get"
+TIKTOK_SHOP_API_BASE  = "https://open-api.tiktokglobalshop.com"
+TIKTOK_SHOP_REDIRECT  = os.getenv(
+    "TIKTOK_SHOP_REDIRECT_URI",
+    "https://varejo.nexusgestaovarejo.com.br/afiliados/tiktok-callback"
+)
+
+def _tiktok_sign(app_secret: str, path: str, params: dict) -> str:
+    """HMAC-SHA256 conforme TikTok Shop Open API v2"""
+    ts = str(params.get("timestamp", ""))
+    sorted_items = sorted(
+        (k, str(v)) for k, v in params.items()
+        if k not in ("sign", "access_token")
+    )
+    param_str = "".join(f"{k}{v}" for k, v in sorted_items)
+    base_str  = f"{app_secret}{path}{param_str}{ts}"
+    return _hmac.new(app_secret.encode(), base_str.encode(), _hashlib.sha256).hexdigest()
+
+@router.get("/tiktok-shop-auth-url")
+def tiktok_shop_auth_url(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="TIKTOK_SHOP").first()
+    if not cfg or not cfg.client_id:
+        raise HTTPException(400, "Configure o App ID do TikTok Shop em Configurações primeiro")
+    url = (
+        f"{TIKTOK_SHOP_AUTH_URL}"
+        f"?app_key={urllib.parse.quote(cfg.client_id)}"
+        f"&state=tiktok_shop"
+    )
+    return {"url": url}
+
+@router.get("/tiktok-callback")
+async def tiktok_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: Session = Depends(get_db)
+):
+    if error or not code:
+        return HTMLResponse(_html_resultado(False, f"Autorização negada: {error or 'código não recebido'}"))
+
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="TIKTOK_SHOP").first()
+    if not cfg or not cfg.client_id or not cfg.client_secret:
+        return HTMLResponse(_html_resultado(False, "App ID e Secret não configurados. Configure primeiro em Afiliados → Config."))
+
+    try:
+        ts = int(_time_module.time())
+        params = {
+            "app_key":    cfg.client_id,
+            "auth_code":  code,
+            "grant_type": "authorized_code",
+            "timestamp":  ts,
+        }
+        params["sign"] = _tiktok_sign(cfg.client_secret, "/api/v2/token/get", params)
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(TIKTOK_SHOP_TOKEN_URL, params=params)
+        data = r.json()
+
+        if data.get("code") != 0:
+            return HTMLResponse(_html_resultado(False, f"Erro TikTok: {data.get('message', str(data))}"))
+
+        token_data = data.get("data", {})
+        cfg.access_token  = token_data.get("access_token", "")
+        cfg.refresh_token = token_data.get("refresh_token", "")
+        cfg.ativo = True
+        try:
+            extra = json.loads(cfg.extra_json or "{}")
+        except Exception:
+            extra = {}
+        extra["seller_id"] = token_data.get("seller_id", "")
+        extra["open_id"]   = token_data.get("open_id", "")
+        cfg.extra_json = json.dumps(extra)
+        db.commit()
+
+        frontend_url = os.getenv("FRONTEND_URL", "https://app.varejo.nexusgestaovarejo.com.br")
+        return RedirectResponse(
+            url=f"{frontend_url}/marketplace/afiliados/config?tiktok_ok=1",
+            status_code=302
+        )
+    except Exception as e:
+        return HTMLResponse(_html_resultado(False, str(e)))
+
+@router.post("/tiktok-shop-refresh-token")
+async def tiktok_shop_refresh_token(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="TIKTOK_SHOP").first()
+    if not cfg or not cfg.refresh_token:
+        raise HTTPException(400, "Sem refresh token. Reconecte o TikTok Shop.")
+    ts = int(_time_module.time())
+    params = {
+        "app_key":      cfg.client_id,
+        "refresh_token": cfg.refresh_token,
+        "grant_type":   "refresh_token",
+        "timestamp":    ts,
+    }
+    params["sign"] = _tiktok_sign(cfg.client_secret, "/api/v2/token/refresh", params)
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                "https://auth.tiktok-shops.com/api/v2/token/refresh",
+                params=params
+            )
+        data = r.json()
+        if data.get("code") != 0:
+            raise HTTPException(400, data.get("message", "Erro ao renovar token"))
+        td = data.get("data", {})
+        cfg.access_token  = td.get("access_token", cfg.access_token)
+        cfg.refresh_token = td.get("refresh_token", cfg.refresh_token)
+        db.commit()
+        return {"ok": True, "msg": "Token TikTok Shop renovado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@router.post("/tiktok-shop-sync-comissoes")
+async def tiktok_shop_sync_comissoes(
+    dias: int = 30,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user)
+):
+    """Sincroniza comissões do TikTok Shop (últimos N dias)"""
+    cfg = db.query(AfiliadoConfig).filter_by(plataforma="TIKTOK_SHOP", ativo=True).first()
+    if not cfg or not cfg.access_token:
+        raise HTTPException(400, "Configure e conecte o TikTok Shop primeiro")
+
+    from datetime import timedelta
+    today    = date.today()
+    start_dt = today - timedelta(days=dias)
+    path     = "/order/202309/orders"
+    ts       = int(_time_module.time())
+
+    params = {
+        "app_key":         cfg.client_id,
+        "access_token":    cfg.access_token,
+        "timestamp":       ts,
+        "create_time_ge":  int(datetime.combine(start_dt, datetime.min.time()).timestamp()),
+        "create_time_lt":  int(datetime.combine(today, datetime.max.time()).timestamp()),
+        "page_size":       100,
+        "order_status":    "COMPLETED",
+    }
+    sign_params = {k: v for k, v in params.items() if k != "access_token"}
+    params["sign"] = _tiktok_sign(cfg.client_secret, path, sign_params)
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(f"{TIKTOK_SHOP_API_BASE}{path}", params=params)
+        data = r.json()
+
+        if data.get("code") != 0:
+            raise HTTPException(400, f"TikTok API: {data.get('message', str(data))}")
+
+        orders  = (data.get("data") or {}).get("orders") or []
+        criadas = 0
+        for order in orders:
+            ref = order.get("id") or order.get("order_id", "")
+            if not ref:
+                continue
+            existe = db.query(AfiliadoComissao).filter_by(
+                referencia_ext=ref, plataforma="TIKTOK_SHOP"
+            ).first()
+            if existe:
+                continue
+
+            items       = order.get("line_items") or [{}]
+            titulo_prod = (items[0].get("product_name") or "TikTok Shop")[:200]
+            valor_venda = float(order.get("payment_info", {}).get("total_amount", 0))
+            com_valor   = float(order.get("affiliate_commission_amount", 0))
+            com_pct     = round(com_valor / valor_venda * 100, 2) if valor_venda else 0
+
+            status_map  = {"COMPLETED": "APROVADO", "CANCELLED": "CANCELADO"}
+            status_ext  = (order.get("status") or "COMPLETED").upper()
+            status      = status_map.get(status_ext, "PENDENTE")
+
+            create_ts  = order.get("create_time", _time_module.time())
+            data_venda = date.fromtimestamp(create_ts)
+
+            db.add(AfiliadoComissao(
+                plataforma="TIKTOK_SHOP",
+                titulo_produto=titulo_prod,
+                data_venda=data_venda,
+                valor_venda=valor_venda,
+                comissao_pct=com_pct,
+                comissao_valor=com_valor,
+                status=status,
+                referencia_ext=str(ref),
+            ))
+            criadas += 1
+
+        db.commit()
+        return {"ok": True, "sincronizadas": criadas, "total_api": len(orders)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _prod_dict(p: AfiliadoProduto) -> dict:

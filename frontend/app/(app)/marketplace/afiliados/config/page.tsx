@@ -88,21 +88,31 @@ export default function ConfigAfiliados() {
   const [sel, setSel]           = useState<string|null>(null)
   const [form, setForm]         = useState<Record<string,string>>({})
   const [ativo, setAtivo]       = useState(false)
-  const [salvando, setSalvando] = useState(false)
-  const [ok, setOk]             = useState(false)
-  const [showPass, setShowPass] = useState<Record<string,boolean>>({})
-  const [iaStatus, setIaStatus] = useState<any>(null)
-  const [iaKey, setIaKey]       = useState('')
-  const [iaPlat, setIaPlat]     = useState<'GROQ_API'|'CLAUDE_API'>('GROQ_API')
-  const [salvandoIA, setSalvIA] = useState(false)
-  const [showIA, setShowIA]     = useState(false)
+  const [salvando, setSalvando]   = useState(false)
+  const [ok, setOk]               = useState(false)
+  const [okMsg, setOkMsg]         = useState('')
+  const [showPass, setShowPass]   = useState<Record<string,boolean>>({})
+  const [iaStatus, setIaStatus]   = useState<any>(null)
+  const [iaKey, setIaKey]         = useState('')
+  const [iaPlat, setIaPlat]       = useState<'GROQ_API'|'CLAUDE_API'>('GROQ_API')
+  const [salvandoIA, setSalvIA]   = useState(false)
+  const [showIA, setShowIA]       = useState(false)
+  const [sincTiktok, setSincTiktok] = useState(false)
 
   useEffect(() => {
     carregar(); carregarIA()
-    if (typeof window !== 'undefined' && window.location.search.includes('ml_ok=1')) {
-      setOk(true); setSel('ML_AFILIADOS'); setAtivo(true)
-      setTimeout(() => setOk(false), 5000)
-      window.history.replaceState({}, '', window.location.pathname)
+    if (typeof window !== 'undefined') {
+      const q = window.location.search
+      if (q.includes('ml_ok=1')) {
+        setOk(true); setOkMsg('Mercado Livre conectado!'); setSel('ML_AFILIADOS'); setAtivo(true)
+        setTimeout(() => setOk(false), 5000)
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+      if (q.includes('tiktok_ok=1')) {
+        setOk(true); setOkMsg('TikTok Shop conectado!'); setSel('TIKTOK_SHOP'); setAtivo(true)
+        setTimeout(() => setOk(false), 5000)
+        window.history.replaceState({}, '', window.location.pathname)
+      }
     }
   }, [])
 
@@ -167,8 +177,35 @@ export default function ConfigAfiliados() {
     const r = await fetch(`${API}/afiliados/ml-refresh-token`, { method:'POST', headers:hdr() })
     const d = await r.json()
     setSalvando(false)
-    if (d.ok) { setOk(true); carregar(); setTimeout(()=>setOk(false),3000) }
+    if (d.ok) { setOk(true); setOkMsg('Token renovado!'); carregar(); setTimeout(()=>setOk(false),3000) }
     else alert(d.detail||'Erro ao renovar token')
+  }
+
+  async function conectarTiktokShop() {
+    if (form.client_id || form.client_secret) {
+      const body: any = { plataforma:'TIKTOK_SHOP', ativo:true }
+      if (form.client_id)    body.client_id     = form.client_id
+      if (form.client_secret)body.client_secret = form.client_secret
+      await fetch(`${API}/afiliados/configs`, { method:'POST', headers:hdr(), body:JSON.stringify(body) })
+    }
+    const r = await fetch(`${API}/afiliados/tiktok-shop-auth-url`, { headers:hdr() })
+    const d = await r.json()
+    if (d.url) window.open(d.url, '_blank', 'width=600,height=700')
+    else alert(d.detail || 'Salve o App ID antes de conectar.')
+  }
+
+  async function sincronizarTiktok() {
+    setSincTiktok(true)
+    try {
+      const r = await fetch(`${API}/afiliados/tiktok-shop-sync-comissoes?dias=30`, { method:'POST', headers:hdr() })
+      const d = await r.json()
+      if (d.ok) {
+        setOk(true)
+        setOkMsg(`TikTok Shop: ${d.sincronizadas} comissão(ões) importada(s)`)
+        setTimeout(()=>setOk(false), 4000)
+      } else alert(d.detail || 'Erro ao sincronizar')
+    } catch { alert('Erro ao conectar') }
+    setSincTiktok(false)
   }
 
   const cfgSel    = configs.find(c => c.plataforma === sel)
@@ -376,7 +413,7 @@ export default function ConfigAfiliados() {
                 {ok && (
                   <div className="flex items-center gap-1.5 p-2 rounded-lg text-[10px] font-bold"
                     style={{ background:'rgba(34,197,94,0.12)', border:'1px solid rgba(34,197,94,0.3)', color:'#22c55e' }}>
-                    <CheckCircle size={11}/> Salvo com sucesso!
+                    <CheckCircle size={11}/> {okMsg || 'Salvo com sucesso!'}
                   </div>
                 )}
               </div>
@@ -418,6 +455,26 @@ export default function ConfigAfiliados() {
                           className="w-full py-1.5 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1"
                           style={{ background:'rgba(34,197,94,0.1)', border:'1px solid rgba(34,197,94,0.3)', color:'#22c55e' }}>
                           <RefreshCw size={10}/> Renovar Token
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {sel==='TIKTOK_SHOP' && (
+                    <>
+                      <button onClick={conectarTiktokShop}
+                        className="w-full py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5"
+                        style={{ background:'linear-gradient(135deg,#010101,#ff0050)', color:'#fff', border:'2px solid #ff0050' }}>
+                        <Link2 size={12}/> 🎵 Conectar TikTok Shop OAuth2
+                      </button>
+                      {cfgSel?.configurado && (
+                        <button onClick={sincronizarTiktok} disabled={sincTiktok}
+                          className="w-full py-1.5 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1"
+                          style={{ background:'rgba(255,0,80,0.1)', border:'1px solid rgba(255,0,80,0.3)', color:'#ff0050' }}>
+                          {sincTiktok
+                            ? <><RefreshCw size={10} className="animate-spin"/> Sincronizando...</>
+                            : <><RefreshCw size={10}/> Sincronizar Comissões (30 dias)</>
+                          }
                         </button>
                       )}
                     </>

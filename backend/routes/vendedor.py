@@ -130,6 +130,38 @@ async def _search_catalog_product(titulo: str, token: str) -> str:
         pass
     return ""
 
+async def _get_catalog_category(catalog_id: str, token: str) -> str:
+    """Retorna o category_id do produto no catálogo ML — garante que payload e catalog coincidem."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                f"https://api.mercadolibre.com/products/{catalog_id}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                return r.json().get("category_id", "")
+    except Exception:
+        pass
+    return ""
+
+async def _get_size_grid_for_category(cat_id: str, token: str) -> str:
+    """Busca o primeiro SIZE_GRID_ID aceito pela categoria (para calçados/moda sem catalog)."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                f"https://api.mercadolibre.com/categories/{cat_id}/attributes",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                for attr in r.json():
+                    if attr.get("id") == "SIZE_GRID_ID":
+                        values = attr.get("values") or []
+                        if values:
+                            return str(values[0].get("id", ""))
+    except Exception:
+        pass
+    return ""
+
 async def _get_catalog_attrs(catalog_id: str, token: str) -> tuple[str, list]:
     """Busca SIZE_GRID_ID e tamanhos via /products/ e /items/ do ML."""
     size_grid_id = ""
@@ -184,7 +216,7 @@ _CAT_ML: dict = {
     "Games":           "MLB1144",   # Video Games
     "Eletrodomésticos":"MLB1574",   # Eletrodomésticos
     "Áudio":           "MLB109285", # Fones de Ouvido e Headphones
-    "Calçados":        "MLB108562", # Tênis
+    "Calçados":        "MLB23332",  # Tênis (requer SIZE_GRID_ID — publicar via ML manual)
     "Roupas":          "MLB1248",   # Camisetas e Polos
     "Smartwatches":    "MLB7195",   # Smartwatches
     "Beleza":          "MLB1246",   # Beleza e Cuidado Pessoal
@@ -319,18 +351,19 @@ async def _buscar_gtin_automatico(catalog_product_id: str, produto_ext_id: str, 
 
 def _detectar_cat(titulo: str) -> str:
     t = titulo.lower()
-    if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|redmi', t): return 'Celulares'
+    # Áudio ANTES de Celulares — "Redmi Buds" tem "redmi" e "buds"; Áudio deve ganhar
+    if re.search(r'\bbuds?\b|earbuds?|fone|headphone|earphone|caixa de som|speaker|soundbar', t): return 'Áudio'
+    if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|\bredmi\b|\bpoco\b', t): return 'Celulares'
     if re.search(r'smart tv|televisão|\btv\b|qled|oled|4k|android tv|roku', t): return 'TV & Vídeo'
-    if re.search(r'notebook|laptop|computador|monitor|\btablet\b|ipad|impressora', t): return 'Informática'
+    if re.search(r'notebook|laptop|computador|monitor|\btablet\b|ipad|impressora|carregador|cabo usb|power bank|adaptador|hub usb|pen drive|pen-drive|\bssd\b|hd externo', t): return 'Informática'
     if re.search(r'playstation|xbox|nintendo|ps5|ps4|switch|joystick|gamer|gift card', t): return 'Games'
-    if re.search(r'air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador', t): return 'Eletrodomésticos'
-    if re.search(r'fone|headphone|earphone|caixa de som|speaker|soundbar', t): return 'Áudio'
+    if re.search(r'air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador|luminária|ventilador|climatizador|aquecedor|ferro de passar|purificador', t): return 'Eletrodomésticos'
     if re.search(r'tênis|sapato|bota|sandália|chinelo|sapatênis', t): return 'Calçados'
     if re.search(r'camiseta|camisa|blusa|vestido|calça|jaqueta|moletom|shorts|saia|legging', t): return 'Roupas'
     if re.search(r'smartwatch|watch|relógio', t): return 'Smartwatches'
-    if re.search(r'perfume|desodorante|shampoo|condicionador|hidratante|creme|maquiagem|skincare', t): return 'Beleza'
+    if re.search(r'aparador|barbeador|depilador|epilador|prancha|chapinha|escova secadora|massageador|perfume|desodorante|shampoo|condicionador|hidratante|creme|maquiagem|skincare', t): return 'Beleza'
     if re.search(r'bolsa|mochila|carteira|colar|brinco|anel|óculos|cinto', t): return 'Acessórios'
-    if re.search(r'bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação', t): return 'Esporte'
+    if re.search(r'suplemento|whey|creatina|proteína|proteina|\bbcaa\b|pré.treino|pre.treino|colágeno|colageno|vitamina[^s]|ômega|omega.3|bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação', t): return 'Esporte'
     if re.search(r'câmera|camera|drone|gopro|ring light|tripé', t): return 'Foto & Vídeo'
     return 'Outros'
 
@@ -444,11 +477,17 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         brand, model = _extrair_brand_model(produto.titulo)
         cor = _detectar_cor(produto.titulo)
 
-        # Para categorias regulamentadas (Anatel, grade de tamanhos), usa catalog_product_id
-        # que já tem todos os atributos preenchidos no catálogo do ML
+        # Celulares: catalog para Anatel (obrigatório).
+        # Calçados: NÃO busca catalog automaticamente — ML retorna produtos errados e SIZE_GRID_ID
+        # não é descobrível via API pública; publica via link afiliado + aviso manual.
         catalog_product_id = _extract_catalog_id(produto.url_produto or "")
-        if not catalog_product_id and categoria in ("Celulares", "Calçados", "Roupas", "Acessórios"):
+        if not catalog_product_id and categoria == "Celulares":
             catalog_product_id = await _search_catalog_product(produto.titulo, cfg_vendedor.access_token)
+        # Quando há catalog_product_id, usa a categoria que o ML associou a ele
+        if catalog_product_id:
+            _cat_from_catalog = await _get_catalog_category(catalog_product_id, cfg_vendedor.access_token)
+            if _cat_from_catalog:
+                cat_id = _cat_from_catalog
 
         _SHIPPING = {"mode": "me2", "local_pick_up": False, "free_shipping": False}
 
@@ -624,14 +663,72 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                                 else:
                                     resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ GTIN {gtin_val} não aceito: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:200]})
                     else:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) e não achamos um automático — cadastre manualmente e publique de novo → link afiliado gerado.", "precisa_gtin": True})
+                        # GTIN não encontrado — tenta sem catalog_product_id + gold_special
+                        # (sem catálogo o ML normalmente não exige GTIN para anúncios avulsos)
+                        _p_ng = {
+                            "title": produto.titulo[:60], "category_id": cat_id,
+                            "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                            "buying_mode": "buy_it_now", "listing_type_id": "gold_special", "condition": "new",
+                            "shipping": _SHIPPING,
+                            "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                            "attributes": [
+                                {"id": "BRAND", "value_name": brand},
+                                {"id": "MODEL", "value_name": model},
+                                {"id": "COLOR", "value_name": cor},
+                            ],
+                        }
+                        r = await _publicar_ml(_p_ng)
+                        ml_ok = r.status_code in (200, 201)
+                        if not ml_ok:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige código de barras (GTIN) e não achamos um automático — cadastre manualmente e publique de novo → link afiliado gerado.", "precisa_gtin": True})
                 elif "item.buying_mode.invalid" in err_txt or "only supports listing modes" in err_txt:
-                    # Categoria só aceita anúncio clássico ("classified"), não "compre já" —
-                    # é um formato de anúncio incompatível com o payload atual (sem publicação
-                    # automática); só cadastro manual no site do ML resolve isso.
-                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria só aceita anúncio clássico no Mercado Livre (fora do que publicamos automático) → link afiliado gerado."})
+                    # domain_discovery devolveu categoria de classificados (serviços/veículos/etc.)
+                    # — tenta com a categoria fixa do dicionário + free e gold_special como fallback
+                    fallback_cat_bm = _CAT_ML.get(categoria, "MLB1459")
+                    attrs_bm = list(payload.get("attributes") or [
+                        {"id": "BRAND", "value_name": brand},
+                        {"id": "MODEL", "value_name": model},
+                        {"id": "COLOR", "value_name": cor},
+                    ])
+                    for _lt_bm in ("free", "gold_special"):
+                        _p_bm = {**payload, "category_id": fallback_cat_bm, "listing_type_id": _lt_bm, "attributes": attrs_bm}
+                        r = await _publicar_ml(_p_bm)
+                        ml_ok = r.status_code in (200, 201)
+                        if ml_ok:
+                            break
+                        if "item.listing_type_id.unavailable" not in r.text:
+                            break
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria só aceita anúncio clássico no Mercado Livre (fora do que publicamos automático) → link afiliado gerado."})
                 elif "item.listing_type_id.unavailable" in err_txt:
-                    resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Cota de anúncio grátis esgotada para essa categoria na sua conta ML → link afiliado gerado.", "detalhe": err_txt[:300]})
+                    # Categoria não aceita 'free' → tenta gold_special (ML cobra comissão na venda)
+                    p2 = {**payload, "listing_type_id": "gold_special"}
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        err_gs = r.text
+                        if "missing_required" in err_gs or "missing_catalog_required" in err_gs:
+                            # gold_special precisa de atributos extras → resolve automaticamente
+                            preenchidos_gs, nao_gs = await _resolver_atributos_faltantes(
+                                cat_id, err_gs, produto.titulo, cfg_vendedor.access_token
+                            )
+                            attrs_gs = list(p2.get("attributes") or [
+                                {"id": "BRAND", "value_name": brand},
+                                {"id": "MODEL", "value_name": model},
+                                {"id": "COLOR", "value_name": cor},
+                            ])
+                            ids_gs = {a["id"] for a in attrs_gs}
+                            for a in preenchidos_gs:
+                                if a["id"] not in ids_gs:
+                                    attrs_gs.append(a)
+                            p3 = {**p2, "attributes": attrs_gs}
+                            r = await _publicar_ml(p3)
+                            ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                motivo = f"Faltam atributos: {', '.join(nao_gs)}" if nao_gs else "ver detalhe"
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ gold_special falhou ({motivo}) → link afiliado gerado.", "detalhe": r.text[:400]})
+                        else:
+                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige anúncio pago (gold_special) mas também falhou → link afiliado gerado.", "detalhe": err_gs[:400]})
                 elif "shipping.lost_me" in err_txt or "4053" in err_txt:
                     # Catalog força ME1 → retry sem catalog_product_id + me2
                     if categoria == "Celulares":
@@ -715,7 +812,11 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                         elif "temporarily_unavailable" in err2:
                             resultado["passos"].append({"passo": "ML Vendedor", "status": "⏳ Mercado Livre limitou criação de anúncios grátis temporariamente. Aguarde alguns minutos → link afiliado gerado.", "throttle": True})
                         elif "item.listing_type_id.unavailable" in err2:
-                            resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Cota de anúncio grátis esgotada para essa categoria na sua conta ML → link afiliado gerado.", "detalhe": err2[:300]})
+                            p3 = {**p2, "listing_type_id": "gold_special"}
+                            r = await _publicar_ml(p3)
+                            ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige gold_special mas também falhou → link afiliado gerado.", "detalhe": r.text[:400]})
                         elif "missing_catalog_required" in err2 or "missing_required" in err2:
                             _, nao_resolvidos_ship = await _resolver_atributos_faltantes(cat_id, err2, produto.titulo, cfg_vendedor.access_token)
                             if nao_resolvidos_ship:
@@ -822,15 +923,80 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                             if not ml_ok:
                                 resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Tamanhos {', '.join(data.tamanhos)} não aceitos: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:250]})
                     else:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Categoria exige grade de tamanhos → escolha os tamanhos e publique de novo.", "precisa_tamanhos": True})
+                        # Sem tamanhos na requisição → tenta buscar SIZE_GRID_ID automaticamente
+                        grid_id = await _get_size_grid_for_category(cat_id, cfg_vendedor.access_token)
+                        if grid_id:
+                            p2 = {
+                                "title": produto.titulo[:60], "category_id": cat_id,
+                                "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                                "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                                "shipping": _SHIPPING,
+                                "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                                "attributes": [
+                                    {"id": "BRAND", "value_name": brand},
+                                    {"id": "MODEL", "value_name": model},
+                                    {"id": "COLOR", "value_name": cor},
+                                    {"id": "SIZE_GRID_ID", "value_id": grid_id},
+                                    {"id": "SIZE", "value_name": "Único"},
+                                ],
+                            }
+                            r = await _publicar_ml(p2)
+                            ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ Publicação com grade automática falhou: API {r.status_code} → link afiliado gerado.", "detalhe": r.text[:300]})
+                        else:
+                            # Plano B: categoria MLB9874 (Esporte/Tênis) aceita calçados
+                            # sem SIZE_GRID_ID usando gold_special + frete grátis + foto
+                            _ship_b = {"mode": "me2", "local_pick_up": False, "free_shipping": True}
+                            pb = {
+                                "title": produto.titulo[:60], "category_id": "MLB9874",
+                                "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                                "buying_mode": "buy_it_now", "listing_type_id": "gold_special",
+                                "condition": "new", "shipping": _ship_b,
+                                "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                                "attributes": [
+                                    {"id": "BRAND", "value_name": brand},
+                                    {"id": "MODEL", "value_name": model},
+                                    {"id": "COLOR", "value_name": cor},
+                                ],
+                            }
+                            r = await _publicar_ml(pb)
+                            ml_ok = r.status_code in (200, 201)
+                            if not ml_ok:
+                                resultado["passos"].append({
+                                    "passo": "ML Vendedor",
+                                    "status": "⚠️ Calçados exigem grade de tamanhos (SIZE_GRID_ID). Publique manualmente em mercadolibre.com.br → link afiliado gerado.",
+                                    "precisa_tamanhos": True
+                                })
                 elif "ANATEL" in err_txt:
                     resultado["passos"].append({"passo": "ML Vendedor", "status": "⚠️ Celular requer N° Anatel → link afiliado gerado."})
+                elif "body.required_fields" in err_txt or "cause_id\":369" in err_txt or "\"369\"" in err_txt:
+                    # Categoria ou campo obrigatório faltando — retry com categoria fixa do dicionário,
+                    # sem catalog_product_id, sem variações, só atributos básicos.
+                    fallback_cat = _CAT_ML.get(categoria, "MLB1459")
+                    attrs_fb = [
+                        {"id": "BRAND", "value_name": brand},
+                        {"id": "MODEL", "value_name": model},
+                        {"id": "COLOR", "value_name": cor},
+                    ]
+                    p2 = {
+                        "title": produto.titulo[:60], "category_id": fallback_cat,
+                        "price": preco_venda, "currency_id": "BRL", "available_quantity": 1,
+                        "buying_mode": "buy_it_now", "listing_type_id": "free", "condition": "new",
+                        "shipping": _SHIPPING,
+                        "pictures": [{"source": produto.imagem_url}] if produto.imagem_url else [],
+                        "attributes": attrs_fb,
+                    }
+                    r = await _publicar_ml(p2)
+                    ml_ok = r.status_code in (200, 201)
+                    if not ml_ok:
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API {r.status_code}", "detalhe": r.text[:500]})
                 elif "item.category_id.invalid" in err_txt or "leaf category" in err_txt:
                     p2 = {k: v for k, v in payload.items() if k != "category_id"}
                     r = await _publicar_ml(p2)
                     ml_ok = r.status_code in (200, 201)
                     if not ml_ok:
-                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
+                        resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:400]})
                 elif "missing_required" in err_txt:
                     retry_attrs3 = [
                         {"id": "BRAND", "value_name": brand},
@@ -856,8 +1022,8 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
                             resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": r.text[:200]})
                 else:
                     try: err_detail = r.json()
-                    except: err_detail = r.text[:300]
-                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": str(err_detail)[:300]})
+                    except: err_detail = r.text[:600]
+                    resultado["passos"].append({"passo": "ML Vendedor", "status": f"⚠️ API retornou {r.status_code}", "detalhe": str(err_detail)[:600]})
 
             if ml_ok:
                 rd = r.json()
@@ -943,6 +1109,44 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
     resultado["link_afiliado"] = link_afiliado
     resultado["ml_url"] = ml_url
     return resultado
+
+@router.post("/publicar-todos")
+async def publicar_todos(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Publica todos os produtos do catálogo que ainda não têm listing_id no ML."""
+    cfg_vendedor = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
+    if not cfg_vendedor or not cfg_vendedor.access_token:
+        return {"ok": False, "msg": "Conta ML Vendedor não configurada"}
+
+    todos = db.query(AfiliadoProduto).all()
+    publicados, falhou, pulados = [], [], []
+
+    for produto in todos:
+        anuncio = db.query(VendedorAnuncio).filter_by(
+            produto_afiliado_id=produto.id, plataforma="ML_VENDEDOR"
+        ).first()
+        if anuncio and anuncio.listing_id:
+            pulados.append(produto.titulo[:50])
+            continue
+        try:
+            data_in = PublicarTudoIn(produto_id=produto.id, publicar_redes=False, modo_afiliado=False)
+            resultado = await publicar_tudo(data=data_in, db=db, _=user)
+            ml_step = next((p for p in resultado.get("passos", []) if p.get("passo") == "ML Vendedor"), {})
+            if ml_step.get("listing_id"):
+                publicados.append({"titulo": produto.titulo[:50], "listing_id": ml_step["listing_id"], "url": ml_step.get("url", "")})
+            else:
+                falhou.append({"titulo": produto.titulo[:50], "erro": ml_step.get("status", "Erro desconhecido")[:120]})
+        except Exception as e:
+            falhou.append({"titulo": produto.titulo[:50], "erro": str(e)[:120]})
+
+    return {
+        "ok": True,
+        "publicados": len(publicados),
+        "falhou": len(falhou),
+        "pulados": len(pulados),
+        "detalhes_ok": publicados,
+        "detalhes_erro": falhou,
+    }
+
 
 # ─── Anúncios ─────────────────────────────────────────────────────────────────
 

@@ -4,14 +4,19 @@ Módulo Radar de Oportunidades — atualiza automaticamente a cada 30 minutos.
 Fontes:
   - Leilões: PNCP (modalidade Leilão Eletrônico + Presencial)
   - Licitações: PNCP (Portal Nacional de Compras Públicas)
-  - Ofertas ML: Mercado Livre com alto desconto para revenda
+
+A aba de "Ofertas" (busca de descontos no Mercado Livre pra revenda) foi
+removida — a Meli passou a bloquear com 403 qualquer chamada não autenticada
+ao endpoint de busca geral do marketplace (/sites/MLB/search), e mesmo com
+token de vendedor válido e renovado o bloqueio continua (é restrição de
+política da plataforma pra esse endpoint específico, não um problema de
+token). Sem um caminho oficial de API pra isso, decisão foi tirar a aba em
+vez de deixar meio-funcionando.
 """
 
 from fastapi import APIRouter, Depends, Query, BackgroundTasks
-from sqlalchemy.orm import Session
-from database import get_db
 from utils.security import get_current_user
-import httpx, asyncio, re, json
+import httpx, asyncio
 from datetime import datetime, date, timedelta
 from typing import Optional
 
@@ -21,18 +26,11 @@ router = APIRouter(prefix="/oportunidades", tags=["oportunidades"])
 _cache: dict = {
     "leiloes":    {"itens": [], "atualizado_em": None, "total": 0},
     "licitacoes": {"itens": [], "atualizado_em": None, "total": 0},
-    "ofertas":    {"itens": [], "atualizado_em": None, "total": 0},
 }
-_atualizando = {"leiloes": False, "licitacoes": False, "ofertas": False}
+_atualizando = {"leiloes": False, "licitacoes": False}
 
 PNCP_BASE = "https://pncp.gov.br/api/consulta/v1"
 INTERVALO_MINUTOS = 30
-
-def _em_cache_valido(chave: str) -> bool:
-    at = _cache[chave].get("atualizado_em")
-    if not at:
-        return False
-    return (datetime.now() - at).total_seconds() < INTERVALO_MINUTOS * 60
 
 # ── Busca PNCP ────────────────────────────────────────────────────────────────
 
@@ -146,75 +144,6 @@ async def _atualizar_licitacoes():
         _atualizando["licitacoes"] = False
 
 
-async def _atualizar_ofertas(token: str = ""):
-    if _atualizando["ofertas"]:
-        return
-    _atualizando["ofertas"] = True
-    try:
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-        # Busca em várias categorias de forma paralela
-        BUSCAS = [
-            ("Celulares",       "MLB1055"),
-            ("Informática",     "MLB1648"),
-            ("Eletrodomésticos","MLB1574"),
-            ("Áudio",           "MLB109285"),
-            ("Smartwatches",    "MLB7195"),
-            ("TV & Vídeo",      "MLB432"),
-            ("Games",           "MLB1144"),
-            ("Esporte",         "MLB1276"),
-        ]
-        todos: list = []
-
-        async def _buscar_cat(label: str, cat_id: str):
-            try:
-                async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "NexusVarejo/2.0", **headers}) as c:
-                    r = await c.get(
-                        "https://api.mercadolibre.com/sites/MLB/search",
-                        params={"category": cat_id, "limit": 20, "sort": "best_match",
-                                "discount": "20-100", "condition": "new"},
-                    )
-                if r.status_code != 200:
-                    return
-                for item in r.json().get("results", []):
-                    preco      = float(item.get("price") or 0)
-                    preco_orig = float(item.get("original_price") or preco)
-                    if preco <= 0 or preco_orig <= preco:
-                        continue
-                    desc_pct   = round((1 - preco / preco_orig) * 100, 1)
-                    if desc_pct < 15:
-                        continue
-                    margem_rev = round(preco * 0.15, 2)
-                    todos.append({
-                        "id":              item.get("id", ""),
-                        "titulo":          (item.get("title") or "")[:100],
-                        "categoria":       label,
-                        "preco":           preco,
-                        "preco_original":  preco_orig,
-                        "desconto_pct":    desc_pct,
-                        "margem_estimada": margem_rev,
-                        "imagem":          (item.get("thumbnail") or "").replace("I.jpg", "O.jpg"),
-                        "url":             item.get("permalink", ""),
-                        "vendas":          item.get("sold_quantity", 0),
-                        "frete_gratis":    (item.get("shipping") or {}).get("free_shipping", False),
-                        "condition":       item.get("condition", "new"),
-                    })
-            except Exception:
-                pass
-
-        await asyncio.gather(*[_buscar_cat(l, c) for l, c in BUSCAS])
-        todos.sort(key=lambda x: x["desconto_pct"], reverse=True)
-
-        _cache["ofertas"] = {
-            "itens": todos[:80],
-            "total": len(todos),
-            "atualizado_em": datetime.now(),
-        }
-    except Exception as e:
-        _cache["ofertas"]["erro"] = str(e)
-    finally:
-        _atualizando["ofertas"] = False
-
-
 # ── Loop automático de atualização ────────────────────────────────────────────
 
 async def _loop_atualizacao():
@@ -224,7 +153,6 @@ async def _loop_atualizacao():
             await asyncio.gather(
                 _atualizar_leiloes(),
                 _atualizar_licitacoes(),
-                _atualizar_ofertas(),
             )
         except Exception:
             pass
@@ -252,33 +180,17 @@ def status(_=Depends(get_current_user)):
     return {
         "leiloes":    {"atualizado_em": _fmt(_cache["leiloes"].get("atualizado_em")),    "total": _cache["leiloes"].get("total", 0)},
         "licitacoes": {"atualizado_em": _fmt(_cache["licitacoes"].get("atualizado_em")), "total": _cache["licitacoes"].get("total", 0)},
-        "ofertas":    {"atualizado_em": _fmt(_cache["ofertas"].get("atualizado_em")),    "total": _cache["ofertas"].get("total", 0)},
         "proximo_refresh_min": INTERVALO_MINUTOS,
     }
 
 
 @router.post("/atualizar/{secao}")
-async def forcar_atualizacao(secao: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Força atualização imediata de uma seção (leiloes | licitacoes | ofertas)."""
+async def forcar_atualizacao(secao: str, background_tasks: BackgroundTasks, _=Depends(get_current_user)):
+    """Força atualização imediata de uma seção (leiloes | licitacoes)."""
     if secao == "leiloes":
         background_tasks.add_task(_atualizar_leiloes)
     elif secao == "licitacoes":
         background_tasks.add_task(_atualizar_licitacoes)
-    elif secao == "ofertas":
-        # Pega token ML se disponível
-        token = ""
-        try:
-            from models import AfiliadoConfig, VendedorConfig
-            cfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-            if cfg and cfg.access_token:
-                token = cfg.access_token
-            else:
-                vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR", ativo=True).first()
-                if vcfg and vcfg.access_token:
-                    token = vcfg.access_token
-        except Exception:
-            pass
-        background_tasks.add_task(_atualizar_ofertas, token)
     else:
         return {"ok": False, "msg": f"Seção desconhecida: {secao}"}
     return {"ok": True, "msg": f"Atualizando {secao} em background..."}
@@ -322,29 +234,4 @@ def get_licitacoes(
         "total": len(itens),
         "atualizado_em": at.strftime("%d/%m/%Y %H:%M") if at else None,
         "atualizando": _atualizando["licitacoes"],
-    }
-
-
-@router.get("/ofertas")
-def get_ofertas(
-    categoria: str = Query(""),
-    desconto_min: int = Query(15),
-    q: str = Query(""),
-    _=Depends(get_current_user)
-):
-    itens = _cache["ofertas"].get("itens", [])
-    if categoria:
-        itens = [i for i in itens if i.get("categoria", "") == categoria]
-    if desconto_min > 0:
-        itens = [i for i in itens if i.get("desconto_pct", 0) >= desconto_min]
-    if q:
-        q_low = q.lower()
-        itens = [i for i in itens if q_low in i.get("titulo", "").lower()]
-    at = _cache["ofertas"].get("atualizado_em")
-    return {
-        "ok": True,
-        "itens": itens,
-        "total": len(itens),
-        "atualizado_em": at.strftime("%d/%m/%Y %H:%M") if at else None,
-        "atualizando": _atualizando["ofertas"],
     }

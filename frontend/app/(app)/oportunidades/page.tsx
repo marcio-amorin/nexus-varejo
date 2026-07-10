@@ -1,31 +1,26 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { Search, RefreshCw, ExternalLink, TrendingDown, Building2, ShoppingBag, Clock, Tag, MapPin, AlertCircle, Gavel, Percent } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Building2, Clock, MapPin, Gavel } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
 function hdr() { return { Authorization: `Bearer ${localStorage.getItem('nexus_token')}` } }
-function fmtR(v: any) { return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) }
 
-type Aba = 'leiloes' | 'licitacoes' | 'ofertas'
+type Aba = 'leiloes' | 'licitacoes'
 
 const ABA_INFO = {
   leiloes:    { label: '🔨 Leilões',            cor: '#f59e0b' },
   licitacoes: { label: '🏛️ Licitações Públicas', cor: '#3b82f6' },
-  ofertas:    { label: '🎯 Radar de Ofertas',    cor: '#10b981' },
 }
 
 export default function Oportunidades() {
   const [aba, setAba]           = useState<Aba>('leiloes')
-  const [leiloes, setLeiloes]   = useState<any>({ itens: [], plataformas: [], total: 0, atualizado_em: null, atualizando: false })
+  const [leiloes, setLeiloes]   = useState<any>({ itens: [], total: 0, atualizado_em: null, atualizando: false })
   const [licit, setLicit]       = useState<any>({ itens: [], total: 0, atualizado_em: null, atualizando: false })
-  const [ofertas, setOfertas]   = useState<any>({ itens: [], total: 0, atualizado_em: null, atualizando: false })
   const [loading, setLoading]   = useState(false)
   const [status, setStatus]     = useState<any>(null)
   const [q, setQ]               = useState('')
   const [uf, setUf]             = useState('')
-  const [catOferta, setCatOferta] = useState('')
-  const [descontoMin, setDescMin] = useState(15)
   const [atualizandoSec, setAtuSec] = useState<string | null>(null)
 
   const buscarLeiloes = useCallback(async () => {
@@ -42,13 +37,6 @@ export default function Oportunidades() {
     } catch {}
   }, [q, uf])
 
-  const buscarOfertas = useCallback(async () => {
-    try {
-      const r = await fetch(`${API}/oportunidades/ofertas?q=${encodeURIComponent(q)}&categoria=${encodeURIComponent(catOferta)}&desconto_min=${descontoMin}`, { headers: hdr() })
-      if (r.ok) setOfertas(await r.json())
-    } catch {}
-  }, [q, catOferta, descontoMin])
-
   const buscarStatus = useCallback(async () => {
     try {
       const r = await fetch(`${API}/oportunidades/status`, { headers: hdr() })
@@ -59,10 +47,10 @@ export default function Oportunidades() {
   // Carga inicial e polling de status a cada 2 min
   useEffect(() => {
     setLoading(true)
-    Promise.all([buscarLeiloes(), buscarLicitacoes(), buscarOfertas(), buscarStatus()])
+    Promise.all([buscarLeiloes(), buscarLicitacoes(), buscarStatus()])
       .finally(() => setLoading(false))
     const iv = setInterval(() => {
-      buscarLeiloes(); buscarLicitacoes(); buscarOfertas(); buscarStatus()
+      buscarLeiloes(); buscarLicitacoes(); buscarStatus()
     }, 2 * 60 * 1000)
     return () => clearInterval(iv)
   }, [])
@@ -70,7 +58,6 @@ export default function Oportunidades() {
   // Re-busca ao mudar filtros
   useEffect(() => { if (aba === 'leiloes')    buscarLeiloes() },    [buscarLeiloes, aba])
   useEffect(() => { if (aba === 'licitacoes') buscarLicitacoes() }, [buscarLicitacoes, aba])
-  useEffect(() => { if (aba === 'ofertas')    buscarOfertas() },    [buscarOfertas, aba])
 
   async function forcarAtualizacao(secao: string) {
     setAtuSec(secao)
@@ -79,12 +66,11 @@ export default function Oportunidades() {
       await new Promise(r => setTimeout(r, 3000))
       if (secao === 'leiloes')    await buscarLeiloes()
       if (secao === 'licitacoes') await buscarLicitacoes()
-      if (secao === 'ofertas')    await buscarOfertas()
       await buscarStatus()
     } finally { setAtuSec(null) }
   }
 
-  const secAtual = aba === 'leiloes' ? leiloes : aba === 'licitacoes' ? licit : ofertas
+  const secAtual = aba === 'leiloes' ? leiloes : licit
   const isAtu    = atualizandoSec === aba || secAtual.atualizando
 
   return (
@@ -102,9 +88,9 @@ export default function Oportunidades() {
           {/* Status das seções */}
           {status && (
             <div className="flex items-center gap-3">
-              {Object.entries(status).filter(([k]) => k !== 'proximo_refresh_min').map(([k, v]: any) => (
+              {Object.entries(status).filter(([k]) => k === 'leiloes' || k === 'licitacoes').map(([k, v]: any) => (
                 <div key={k} className="text-[10px] text-center hidden md:block" style={{ color: 'var(--fg-muted)' }}>
-                  <div className="font-bold">{k === 'leiloes' ? '🔨' : k === 'licitacoes' ? '🏛️' : '🎯'} {v.total}</div>
+                  <div className="font-bold">{k === 'leiloes' ? '🔨' : '🏛️'} {v.total}</div>
                   <div>{v.atualizado_em || '...'}</div>
                 </div>
               ))}
@@ -136,7 +122,7 @@ export default function Oportunidades() {
         <div className="flex-1 relative">
           <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--fg-muted)' }} />
           <input value={q} onChange={e => setQ(e.target.value)}
-            placeholder={aba === 'ofertas' ? 'Buscar produto...' : 'Buscar por objeto ou órgão...'}
+            placeholder="Buscar por objeto ou órgão..."
             className="w-full pl-7 pr-3 py-1.5 rounded-lg text-xs border"
             style={{ background: 'var(--input)', borderColor: 'var(--border)', color: 'var(--fg)' }} />
         </div>
@@ -150,29 +136,6 @@ export default function Oportunidades() {
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-        )}
-
-        {aba === 'ofertas' && (
-          <>
-            <select value={catOferta} onChange={e => setCatOferta(e.target.value)}
-              className="px-2 py-1.5 rounded-lg text-xs border"
-              style={{ background: 'var(--input)', borderColor: 'var(--border)', color: 'var(--fg)' }}>
-              <option value="">Todas as categorias</option>
-              {['Celulares','TV & Vídeo','Informática','Games','Eletrodomésticos','Áudio','Smartwatches','Esporte'].map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <select value={descontoMin} onChange={e => setDescMin(Number(e.target.value))}
-              className="px-2 py-1.5 rounded-lg text-xs border"
-              style={{ background: 'var(--input)', borderColor: 'var(--border)', color: 'var(--fg)' }}>
-              <option value={10}>≥ 10% off</option>
-              <option value={15}>≥ 15% off</option>
-              <option value={20}>≥ 20% off</option>
-              <option value={30}>≥ 30% off</option>
-              <option value={40}>≥ 40% off</option>
-              <option value={50}>≥ 50% off</option>
-            </select>
-          </>
         )}
 
         {/* Botão atualizar */}
@@ -247,30 +210,6 @@ export default function Oportunidades() {
             )}
           </div>
         )}
-
-        {/* ── ABA OFERTAS ─────────────────────────────────────────────── */}
-        {!loading && aba === 'ofertas' && (
-          <div>
-            <div className="mb-3 p-3 rounded-xl border text-xs" style={{ background: '#f0fdf4', borderColor: '#bbf7d0', color: '#065f46' }}>
-              <strong>💡 Como funciona:</strong> Compra o produto com desconto no ML → revende com margem de ~15%. Quanto maior o desconto, maior o potencial de lucro.
-            </div>
-            {ofertas.itens.length === 0 && !isAtu ? (
-              <div className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
-                <ShoppingBag size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Aguardando dados do Mercado Livre...</p>
-                <button onClick={() => forcarAtualizacao('ofertas')} className="mt-3 px-4 py-2 rounded-lg text-xs font-bold text-white" style={{ background: '#10b981' }}>
-                  Buscar Agora
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {ofertas.itens.map((item: any, i: number) => (
-                  <CardOferta key={i} item={item} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -325,63 +264,3 @@ function CardLicitacao({ item, cor }: { item: any, cor: string }) {
     </div>
   )
 }
-
-function CardOferta({ item }: { item: any }) {
-  return (
-    <div className="rounded-xl border overflow-hidden transition-all hover:shadow-md"
-      style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
-      {/* Badge desconto */}
-      <div className="relative">
-        {item.imagem ? (
-          <img src={item.imagem} alt={item.titulo} className="w-full h-36 object-contain p-2"
-            style={{ background: '#f9fafb' }} />
-        ) : (
-          <div className="w-full h-36 flex items-center justify-center text-3xl" style={{ background: '#f3f4f6' }}>📦</div>
-        )}
-        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-black text-white"
-          style={{ background: item.desconto_pct >= 40 ? '#ef4444' : item.desconto_pct >= 30 ? '#f97316' : '#f59e0b' }}>
-          -{item.desconto_pct}% OFF
-        </div>
-        {item.frete_gratis && (
-          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ background: '#10b981' }}>
-            FRETE GRÁTIS
-          </div>
-        )}
-      </div>
-
-      <div className="p-2.5">
-        <p className="text-xs font-semibold line-clamp-2 mb-1.5" style={{ color: 'var(--fg)' }}>{item.titulo}</p>
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-[10px] line-through" style={{ color: 'var(--fg-muted)' }}>
-              {fmtR(item.preco_original)}
-            </p>
-            <p className="text-base font-black" style={{ color: '#10b981' }}>
-              {fmtR(item.preco)}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-[9px]" style={{ color: 'var(--fg-muted)' }}>margem est.</p>
-            <p className="text-xs font-bold" style={{ color: '#f97316' }}>
-              +{fmtR(item.margem_estimada)}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--card-alt)', color: 'var(--fg-muted)' }}>
-            {item.categoria}
-          </span>
-          {item.vendas > 0 && (
-            <span className="text-[9px]" style={{ color: 'var(--fg-muted)' }}>{item.vendas} vendas</span>
-          )}
-        </div>
-        <a href={item.url} target="_blank" rel="noopener noreferrer"
-          className="mt-2 flex items-center justify-center gap-1 w-full py-1.5 rounded-lg text-[10px] font-bold text-white"
-          style={{ background: '#10b981' }}>
-          <ExternalLink size={9} /> Ver no ML
-        </a>
-      </div>
-    </div>
-  )
-}
-

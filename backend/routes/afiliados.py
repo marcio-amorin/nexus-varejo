@@ -3299,13 +3299,17 @@ async def _gerar_conteudo_interno(db, prod, rede, tipo):
     # já traz "COMPRE PELO LINK DA BIO", e o link da bio do Instagram/Facebook
     # precisa ser configurado manualmente (no perfil) apontando pra essa mesma URL.
     link_url = f"{_PROMO_BASE_URL}/loja"
-    # Publicação normal: usa a foto real do produto (sem arte/overlay montada
-    # em cima, que distorcia foto com colagem/selo do próprio anúncio do ML
-    # e ficava feio). Preço, oferta e link já vão no texto do post/legenda.
-    # Reels ainda precisa de vídeo de verdade — mantém o gerador de vídeo.
+    # Publicação normal: foto real do produto centralizada num fundo neutro,
+    # já no tamanho certo pra rede — sem isso o Instagram corta a imagem
+    # sozinho pra caber na proporção dele (foto do anúncio no ML raramente
+    # bate com 4:5/9:16, cortava parte do produto). Sem texto/overlay em
+    # cima: preço, oferta e link já vão na legenda do post.
     media = prod.imagem_url or None
-    if tipo == "REELS" and prod.imagem_url:
-        media = await _criar_video_promocional(prod) or prod.imagem_url
+    if prod.imagem_url:
+        if tipo == "REELS":
+            media = await _criar_video_promocional(prod) or prod.imagem_url
+        else:
+            media = await _criar_imagem_padrao(prod, tipo) or prod.imagem_url
     c = AfiliadoConteudo(
         produto_id=prod.id, titulo_produto=prod.titulo, rede_social=rede,
         tipo_conteudo=tipo, texto_post=texto, hashtags=hashtags,
@@ -3462,27 +3466,42 @@ def _fmt_preco_promo(v) -> str:
     except Exception:
         return ""
 
+async def _criar_imagem_padrao(prod, tipo: str) -> str | None:
+    """Publicação normal: foto real do produto centralizada num fundo neutro,
+    já no tamanho certo pra rede (9:16 pra Stories, 4:5 pro feed) — sem isso
+    o Instagram corta a imagem sozinho pra caber na proporção dele, já que a
+    foto do anúncio do ML raramente bate com 4:5/9:16. Sem texto/overlay."""
+    try:
+        from PIL import Image
+        _os_promo.makedirs(_PROMO_STATIC, exist_ok=True)
+        W, H = (1080, 1920) if tipo == "STORIES" else (1080, 1350)
+        base = Image.new("RGB", (W, H), (245, 245, 245))
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(prod.imagem_url)
+        pim = Image.open(_BytesIO(r.content)).convert("RGBA")
+        inner_w, inner_h = int(W * 0.86), int(H * 0.86)
+        pim.thumbnail((inner_w, inner_h))
+        base.paste(pim, ((W - pim.width)//2, (H - pim.height)//2), pim)
+        fname = f"post_{prod.id}_{tipo}.jpg"
+        path = _os_promo.path.join(_PROMO_STATIC, fname)
+        base.save(path, "JPEG", quality=90)
+        return f"{_PROMO_BASE_URL}/static/promos/{fname}"
+    except Exception:
+        return None
+
+
 async def _criar_video_promocional(prod) -> str | None:
     """Gera um Reel (vídeo 9:16) com zoom suave (Ken Burns) sobre a foto real
     do produto — publicação normal, sem arte/overlay montado em cima (preço,
     oferta e link já vão na legenda do post). Retorna a URL pública."""
     import subprocess
     try:
-        from PIL import Image
-        _os_promo.makedirs(_PROMO_STATIC, exist_ok=True)
-        W, H = 1080, 1920
-        base = Image.new("RGB", (W, H), (245, 245, 245))
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get(prod.imagem_url)
-            pim = Image.open(_BytesIO(r.content)).convert("RGBA")
-            inner = int(W * 0.86)
-            pim.thumbnail((inner, inner))
-            base.paste(pim, ((W - pim.width)//2, (H - pim.height)//2), pim)
-        except Exception:
-            pass
-        arte_path = _os_promo.path.join(_PROMO_STATIC, f"promo_{prod.id}_STORIES.jpg")
-        base.save(arte_path, "JPEG", quality=90)
+        arte_url = await _criar_imagem_padrao(prod, "STORIES")
+        if not arte_url:
+            return None
+        arte_path = _os_promo.path.join(_PROMO_STATIC, f"post_{prod.id}_STORIES.jpg")
+        if not _os_promo.path.exists(arte_path):
+            return None
         reel_name = f"reel_{prod.id}.mp4"
         reel_path = _os_promo.path.join(_PROMO_STATIC, reel_name)
         cmd = [

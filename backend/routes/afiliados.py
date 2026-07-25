@@ -3644,7 +3644,7 @@ function filtrarLojinha() {
     var temVisivel = !q || Array.prototype.some.call(cardsSec, function (c) { return c.style.display !== 'none'; });
     s.style.display = temVisivel ? '' : 'none';
     var btn = s.querySelector('.ver-mais');
-    if (btn) btn.style.display = (q || s.classList.contains('expandido')) ? 'none' : '';
+    if (btn) btn.style.display = q ? 'none' : '';
   });
   document.getElementById('contador').textContent = q
     ? (visiveis + (visiveis === 1 ? ' oferta encontrada' : ' ofertas encontradas'))
@@ -3652,8 +3652,14 @@ function filtrarLojinha() {
   document.getElementById('sem-resultado').style.display = (q && visiveis === 0 && cards.length > 0) ? 'block' : 'none';
 }
 function lojinhaVerMais(btn) {
-  btn.closest('.categoria-sec').classList.add('expandido');
-  btn.style.display = 'none';
+  var sec = btn.closest('.categoria-sec');
+  var expandido = sec.classList.toggle('expandido');
+  if (expandido) {
+    btn.textContent = 'Ver menos ↑';
+  } else {
+    btn.textContent = 'Ver mais produtos de ' + btn.getAttribute('data-cat') + ' →';
+    sec.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
 }
 </script>
 </body></html>"""
@@ -3763,7 +3769,7 @@ def loja_publica(db: Session = Depends(get_db)):
             for i, c in enumerate(itens)
         ]
         ver_mais = (
-            f'<button class="ver-mais" onclick="lojinhaVerMais(this)">Ver mais produtos de {cat} →</button>'
+            f'<button class="ver-mais" data-cat="{cat}" onclick="lojinhaVerMais(this)">Ver mais produtos de {cat} →</button>'
             if len(itens) > _VITRINE_POR_CAT else ''
         )
         secoes.append(

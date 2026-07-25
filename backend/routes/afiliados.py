@@ -3571,31 +3571,70 @@ async def _criar_video_promocional(prod) -> str | None:
 # afiliado. É o destino do "COMPRE PELO LINK DA BIO". URL pública, sem login.
 # ═══════════════════════════════════════════════════════════════════════════
 
+_IC_BAG = '<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M6 7h12l-1.2 12.1a2 2 0 0 1-2 1.9H9.2a2 2 0 0 1-2-1.9L6 7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 7V5.5a3 3 0 0 1 6 0V7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+_IC_LOCK = '<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+_IC_TRUCK = '<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M3 7h11v9H3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 10h4l3 3v3h-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7" cy="18" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="17.5" cy="18" r="1.6" stroke="currentColor" stroke-width="1.6"/></svg>'
+_IC_CART = '<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="18" cy="20" r="1.4" fill="currentColor"/><path d="M2.5 3h2l2.2 12.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 2-1.6L21 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
 _LOJA_TEMPLATE = """<!doctype html><html lang="pt-br"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Maxx Vendas — Ofertas</title>
+<title>Maxx Vendas — Ofertas do Mercado Livre</title>
+<meta name="description" content="Ofertas selecionadas do Mercado Livre, com o melhor preço. Compra 100% segura, processada direto pelo Mercado Livre.">
+<meta property="og:title" content="Maxx Vendas — Ofertas do Mercado Livre">
+<meta property="og:description" content="🔥 Ofertas imperdíveis selecionadas pra você, direto do Mercado Livre">
+__OG_IMAGE__
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f2f3f7;color:#1a1a2e;min-height:100vh;padding-bottom:40px}
-header{background:linear-gradient(135deg,#7c3aed 0%,#ec4899 55%,#ea580c 100%);color:#fff;text-align:center;padding:22px 16px 20px;position:sticky;top:0;z-index:10;box-shadow:0 2px 12px rgba(0,0,0,.15)}
-header .logo{font-size:26px;font-weight:900;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:8px}
-header .tag{font-size:12.5px;opacity:.92;margin-top:3px;font-weight:600}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f2f3f7;color:#1a1a2e;min-height:100vh;padding-bottom:36px}
+.ic{width:11px;height:11px;flex-shrink:0}
+
+header{background:linear-gradient(135deg,#7c3aed 0%,#ec4899 55%,#ea580c 100%);color:#fff;text-align:center;padding:24px 16px 18px;position:sticky;top:0;z-index:10;box-shadow:0 2px 16px rgba(0,0,0,.18)}
+header .logo{font-size:27px;font-weight:900;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:8px}
+header .tag{font-size:12.5px;opacity:.92;margin-top:4px;font-weight:600}
+.ml-pill{display:inline-flex;align-items:center;gap:5px;background:#FFE600;color:#2d2d2d;font-size:11px;font-weight:800;padding:5px 12px;border-radius:999px;margin-top:11px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.ml-pill .ic{width:12px;height:12px}
+
+.trustbar{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid #ececf2;font-size:10.5px;color:#666;font-weight:700}
+.trustbar span{display:flex;align-items:center;gap:4px}
+.trustbar .ic{width:12px;height:12px;color:#16a34a}
+
+.contador{text-align:center;padding:14px 16px 2px;font-size:11.5px;color:#8a8a97;font-weight:700;letter-spacing:.3px}
+
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:14px;max-width:1120px;margin:0 auto}
-.card{background:#fff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 10px rgba(0,0,0,.07);transition:transform .15s}
-.card:hover{transform:translateY(-3px)}
+.card{background:#fff;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 3px 12px rgba(0,0,0,.08);transition:transform .15s,box-shadow .15s}
+.card:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(0,0,0,.13)}
+.card:active{transform:scale(.98)}
 .card .imgwrap{width:100%;height:148px;background:#fff;display:flex;align-items:center;justify-content:center;padding:10px;border-bottom:1px solid #f0f0f3}
 .card img{max-width:100%;max-height:100%;object-fit:contain}
-.info{padding:9px 11px 12px;display:flex;flex-direction:column;flex:1}
+.info{padding:10px 11px 12px;display:flex;flex-direction:column;flex:1;gap:2px}
 .nome{color:#2a2a3a;font-size:12px;font-weight:600;line-height:1.3;height:31px;overflow:hidden}
-.preco{color:#16a34a;font-size:19px;font-weight:900;margin:6px 0 9px}
-.btn{margin-top:auto;text-align:center;text-decoration:none;background:linear-gradient(135deg,#ea580c,#f59e0b);color:#fff;font-weight:800;font-size:12px;padding:10px;border-radius:10px}
+.preco{color:#16a34a;font-size:20px;font-weight:900;margin:5px 0 7px}
+.ml-tag{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;background:#FFE600;color:#2d2d2d;font-size:9.5px;font-weight:800;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.ml-tag .ic{width:9px;height:9px}
+.btn{margin-top:auto;display:flex;align-items:center;justify-content:center;gap:5px;text-align:center;text-decoration:none;background:linear-gradient(135deg,#ea580c,#f59e0b);color:#fff;font-weight:800;font-size:11.5px;padding:10px;border-radius:11px;box-shadow:0 2px 8px rgba(234,88,12,.35)}
 .btn:active{opacity:.85}
-.vazio{text-align:center;color:#888;padding:60px 20px}
-footer{text-align:center;color:#9aa;font-size:11px;margin-top:22px;padding:0 16px}
+.btn .ic{width:13px;height:13px}
+
+.vazio{text-align:center;color:#888;padding:70px 20px;font-size:13px}
+footer{text-align:center;color:#9aa;font-size:11px;margin-top:26px;padding:0 16px;display:flex;flex-direction:column;align-items:center;gap:6px}
+footer .selo{display:flex;align-items:center;gap:5px;color:#7a7a86;font-weight:700}
+footer .selo .ic{color:#16a34a}
 </style></head><body>
-<header><div class="logo">🛍️ Maxx Vendas</div><div class="tag">🔥 Ofertas imperdíveis selecionadas pra você</div></header>
+<header>
+<div class="logo">🛍️ Maxx Vendas</div>
+<div class="tag">🔥 Ofertas imperdíveis selecionadas pra você</div>
+<div class="ml-pill">""" + _IC_BAG + """ Vendido no Mercado Livre</div>
+</header>
+<div class="trustbar">
+<span>""" + _IC_LOCK + """ Compra 100% segura</span>
+<span>""" + _IC_TRUCK + """ Envio pelo Mercado Livre</span>
+</div>
+<div class="contador">__TOTAL__ ofertas disponíveis agora</div>
 <div class="grid">__CARDS__</div>
-<footer>Maxx Vendas • ofertas atualizadas automaticamente</footer>
+<footer>
+<div class="selo">""" + _IC_LOCK + """ Pagamento processado com segurança pelo Mercado Livre</div>
+<div>Maxx Vendas • ofertas atualizadas automaticamente</div>
+</footer>
 </body></html>"""
 
 
@@ -3624,11 +3663,17 @@ def loja_publica(db: Session = Depends(get_db)):
             f'<div class="card"><div class="imgwrap"><img src="{img}" loading="lazy" alt=""></div>'
             f'<div class="info"><div class="nome">{titulo}</div>'
             f'<div class="preco">{preco}</div>'
-            f'<a class="btn" href="/afiliados/ir/{p.id}" target="_blank" rel="noopener nofollow">COMPRAR</a>'
+            f'<div class="ml-tag">{_IC_BAG} Mercado Livre</div>'
+            f'<a class="btn" href="/afiliados/ir/{p.id}" target="_blank" rel="noopener nofollow">{_IC_CART} Comprar agora</a>'
             f'</div></div>'
         )
     corpo = "".join(cards) if cards else '<div class="vazio">Em breve, novas ofertas! 🚀</div>'
-    return HTMLResponse(_LOJA_TEMPLATE.replace("__CARDS__", corpo))
+    og_image = f'<meta property="og:image" content="{prods[0].imagem_url}">' if prods and prods[0].imagem_url else ''
+    html = (_LOJA_TEMPLATE
+            .replace("__CARDS__", corpo)
+            .replace("__TOTAL__", str(len(prods)))
+            .replace("__OG_IMAGE__", og_image))
+    return HTMLResponse(html)
 
 
 @router.get("/ir/{produto_id}")

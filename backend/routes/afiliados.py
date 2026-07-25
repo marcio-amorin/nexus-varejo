@@ -193,7 +193,7 @@ def listar_configs(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 # ─── OAuth2 Mercado Livre ─────────────────────────────────────────────────────
 
-ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onrender.com/afiliados/ml-callback")
+ML_REDIRECT_URI = os.getenv("ML_REDIRECT_URI", "https://varejo.nexusgestaovarejo.com.br/afiliados/ml-callback")
 ML_AUTH_URL     = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL    = "https://api.mercadolibre.com/oauth/token"
 
@@ -201,34 +201,55 @@ _ML_APP_ID_FALLBACK     = os.getenv("ML_CLIENT_ID", "3153350893755305")
 _ML_APP_SECRET_FALLBACK = os.getenv("ML_CLIENT_SECRET", "wCq5uo8Ytbu2AXfzd8fRN8Pa5hwgKFyB")
 
 async def _get_fresh_ml_token(db) -> str | None:
-    """Retorna um token ML válido: prioriza o access_token já salvo (veio do OAuth
-    real do usuário, comprovadamente funcional) e só tenta gerar um novo via
-    client_credentials se não houver nenhum salvo. Tentar "renovar" antes de usar
-    o token bom é arriscado: se o client_id/secret usado não for exatamente o
-    app que emitiu o token original, a renovação falha ou gera um token
-    client_credentials (sem permissão de usuário) que sobrescreve um token bom.
-    Verifica VendedorConfig e AfiliadoConfig automaticamente."""
+    """Retorna um token ML válido, com refresh automático se o atual estiver expirado."""
     from models import VendedorConfig
     configs = []
     vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
     acfg = db.query(AfiliadoConfig).filter_by(plataforma="ML_AFILIADOS").first()
-    if vcfg: configs.append(vcfg)
     if acfg: configs.append(acfg)
+    if vcfg: configs.append(vcfg)
 
-    # 1) Token já salvo — prioridade máxima, é o único garantidamente ligado à conta do usuário
-    for cfg in configs:
-        if cfg.access_token:
-            return cfg.access_token
-
-    # 2) Sem nenhum token salvo — última tentativa via client_credentials (app-only)
     async with httpx.AsyncClient(timeout=10) as c:
+        for cfg in configs:
+            if not cfg.access_token:
+                continue
+            # Testa se o token atual ainda é válido
+            try:
+                r = await c.get("https://api.mercadolibre.com/users/me",
+                                headers={"Authorization": f"Bearer {cfg.access_token}"})
+                if r.status_code == 200:
+                    return cfg.access_token
+            except Exception:
+                pass
+            # Token inválido/expirado — tenta refresh automático
+            if cfg.refresh_token:
+                client_id     = cfg.client_id or _ML_APP_ID_FALLBACK
+                client_secret = cfg.client_secret or _ML_APP_SECRET_FALLBACK
+                try:
+                    rr = await c.post(ML_TOKEN_URL, data={
+                        "grant_type":    "refresh_token",
+                        "client_id":     client_id,
+                        "client_secret": client_secret,
+                        "refresh_token": cfg.refresh_token,
+                    })
+                    if rr.status_code == 200:
+                        d = rr.json()
+                        if d.get("access_token"):
+                            cfg.access_token  = d["access_token"]
+                            cfg.refresh_token = d.get("refresh_token", cfg.refresh_token)
+                            db.commit()
+                            return cfg.access_token
+                except Exception:
+                    pass
+
+        # Último recurso: client_credentials (sem contexto de usuário)
         for cfg in configs:
             client_id     = cfg.client_id or _ML_APP_ID_FALLBACK
             client_secret = cfg.client_secret or _ML_APP_SECRET_FALLBACK
             try:
                 r = await c.post(ML_TOKEN_URL, data={
-                    "grant_type": "client_credentials",
-                    "client_id": client_id,
+                    "grant_type":    "client_credentials",
+                    "client_id":     client_id,
                     "client_secret": client_secret,
                 })
                 if r.status_code == 200:
@@ -2577,6 +2598,165 @@ async def _publicar_na_rede(conteudo, cfg) -> dict:
     except Exception as e:
         return {"ok": False, "erro": str(e)}
 
+@router.get("/ml-debug-afiliados")
+async def ml_debug_afiliados(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Debug: mostra o que a API ML retorna para afiliados."""
+    from datetime import timedelta
+    token = await _get_fresh_ml_token(db)
+    if not token:
+        return {"erro": "Sem token ML configurado"}
+    headers = {"Authorization": f"Bearer {token}"}
+    hoje = date.today()
+    date_from = (hoje - timedelta(days=90)).strftime("%Y-%m-%dT00:00:00.000-03:00")
+    date_to   = hoje.strftime("%Y-%m-%dT23:59:59.000-03:00")
+    resultados = {}
+    async with httpx.AsyncClient(timeout=15) as c:
+        r_me = await c.get("https://api.mercadolibre.com/users/me", headers=headers)
+        resultados["users_me"] = {"status": r_me.status_code, "body": r_me.json() if r_me.status_code == 200 else r_me.text[:300]}
+        user_id = r_me.json().get("id") if r_me.status_code == 200 else None
+        if user_id:
+            for name, url, params in [
+                ("affiliation_publisher_sales",
+                 f"https://api.mercadolibre.com/affiliation/publisher/{user_id}/sales",
+                 {"date_created.from": date_from, "date_created.to": date_to, "limit": 5}),
+                ("affiliation_sales",
+                 "https://api.mercadolibre.com/affiliation/sales",
+                 {"date_created.from": date_from, "date_created.to": date_to, "limit": 5}),
+                ("affiliation_commissions",
+                 f"https://api.mercadolibre.com/affiliation/publisher/{user_id}/commissions",
+                 {"date_from": date_from[:10], "date_to": date_to[:10], "limit": 5}),
+                ("orders_buyer",
+                 f"https://api.mercadolibre.com/orders/search?buyer={user_id}&limit=5",
+                 {}),
+            ]:
+                try:
+                    r = await c.get(url, headers=headers, params=params)
+                    body = r.json() if r.headers.get("content-type","").startswith("application/json") else r.text[:300]
+                    resultados[name] = {"status": r.status_code, "body": body}
+                except Exception as e:
+                    resultados[name] = {"erro": str(e)}
+    return resultados
+
+
+@router.post("/ml-sync-comissoes")
+async def ml_sync_comissoes(
+    dias: int = 180,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Sincroniza vendas reais do ML Vendedor (pedidos pagos via marketplace)."""
+    from datetime import timedelta
+    from models import VendedorConfig
+
+    token = await _get_fresh_ml_token(db)
+    if not token:
+        raise HTTPException(400, "Configure e conecte o Mercado Livre primeiro")
+
+    vcfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+    if not vcfg or not vcfg.seller_id:
+        raise HTTPException(400, "Seller ID não encontrado — sincronize o Painel Vendedor primeiro")
+
+    seller_id = vcfg.seller_id
+    headers   = {"Authorization": f"Bearer {token}"}
+    criadas   = 0
+    atualizadas = 0
+    erros     = []
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r_me = await client.get("https://api.mercadolibre.com/users/me", headers=headers)
+            if r_me.status_code != 200:
+                raise HTTPException(400, f"Token inválido: {r_me.status_code} — reconecte o ML")
+
+            # Busca pedidos pagos do ML Vendedor
+            offset    = 0
+            limit     = 50
+            total_api = 0
+            while True:
+                r = await client.get(
+                    "https://api.mercadolibre.com/orders/search",
+                    headers=headers,
+                    params={
+                        "seller":         seller_id,
+                        "order.status":   "paid",
+                        "limit":          limit,
+                        "offset":         offset,
+                        "sort":           "date_desc",
+                    }
+                )
+                if r.status_code != 200:
+                    erros.append(f"ML Orders API {r.status_code}: {r.text[:300]}")
+                    break
+
+                data      = r.json()
+                resultados = data.get("results") or []
+                paging    = data.get("paging") or {}
+                total_api = paging.get("total", len(resultados))
+
+                for order in resultados:
+                    ref = f"ML-ORDER-{order.get('id', '')}"
+
+                    # Título: primeiro item do pedido
+                    items = order.get("order_items") or []
+                    titulo = (items[0].get("item", {}).get("title") or "Venda ML") if items else "Venda ML"
+                    titulo = titulo[:200]
+
+                    # Valor bruto e taxas
+                    valor_bruto = float(order.get("total_amount") or 0)
+                    taxa_ml     = 0.0
+                    for pay in order.get("payments") or []:
+                        for fee in pay.get("fee_details") or []:
+                            taxa_ml += float(fee.get("amount") or 0)
+                    valor_liquido = round(valor_bruto - taxa_ml, 2)
+
+                    data_str = order.get("date_created") or str(date.today())
+                    try:
+                        data_venda = date.fromisoformat(data_str[:10])
+                    except Exception:
+                        data_venda = date.today()
+
+                    existente = db.query(AfiliadoComissao).filter_by(
+                        referencia_ext=ref, plataforma="ML_AFILIADOS"
+                    ).first()
+                    if existente:
+                        # Atualiza se valores mudaram
+                        existente.valor_venda    = valor_bruto
+                        existente.comissao_valor = valor_liquido
+                        existente.titulo_produto = titulo
+                        atualizadas += 1
+                        continue
+
+                    db.add(AfiliadoComissao(
+                        plataforma="ML_AFILIADOS",
+                        titulo_produto=titulo,
+                        data_venda=data_venda,
+                        valor_venda=valor_bruto,
+                        comissao_pct=round((valor_liquido / valor_bruto * 100) if valor_bruto else 100, 1),
+                        comissao_valor=valor_liquido,
+                        status="APROVADO",
+                        referencia_ext=ref,
+                    ))
+                    criadas += 1
+
+                if offset + limit >= total_api or not resultados:
+                    break
+                offset += limit
+
+        db.commit()
+        return {
+            "ok":            True,
+            "sincronizadas": criadas,
+            "atualizadas":   atualizadas,
+            "total_api":     total_api,
+            "erros":         erros,
+            "periodo_dias":  dias,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 # ─── Projeção Financeira ──────────────────────────────────────────────────────
 
 @router.get("/financeiro/projecao")
@@ -2866,3 +3046,95 @@ def _conteudo_dict(c: AfiliadoConteudo) -> dict:
         "alcance": c.alcance, "engajamento": c.engajamento, "cliques_link": c.cliques_link,
         "created_at": str(c.created_at),
     }
+
+
+# ─── Sync automático ML Afiliados ────────────────────────────────────────────
+
+_ML_SYNC_INTERVALO_HORAS = 6   # roda a cada 6 horas
+
+async def _ml_sync_automatico():
+    """Loop em background: sincroniza vendas reais ML Vendedor (pedidos pagos) a cada N horas."""
+    from database import SessionLocal
+    from models import VendedorConfig
+    import sys
+    await asyncio.sleep(60)
+    while True:
+        try:
+            db = SessionLocal()
+            token = await _get_fresh_ml_token(db)
+            vcfg  = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+            if token and vcfg and vcfg.seller_id:
+                headers   = {"Authorization": f"Bearer {token}"}
+                seller_id = vcfg.seller_id
+                criadas   = 0
+                atualizadas = 0
+                async with httpx.AsyncClient(timeout=20) as client:
+                    offset    = 0
+                    total_api = 0
+                    while True:
+                        r = await client.get(
+                            "https://api.mercadolibre.com/orders/search",
+                            headers=headers,
+                            params={"seller": seller_id, "order.status": "paid",
+                                    "limit": 50, "offset": offset, "sort": "date_desc"}
+                        )
+                        if r.status_code != 200:
+                            break
+                        data      = r.json()
+                        resultados = data.get("results") or []
+                        paging    = data.get("paging") or {}
+                        total_api = paging.get("total", len(resultados))
+                        for order in resultados:
+                            ref   = f"ML-ORDER-{order.get('id', '')}"
+                            items = order.get("order_items") or []
+                            titulo = (items[0].get("item", {}).get("title") or "Venda ML")[:200] if items else "Venda ML"
+                            valor_bruto = float(order.get("total_amount") or 0)
+                            taxa_ml = sum(
+                                float(fee.get("amount") or 0)
+                                for pay in (order.get("payments") or [])
+                                for fee in (pay.get("fee_details") or [])
+                            )
+                            valor_liquido = round(valor_bruto - taxa_ml, 2)
+                            data_str = order.get("date_created") or str(date.today())
+                            try:
+                                data_venda = date.fromisoformat(data_str[:10])
+                            except Exception:
+                                data_venda = date.today()
+                            existente = db.query(AfiliadoComissao).filter_by(
+                                referencia_ext=ref, plataforma="ML_AFILIADOS"
+                            ).first()
+                            if existente:
+                                existente.valor_venda    = valor_bruto
+                                existente.comissao_valor = valor_liquido
+                                existente.titulo_produto = titulo
+                                atualizadas += 1
+                            else:
+                                db.add(AfiliadoComissao(
+                                    plataforma="ML_AFILIADOS", titulo_produto=titulo,
+                                    data_venda=data_venda, valor_venda=valor_bruto,
+                                    comissao_pct=round((valor_liquido / valor_bruto * 100) if valor_bruto else 100, 1),
+                                    comissao_valor=valor_liquido,
+                                    status="APROVADO", referencia_ext=ref,
+                                ))
+                                criadas += 1
+                        if offset + 50 >= total_api or not resultados:
+                            break
+                        offset += 50
+                if criadas or atualizadas:
+                    db.commit()
+                    print(f"[ML-SYNC-AUTO] {criadas} novas, {atualizadas} atualizadas", file=sys.stderr)
+            db.close()
+        except Exception as _e:
+            import sys
+            print(f"[ML-SYNC-AUTO] erro: {_e}", file=sys.stderr)
+        await asyncio.sleep(_ML_SYNC_INTERVALO_HORAS * 3600)
+
+
+def iniciar_loop_ml_sync():
+    """Chamado no startup da aplicação."""
+    import threading
+    loop = asyncio.new_event_loop()
+    def _run():
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_ml_sync_automatico())
+    threading.Thread(target=_run, daemon=True, name="ml-afiliados-sync").start()

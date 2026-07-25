@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 import { Plus, Edit2, X, Save, ShieldCheck, User } from 'lucide-react'
+import { useToast } from '@/components/Toast'
 
 const PERFIS = [
   { key: 'OPERADOR',   label: 'Operador',   cor: '#3B82F6' },
@@ -15,6 +16,7 @@ export default function OperadoresPDVPage() {
   const [loading, setLoading] = useState(true)
   const [form,    setForm]    = useState<any>(null)
   const [saving,  setSaving]  = useState(false)
+  const toast = useToast()
 
   async function load() {
     setLoading(true)
@@ -24,7 +26,8 @@ export default function OperadoresPDVPage() {
   useEffect(() => { load() }, [])
 
   async function salvar() {
-    if (!form.numero || !form.nome) { alert('Número e Nome são obrigatórios'); return }
+    if (!String(form.numero).trim()) { toast.show('Número do operador é obrigatório', 'error'); return }
+    if (!String(form.nome).trim()) { toast.show('Nome do operador é obrigatório', 'error'); return }
     setSaving(true)
     try {
       if (form._novo) {
@@ -33,7 +36,8 @@ export default function OperadoresPDVPage() {
         await api.put(`/pdv/operadores/${form.id}`, { numero: Number(form.numero), nome: form.nome, senha: form.senha || undefined, perfil: form.perfil })
       }
       await load(); setForm(null)
-    } catch (e: any) { alert(e.response?.data?.detail || 'Erro ao salvar') }
+      toast.show(form._novo ? 'Operador cadastrado!' : 'Operador atualizado!')
+    } catch (e: any) { toast.show(e.response?.data?.detail || 'Erro ao salvar', 'error') }
     setSaving(false)
   }
 
@@ -43,16 +47,21 @@ export default function OperadoresPDVPage() {
     setLista(l => l.filter(o => o.id !== id))
   }
 
-  const inp = 'w-full px-3 py-2.5 text-sm rounded-xl outline-none'
+  const inp = 'w-full px-3 py-2.5 text-sm rounded-xl outline-none text-white'
+  const inpStyle = { background: 'rgba(255,255,255,0.08)', color: 'white' }
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
+      {toast.node}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black text-white">Operadores PDV</h1>
           <p className="text-sm" style={{ color: 'var(--muted)' }}>Cadastre operadores e supervisores do terminal de caixa</p>
         </div>
-        <button onClick={() => setForm({ ...emptyForm })} className="btn-primary flex items-center gap-2 text-sm">
+        <button onClick={() => {
+          const nextNum = lista.length > 0 ? Math.max(...lista.map((o: any) => o.numero)) + 1 : 1
+          setForm({ ...emptyForm, numero: String(nextNum) })
+        }} className="btn-primary flex items-center gap-2 text-sm">
           <Plus size={14} /> Novo Operador
         </button>
       </div>
@@ -153,15 +162,15 @@ export default function OperadoresPDVPage() {
             <div className="px-6 py-5 space-y-4">
               <div>
                 <label className="block text-xs font-black mb-1.5" style={{ color: 'var(--muted)' }}>NÚMERO DO OPERADOR *</label>
-                <input type="number" value={form.numero}
-                  onChange={e => setForm((f: any) => ({ ...f, numero: e.target.value }))}
-                  placeholder="001" className={inp} style={{ textAlign: 'center', fontSize: 28, fontFamily: 'monospace', fontWeight: 900 }} />
+                <input type="text" inputMode="numeric" value={form.numero}
+                  onChange={e => setForm((f: any) => ({ ...f, numero: e.target.value.replace(/\D/g, '') }))}
+                  placeholder="001" className={inp} style={{ textAlign: 'center', fontSize: 28, fontFamily: 'monospace', fontWeight: 900, color: 'white', background: 'rgba(255,255,255,0.08)' }} />
               </div>
               <div>
                 <label className="block text-xs font-black mb-1.5" style={{ color: 'var(--muted)' }}>NOME *</label>
                 <input type="text" value={form.nome}
-                  onChange={e => setForm((f: any) => ({ ...f, nome: e.target.value }))}
-                  placeholder="Nome completo do operador" className={inp} />
+                  onChange={e => setForm((f: any) => ({ ...f, nome: e.target.value.toUpperCase() }))}
+                  placeholder="NOME COMPLETO DO OPERADOR" className={inp} style={inpStyle} />
               </div>
               <div>
                 <label className="block text-xs font-black mb-1.5" style={{ color: 'var(--muted)' }}>PERFIL</label>
@@ -183,7 +192,7 @@ export default function OperadoresPDVPage() {
                 </label>
                 <input type="password" value={form.senha}
                   onChange={e => setForm((f: any) => ({ ...f, senha: e.target.value }))}
-                  placeholder="••••••" className={inp} />
+                  placeholder="••••••" className={inp} style={inpStyle} />
                 {form.perfil === 'SUPERVISOR' && (
                   <p className="text-[10px] mt-1" style={{ color: '#F59E0B' }}>
                     Supervisor requer senha para autorizar funções restritas no PDV

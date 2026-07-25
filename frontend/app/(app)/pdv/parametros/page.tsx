@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import api, { fmtMoeda } from '@/lib/api'
 import { Save, Plus, X, Heart, Settings } from 'lucide-react'
+import { useToast } from '@/components/Toast'
 
 export default function ParametrosPDVPage() {
   const [params, setParams]   = useState<any>(null)
@@ -9,6 +10,7 @@ export default function ParametrosPDVPage() {
   const [saving, setSaving]   = useState(false)
   const [novaInst, setNovaInst] = useState<any>(null)
   const [instSaving, setInstSaving] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     api.get('/pdv/parametros').then(r => setParams(r.data))
@@ -19,8 +21,8 @@ export default function ParametrosPDVPage() {
     setSaving(true)
     try {
       await api.put('/pdv/parametros', params)
-      alert('Parâmetros salvos com sucesso!')
-    } catch (e: any) { alert(e.response?.data?.detail || 'Erro') }
+      toast.show('Parâmetros salvos com sucesso!')
+    } catch (e: any) { toast.show(e.response?.data?.detail || 'Erro ao salvar', 'error') }
     setSaving(false)
   }
 
@@ -32,7 +34,8 @@ export default function ParametrosPDVPage() {
       else await api.post('/pdv/troco-solidario', novaInst)
       const r = await api.get('/pdv/troco-solidario')
       setInsts(r.data); setNovaInst(null)
-    } catch (e: any) { alert(e.response?.data?.detail || 'Erro') }
+      toast.show('Instituição salva!')
+    } catch (e: any) { toast.show(e.response?.data?.detail || 'Erro ao salvar', 'error') }
     setInstSaving(false)
   }
 
@@ -59,6 +62,7 @@ export default function ParametrosPDVPage() {
 
   return (
     <div className="h-full overflow-y-auto p-3 space-y-3">
+      {toast.node}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black text-white">Parâmetros do PDV</h1>
@@ -120,6 +124,7 @@ export default function ParametrosPDVPage() {
           <Toggle field="impressao_cupom" label="Impressão de Cupom" />
           <Toggle field="troco_solidario_ativo" label="Troco Solidário" />
           <Toggle field="solicitar_cpf_inicio" label="Solicitar CPF no Início da Venda" />
+          <Toggle field="supervisor_obrigatorio_abertura" label="Supervisor Obrigatório na Abertura" />
         </div>
       </div>
 

@@ -309,24 +309,66 @@ async def _resolver_atributos_faltantes(cat_id: str, err_txt: str, titulo: str, 
     nao_resolvidos: list = []
     for d in alvo:
         valor = None
+        attr_id       = d.get("id", "")
+        attr_name_low = (d.get("name") or "").lower()
+
         if d.get("value_type") == "list":
             for v in (d.get("values") or []):
                 nome_v = (v.get("name") or "")
                 if nome_v and nome_v.lower() in titulo_low:
-                    valor = {"id": d["id"], "value_name": nome_v}
+                    valor = {"id": attr_id, "value_name": nome_v, "value_id": v.get("id")}
                     break
             if not valor:
-                # Ex: opção "32\"" e o título tem "32" solto — casa pelo número
                 for v in (d.get("values") or []):
                     nome_v = (v.get("name") or "")
                     nums_v = re.findall(r'\d+', nome_v)
                     if nums_v and nums_v[0] in numeros_titulo:
-                        valor = {"id": d["id"], "value_name": nome_v}
+                        valor = {"id": attr_id, "value_name": nome_v, "value_id": v.get("id")}
                         break
+
+        # ── Fallbacks inteligentes quando a correspondência por texto não funcionou ──
+
+        # COLOR / Cor — usa detector baseado em palavras-chave do título
+        if not valor and attr_id in ("COLOR", "MAIN_COLOR") or (not valor and "cor" == attr_name_low):
+            cor = _detectar_cor(titulo)
+            if d.get("value_type") == "list":
+                # Usa o value_id oficial da categoria, se existir
+                for v in (d.get("values") or []):
+                    if (v.get("name") or "").lower() == cor.lower():
+                        valor = {"id": attr_id, "value_name": v["name"], "value_id": v.get("id")}
+                        break
+            if not valor:
+                valor = {"id": attr_id, "value_name": cor}
+
+        # GENDER / Gênero — "Homens" → Masculino, "Mulheres" → Feminino, default Unissex
+        if not valor and (attr_id == "GENDER" or "gênero" in attr_name_low or "genero" in attr_name_low):
+            if any(k in titulo_low for k in ("homens", "masculin", " men", "male", "boy")):
+                genero_alvo = "Masculino"
+            elif any(k in titulo_low for k in ("mulheres", "feminina", "feminino", "women", "female", "girl")):
+                genero_alvo = "Feminino"
+            else:
+                genero_alvo = "Unissex"
+            for v in (d.get("values") or []):
+                if (v.get("name") or "").lower() == genero_alvo.lower():
+                    valor = {"id": attr_id, "value_name": v["name"], "value_id": v.get("id")}
+                    break
+            if not valor:
+                valor = {"id": attr_id, "value_name": genero_alvo}
+
+        # SIZE / Tamanho — bolsas/mochilas e acessórios sem grade: usa "Único"
+        if not valor and (attr_id == "SIZE" or "tamanho" in attr_name_low):
+            for unico_nome in ("Único", "Unico", "Sem tamanho", "One Size", "U"):
+                for v in (d.get("values") or []):
+                    if (v.get("name") or "").strip().lower() == unico_nome.lower():
+                        valor = {"id": attr_id, "value_name": v["name"], "value_id": v.get("id")}
+                        break
+                if valor:
+                    break
+
         if valor:
             preenchidos.append(valor)
         else:
-            nao_resolvidos.append(d.get("name") or d.get("id"))
+            nao_resolvidos.append(d.get("name") or attr_id)
 
     return preenchidos, nao_resolvidos
 
@@ -1445,13 +1487,15 @@ def dashboard_vendedor(db: Session = Depends(get_db), _=Depends(get_current_user
     total_faturado = db.query(func.sum(VendedorAnuncio.faturamento)).scalar() or 0
     total_vendas   = db.query(func.sum(VendedorAnuncio.vendas_count)).scalar() or 0
     pendentes      = db.query(VendedorAnuncio).filter_by(status="PENDENTE").count()
+    lucro_total    = db.query(func.sum(VendedorPedido.lucro_estimado)).scalar() or 0
     recentes       = db.query(VendedorAnuncio).order_by(VendedorAnuncio.created_at.desc()).limit(5).all()
 
     return {
         "total_anuncios": total_anuncios,
-        "total_faturado": total_faturado,
+        "total_faturado": float(total_faturado),
         "total_vendas": int(total_vendas or 0),
         "pendentes": pendentes,
+        "lucro_total": float(lucro_total),
         "recentes": [
             {
                 "id": a.id, "titulo": a.titulo[:50], "preco_venda": a.preco_venda,
@@ -1522,6 +1566,14 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
             status_ml = order.get("status", "novo").upper()
             existe    = db.query(VendedorPedido).filter_by(pedido_ext_id=ext_id).first()
 
+            # Taxa cobrada pelo ML neste pedido
+            taxa_ml = 0.0
+            for pay in order.get("payments") or []:
+                for fee in pay.get("fee_details") or []:
+                    taxa_ml += float(fee.get("amount") or 0)
+            if not taxa_ml:
+                taxa_ml = float(order.get("sale_fee_amount") or 0)
+
             for item in order.get("order_items", []):
                 item_id   = item.get("item", {}).get("id", "")
                 titulo    = item.get("item", {}).get("title", "")
@@ -1530,10 +1582,10 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
 
                 anuncio = db.query(VendedorAnuncio).filter_by(listing_id=item_id).first()
 
+                custo = (anuncio.preco_custo * qty) if (anuncio and anuncio.preco_custo) else 0.0
+                lucro = round(valor - custo - taxa_ml, 2)
+
                 if not existe:
-                    lucro = 0.0
-                    if anuncio and anuncio.preco_custo:
-                        lucro = round((valor - anuncio.preco_custo * qty), 2)
                     p = VendedorPedido(
                         plataforma="ML_VENDEDOR",
                         pedido_ext_id=ext_id,
@@ -1550,8 +1602,11 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
                     if anuncio and status_ml in ("PAID", "DELIVERED", "SHIPPED"):
                         anuncio.faturamento  = (anuncio.faturamento or 0) + valor
                         anuncio.vendas_count = (anuncio.vendas_count or 0) + qty
-                elif existe and existe.status != status_ml:
-                    existe.status = status_ml
+                else:
+                    # Atualiza status e recalcula lucro mesmo em pedidos existentes
+                    if existe.status != status_ml:
+                        existe.status = status_ml
+                    existe.lucro_estimado = lucro
 
         db.commit()
         return {"ok": True, "novos_pedidos": novos, "total_encontrados": len(results), "seller_id_usado": seller_id}

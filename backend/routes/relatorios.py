@@ -264,6 +264,195 @@ def dre_simplificado(
     }
 
 
+@router.get("/rentabilidade-analitico")
+def rentabilidade_analitico(
+    data_ini: date, data_fim: date,
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """Rentabilidade analítica: produtos agrupados por categoria com fat. bruto, custo e margem."""
+    vendas = db.query(Venda).filter(
+        Venda.data_venda >= data_ini,
+        Venda.data_venda <= data_fim,
+        Venda.status == "FINALIZADA"
+    ).all()
+
+    prods: dict = {}
+    for v in vendas:
+        for item in v.itens:
+            pid = item.produto_id
+            if pid not in prods:
+                prod = db.query(Produto).filter(Produto.id == pid).first()
+                cat  = prod.categoria if prod and prod.categoria else None
+                prods[pid] = {
+                    "produto_id":   pid,
+                    "codigo":       prod.codigo if prod else "",
+                    "descricao":    item.descricao_snap or (prod.descricao if prod else f"#{pid}"),
+                    "cat_id":       cat.id   if cat else 0,
+                    "cat_nome":     cat.nome if cat else "Sem Categoria",
+                    "qty_venda":    0.0,
+                    "fat_bruto":    0.0,
+                    "custo_merc":   0.0,
+                }
+            prods[pid]["qty_venda"]  += item.quantidade
+            prods[pid]["fat_bruto"]  += item.total_item
+            prods[pid]["custo_merc"] += item.quantidade * item.custo_unitario
+
+    total_geral = sum(p["fat_bruto"] for p in prods.values()) or 1
+
+    # Agrupar por categoria
+    cats: dict = {}
+    for p in prods.values():
+        cid = p["cat_id"]
+        if cid not in cats:
+            cats[cid] = {"cat_id": cid, "cat_nome": p["cat_nome"], "itens": [], "fat_bruto": 0, "custo_merc": 0, "qty_venda": 0}
+        p["marg_contrib"] = round(p["fat_bruto"] - p["custo_merc"], 2)
+        p["perc_marg"]    = round((p["marg_contrib"] / p["fat_bruto"]) * 100, 2) if p["fat_bruto"] > 0 else 0
+        p["perc_partic"]  = round((p["fat_bruto"] / total_geral) * 100, 2)
+        p["fat_bruto"]    = round(p["fat_bruto"], 2)
+        p["custo_merc"]   = round(p["custo_merc"], 2)
+        p["qty_venda"]    = round(p["qty_venda"], 3)
+        cats[cid]["itens"].append(p)
+        cats[cid]["fat_bruto"]  += p["fat_bruto"]
+        cats[cid]["custo_merc"] += p["custo_merc"]
+        cats[cid]["qty_venda"]  += p["qty_venda"]
+
+    result = []
+    for c in sorted(cats.values(), key=lambda x: x["fat_bruto"], reverse=True):
+        c["itens"]       = sorted(c["itens"], key=lambda x: x["fat_bruto"], reverse=True)
+        c["fat_bruto"]   = round(c["fat_bruto"], 2)
+        c["custo_merc"]  = round(c["custo_merc"], 2)
+        c["qty_venda"]   = round(c["qty_venda"], 3)
+        c["marg_contrib"]= round(c["fat_bruto"] - c["custo_merc"], 2)
+        c["perc_marg"]   = round((c["marg_contrib"] / c["fat_bruto"]) * 100, 2) if c["fat_bruto"] > 0 else 0
+        c["perc_partic"] = round((c["fat_bruto"] / total_geral) * 100, 2)
+        result.append(c)
+
+    return {
+        "periodo": {"ini": str(data_ini), "fim": str(data_fim)},
+        "total_geral": round(total_geral, 2),
+        "categorias": result,
+    }
+
+
+@router.get("/rentabilidade-sintetico")
+def rentabilidade_sintetico(
+    data_ini: date, data_fim: date,
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """Rentabilidade sintética: apenas totais por categoria, sem detalhe de produto."""
+    r = rentabilidade_analitico(data_ini, data_fim, db, _)
+    cats_simples = []
+    for c in r["categorias"]:
+        cats_simples.append({
+            "cat_nome":    c["cat_nome"],
+            "fat_bruto":   c["fat_bruto"],
+            "qty_venda":   c["qty_venda"],
+            "custo_merc":  c["custo_merc"],
+            "marg_contrib":c["marg_contrib"],
+            "perc_marg":   c["perc_marg"],
+            "perc_partic": c["perc_partic"],
+        })
+    return {
+        "periodo":      r["periodo"],
+        "total_geral":  r["total_geral"],
+        "categorias":   cats_simples,
+    }
+
+
+@router.get("/vendas-conjugadas")
+def vendas_conjugadas(
+    data_ini: date, data_fim: date,
+    min_ocorrencias: int = Query(default=2),
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """Produtos mais vendidos juntos (market basket) no período."""
+    from itertools import combinations
+
+    vendas = db.query(Venda).filter(
+        Venda.data_venda >= data_ini,
+        Venda.data_venda <= data_fim,
+        Venda.status == "FINALIZADA"
+    ).all()
+
+    # cache de descrições
+    desc_cache: dict = {}
+    pares: dict = {}
+    for v in vendas:
+        itens_v = []
+        for item in v.itens:
+            pid = item.produto_id
+            if pid not in desc_cache:
+                desc_cache[pid] = item.descricao_snap or f"#{pid}"
+            itens_v.append((pid, desc_cache[pid], item.total_item))
+
+        # todos os pares da venda
+        for (p1_id, p1_desc, p1_val), (p2_id, p2_desc, p2_val) in combinations(
+            sorted(itens_v, key=lambda x: x[0]), 2
+        ):
+            key = (p1_id, p2_id)
+            if key not in pares:
+                pares[key] = {
+                    "produto_1_id":   p1_id,
+                    "produto_1":      p1_desc,
+                    "produto_2_id":   p2_id,
+                    "produto_2":      p2_desc,
+                    "ocorrencias":    0,
+                    "fat_conjunto":   0.0,
+                }
+            pares[key]["ocorrencias"]  += 1
+            pares[key]["fat_conjunto"] += p1_val + p2_val
+
+    result = [
+        {**p, "fat_conjunto": round(p["fat_conjunto"], 2)}
+        for p in pares.values()
+        if p["ocorrencias"] >= min_ocorrencias
+    ]
+    return sorted(result, key=lambda x: x["ocorrencias"], reverse=True)[:100]
+
+
+@router.get("/vendas-por-horario")
+def vendas_por_horario(
+    data_ini: date, data_fim: date,
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """Distribuição de vendas por faixa de horário (usa created_at)."""
+    vendas = db.query(Venda).filter(
+        Venda.data_venda >= data_ini,
+        Venda.data_venda <= data_fim,
+        Venda.status == "FINALIZADA"
+    ).all()
+
+    horas: dict = {h: {"hora": h, "faixa": f"{h:02d}:00 / {h:02d}:59",
+                        "total_vendas": 0, "faturamento": 0.0} for h in range(24)}
+
+    for v in vendas:
+        hora = v.created_at.hour if v.created_at else 0
+        horas[hora]["total_vendas"] += 1
+        horas[hora]["faturamento"]  += v.total
+
+    total_geral = sum(h["faturamento"] for h in horas.values())
+    total_para_perc = total_geral or 1
+
+    result = []
+    for h in range(24):
+        d = horas[h]
+        d["faturamento"]  = round(d["faturamento"], 2)
+        d["ticket_medio"] = round(d["faturamento"] / d["total_vendas"], 2) if d["total_vendas"] > 0 else 0
+        d["perc_partic"]  = round((d["faturamento"] / total_para_perc) * 100, 2)
+        result.append(d)
+
+    max_fat = max(h["faturamento"] for h in result) or 1
+    for d in result:
+        d["pico"] = d["faturamento"] >= max_fat * 0.8
+
+    return {
+        "periodo":      {"ini": str(data_ini), "fim": str(data_fim)},
+        "total_geral":  round(total_geral, 2),
+        "total_vendas": sum(h["total_vendas"] for h in result),
+        "horarios":     result,
+    }
+
+
 @router.get("/fluxo-caixa")
 def fluxo_caixa(
     data_ini: date, data_fim: date,

@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import api, { fmtMoeda } from '@/lib/api'
+import { useToast } from '@/components/Toast'
 import {
   Search, Trash2, User, X, ChevronRight,
   ShoppingCart, Banknote, CreditCard, Smartphone, Heart,
@@ -12,7 +13,7 @@ import {
 type Produto  = { id: number; codigo: string; codigo_barras?: string; descricao: string; preco_venda: number; unidade: string; estoque_atual: number; categoria?: string; pesavel?: boolean; plu_codigo?: number | null; embalagem_codigo?: string | null; embalagem_qtd?: number; atacarejo?: boolean; atacarejo_qtd_min?: number; atacarejo_preco?: number; categoria_id?: number; imagem_url?: string }
 type CartItem = { uid: string; produto: Produto; quantidade: number; preco: number; desconto: number; peso_kg?: number }
 type Inst     = { id: number; nome: string; total_arrecadado: number }
-type Params   = { desconto_maximo_pct: number; permite_venda_sem_estoque: boolean; troco_solidario_ativo: boolean; nome_loja: string; terminal: string; solicitar_cpf_inicio: boolean; logo_url?: string; cnpj_loja?: string; endereco_loja?: string; mensagem_cupom?: string; impressao_cupom?: boolean }
+type Params   = { desconto_maximo_pct: number; permite_venda_sem_estoque: boolean; troco_solidario_ativo: boolean; nome_loja: string; terminal: string; solicitar_cpf_inicio: boolean; logo_url?: string; cnpj_loja?: string; endereco_loja?: string; mensagem_cupom?: string; impressao_cupom?: boolean; supervisor_obrigatorio_abertura?: boolean }
 type FormaAPI = { id: number; chave: string; nome: string; icone: string; cor: string; aceita_troco: boolean; ordem: number }
 type RegraAtk = { tipo: string; produto_id?: number; categoria_id?: number; qtd_minima: number; preco_atacarejo?: number; pct_desconto?: number }
 type RegraFormaPgto = { forma_chave: string; nome: string; valor_minimo_compra: number; pct_desconto: number }
@@ -24,6 +25,7 @@ function IconeForma({ icone, size = 20 }: { icone: string; size?: number }) {
 
 export default function PDVPage() {
   const router = useRouter()
+  const toast = useToast()
   const [token, setToken] = useState('')
   const [user, setUser]   = useState<any>(null)
   const [isMobile, setIsMobile] = useState(false)
@@ -35,17 +37,43 @@ export default function PDVPage() {
   }, [])
 
   // Abertura de Caixa
-  const [showAbertura,  setShowAbertura]  = useState(false)
-  const [operadorNum,   setOperadorNum]   = useState('')
-  const [fundoCaixa,    setFundoCaixa]    = useState('')
-  const [aberturaOk,    setAberturaOk]    = useState(false)
-  const [salvandoAb,    setSalvandoAb]    = useState(false)
+  const [showAbertura,     setShowAbertura]     = useState(false)
+  const [caixaFechado,     setCaixaFechado]     = useState<boolean | null>(null)
+  const [operadorNum,      setOperadorNum]      = useState('')
+  const [supervisorAbNum,  setSupervisorAbNum]  = useState('')
+  const [supervisorAbSenha,setSupervisorAbSenha]= useState('')
+  const [fundoCaixa,       setFundoCaixa]       = useState('')
+  const [aberturaOk,       setAberturaOk]       = useState(false)
+  const [salvandoAb,       setSalvandoAb]       = useState(false)
+  const [erroAbertura,     setErroAbertura]     = useState('')
+  const operadorAbRef = useRef<HTMLInputElement>(null)
+  const supervisorAbRef = useRef<HTMLInputElement>(null)
+  const fundoAbRef = useRef<HTMLInputElement>(null)
 
   // Caixa — Sangria / Suprimento / Fechar
-  const [showMovCaixa,  setShowMovCaixa]  = useState<'sangria'|'suprimento'|'fechar'|null>(null)
-  const [movCaixaVal,   setMovCaixaVal]   = useState('')
-  const [movCaixaObs,   setMovCaixaObs]   = useState('')
+  const [showMovCaixa,   setShowMovCaixa]   = useState<'sangria'|'suprimento'|'fechar'|null>(null)
+  const [movCaixaVal,    setMovCaixaVal]    = useState('')
+  const [movCaixaObs,    setMovCaixaObs]    = useState('')
+  const [movCaixaForma,  setMovCaixaForma]  = useState('DINHEIRO')
+  const [movCaixaMsg,    setMovCaixaMsg]    = useState('')
   const [movCaixaSaving, setMovCaixaSaving] = useState(false)
+  const movCaixaValRef = useRef<HTMLInputElement>(null)
+  const movCaixaObsRef = useRef<HTMLInputElement>(null)
+
+  // Fechamento de Caixa
+  const [showFecharCaixa,   setShowFecharCaixa]   = useState(false)
+  const [fechamentoData,    setFechamentoData]    = useState<any>(null)
+  const [fechamentoCupons,  setFechamentoCupons]  = useState<any[]>([])
+  const [fechamentoSaving,  setFechamentoSaving]  = useState(false)
+  const [fechamentoResult,  setFechamentoResult]  = useState<any>(null)
+  const [showResultado,     setShowResultado]     = useState(false)
+  const [showConferencia,   setShowConferencia]   = useState(false)
+  const [showSangriaObrig,  setShowSangriaObrig]  = useState(false)
+  const [sangriaObrigVal,   setSangriaObrigVal]   = useState('')
+  const [sangriaObrigDig,   setSangriaObrigDig]   = useState('')
+  const [cupomExpandido,    setCupomExpandido]    = useState<number | null>(null)
+  const [formaDetalhe,      setFormaDetalhe]      = useState<string | null>(null)
+  const sangriaObrigRef = useRef<HTMLInputElement>(null)
 
   const [produtos, setProdutos]     = useState<Produto[]>([])
   const [params, setParams]         = useState<Params | null>(null)
@@ -171,7 +199,16 @@ export default function PDVPage() {
   }
 
   useEffect(() => {
+    if (!token) return
     carregarCarga()
+    api.get('/pdv/abertura/status').then(r => {
+      if (r.data.aberto) {
+        setAberturaOk(true); setCaixaFechado(false)
+      } else {
+        setAberturaOk(false); setCaixaFechado(true)
+        // PDV sobe limpo — abertura só quando operador pressionar A
+      }
+    }).catch(() => { setCaixaFechado(false) })
   }, [token])
 
   // Recarrega catálogo quando janela volta ao foco (ex: voltou do cadastro de produtos)
@@ -182,20 +219,146 @@ export default function PDVPage() {
   }, [token])
 
   async function abrirCaixa() {
-    if (!operadorNum) { alert('Informe o número do operador'); return }
+    setErroAbertura('')
+    if (!operadorNum) { setErroAbertura('Informe o número do operador'); return }
+    if (params?.supervisor_obrigatorio_abertura) {
+      if (!supervisorAbNum || !supervisorAbSenha) { setErroAbertura('Informe o supervisor e a senha'); return }
+      try {
+        await api.post('/pdv/supervisor/validar', { numero: Number(supervisorAbNum), senha: supervisorAbSenha })
+      } catch { setErroAbertura('Supervisor inválido ou senha incorreta'); return }
+    }
     setSalvandoAb(true)
     try {
       await api.post('/pdv/abertura', {
         operador_num: Number(operadorNum),
-        fundo_caixa: Number(fundoCaixa) || 0,
+        fundo_caixa: Number(fundoCaixa.replace(',', '.')) || 0,
         terminal: params?.terminal || 'PDV-01',
       })
-      setAberturaOk(true)
+      setAberturaOk(true); setCaixaFechado(false)
       setShowAbertura(false)
+      setOperadorNum(''); setSupervisorAbNum(''); setSupervisorAbSenha(''); setFundoCaixa('')
+      // Zera todos os estados do fechamento anterior para o novo caixa começar limpo
+      setFechamentoData(null); setFechamentoCupons([]); setFechamentoResult(null)
+      setShowFecharCaixa(false); setShowResultado(false); setShowConferencia(false)
+      setShowSangriaObrig(false); setSangriaObrigDig(''); setSangriaObrigVal('')
+      setFormaDetalhe(null); setCupomExpandido(null)
+      setTimeout(() => buscaRef.current?.focus(), 200)
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Erro ao registrar abertura')
+      setErroAbertura(e.response?.data?.detail || 'Erro ao registrar abertura')
     }
     setSalvandoAb(false)
+  }
+
+  async function abrirFechamento() {
+    setFechamentoResult(null)
+    setShowResultado(false)
+    setShowConferencia(false)
+    setShowSangriaObrig(false)
+    setCupomExpandido(null)
+    setFormaDetalhe(null)
+    setShowFecharCaixa(true)
+    try {
+      const [statusR, cuponsR] = await Promise.all([
+        api.get('/caixa/status'),
+        api.get('/caixa/cupons'),
+      ])
+      const caixaData = statusR.data.caixa
+      setFechamentoData(caixaData)
+      setFechamentoCupons(cuponsR.data || [])
+      const totalDin = caixaData?.total_dinheiro || 0
+      const sangrias = caixaData?.sangrias_dinheiro || 0
+      if (totalDin > 0 && sangrias < totalDin) {
+        setSangriaObrigDig('')
+        setSangriaObrigVal('')
+        setShowSangriaObrig(true)
+        setTimeout(() => sangriaObrigRef.current?.focus(), 200)
+      } else {
+        setShowConferencia(true)
+      }
+    } catch { setFechamentoData(null); setFechamentoCupons([]); setShowConferencia(true) }
+  }
+
+  async function confirmarSangriaObrig() {
+    if (fechamentoSaving) return
+    const digits = sangriaObrigRef.current?.dataset.digits || sangriaObrigDig
+    const valor = digits ? Number(digits) / 100 : 0
+    if (valor <= 0) return
+    setFechamentoSaving(true)
+    try {
+      await api.post('/caixa/sangria', { valor, observacao: 'Sangria pré-fechamento' })
+      const [statusR] = await Promise.all([api.get('/caixa/status')])
+      setFechamentoData(statusR.data.caixa)
+      setShowSangriaObrig(false)
+      setShowConferencia(true)
+    } catch { /* mantém na tela */ }
+    setFechamentoSaving(false)
+  }
+
+  function imprimirFechamento() {
+    if (!fechamentoResult) return
+    const d = fechamentoResult
+    const now = new Date()
+    const dt = now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR')
+    const linha = '─'.repeat(38)
+    let html = `<html><head><style>
+      body{font-family:'Courier New',monospace;font-size:11px;margin:5mm;width:72mm}
+      .c{text-align:center}.b{font-weight:bold}.row{display:flex;justify-content:space-between}
+      .hr{border-top:1px dashed #000;margin:4px 0}
+    </style></head><body>
+    <p class="c b" style="font-size:13px">FECHAMENTO DE CAIXA</p>
+    <p class="c b">BATIMENTO FINAL</p>
+    <div class="hr"></div>
+    <p class="c">${dt}</p>
+    <p class="c">Terminal: ${d.terminal || '—'}</p>
+    <div class="hr"></div>`
+
+    const formas = [...new Set(fechamentoCupons.map((c: any) => c.forma_pagamento))]
+    formas.forEach((forma: any) => {
+      const cupons = fechamentoCupons.filter((c: any) => c.forma_pagamento === forma)
+      const total = cupons.reduce((s: number, c: any) => s + c.total, 0)
+      html += `<div class="hr"></div><p class="b">${forma} — R$ ${total.toFixed(2).replace('.',',')} (${cupons.length}x)</p>`
+      cupons.forEach((c: any) => {
+        html += `<div class="row"><span>#${String(c.numero).padStart(4,'0')} ${c.hora}</span><span>R$ ${c.total.toFixed(2).replace('.',',')}</span></div>`
+        ;(c.itens || []).forEach((it: any) => {
+          html += `<div class="row" style="padding-left:8px;color:#555"><span>${it.quantidade}x ${it.descricao}</span><span>R$ ${(it.total_item||0).toFixed(2).replace('.',',')}</span></div>`
+        })
+      })
+    })
+
+    const saldo = d.diferenca || 0
+    html += `<div class="hr"></div><p class="b">BALANÇO DE CAIXA</p>
+    <div class="row"><span>Fundo de caixa</span><span>R$ ${(d.fundo_caixa||0).toFixed(2).replace('.',',')}</span></div>
+    <div class="row"><span>Vendas dinheiro</span><span>R$ ${(d.total_dinheiro||0).toFixed(2).replace('.',',')}</span></div>
+    <div class="row"><span>Sangrias</span><span>- R$ ${(d.sangrias_dinheiro||0).toFixed(2).replace('.',',')}</span></div>
+    <div class="hr"></div>
+    <div class="row b"><span>${saldo===0?'CONFERIDO ✓':saldo>0?'SOBROU':'FALTOU'}</span><span>R$ ${Math.abs(saldo).toFixed(2).replace('.',',')}</span></div>
+    <div class="hr"></div>
+    <p class="c">*** FIM DO COMPROVANTE ***</p>
+    </body></html>`
+
+    const win = window.open('', '_blank', 'width=380,height=700')
+    if (win) { win.document.write(html); win.document.close(); win.onload = () => win.print() }
+  }
+
+  async function executarFechamento() {
+    if (fechamentoSaving) return
+    setFechamentoSaving(true)
+    try {
+      const r = await api.post('/caixa/fechar', {})
+      setFechamentoResult(r.data)
+      setShowResultado(true)
+      setCaixaFechado(true); setAberturaOk(false)
+    } catch (e: any) {
+      setFechamentoResult({ erro: e.response?.data?.detail || 'Erro ao fechar caixa' })
+      setShowResultado(true)
+    }
+    setFechamentoSaving(false)
+  }
+
+  function fmtDinhContado(digits: string) {
+    if (!digits) return ''
+    const n = Number(digits) / 100
+    return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
   function logout() {
@@ -240,6 +403,22 @@ export default function PDVPage() {
       return prod.atacarejo_preco
     }
     return prod.preco_venda
+  }
+
+  // Retorna info de atacarejo de um produto (null se não tem)
+  function getAtkInfo(prod: Produto): { precoNormal: number; precoAtk: number; qtdMin: number } | null {
+    for (const r of regrasAtk) {
+      const match = (r.tipo === 'PRODUTO' && r.produto_id === prod.id) ||
+                    (r.tipo === 'CATEGORIA' && r.categoria_id === (prod as any).categoria_id)
+      if (match) {
+        const precoAtk = r.preco_atacarejo ?? (prod.preco_venda * (1 - (r.pct_desconto || 0) / 100))
+        return { precoNormal: prod.preco_venda, precoAtk, qtdMin: r.qtd_minima }
+      }
+    }
+    if (prod.atacarejo && prod.atacarejo_qtd_min && prod.atacarejo_preco) {
+      return { precoNormal: prod.preco_venda, precoAtk: prod.atacarejo_preco, qtdMin: prod.atacarejo_qtd_min }
+    }
+    return null
   }
 
   // Desconto por forma de pagamento (campanhas_forma_pgto)
@@ -293,14 +472,8 @@ export default function PDVPage() {
       if (peso_kg !== undefined) {
         return [...c, { uid, produto: prod, quantidade: peso_kg, preco: prod.preco_venda, desconto: 0, peso_kg }]
       }
-      const idx = c.findIndex(i => i.produto.id === prod.id && !i.peso_kg)
-      if (idx >= 0) {
-        const updated = [...c]
-        const novaQtd = updated[idx].quantidade + qty
-        const novoPreco = precoParaQtd(prod, novaQtd)
-        updated[idx] = { ...updated[idx], quantidade: novaQtd, preco: novoPreco }
-        return updated
-      }
+      // Cada leitura/registro gera sempre uma linha nova no cupom.
+      // Acúmulo de quantidade só acontece via multiplicador [Q] (qty > 1 já vem pronto).
       return [...c, { uid, produto: prod, quantidade: qty, preco: precoParaQtd(prod, qty), desconto: 0 }]
     })
   }, [params])
@@ -392,8 +565,7 @@ export default function PDVPage() {
 
   function pularCpfInicio() {
     setShowCpfInicio(false)
-    setPendingFirstItem(null)
-    setTimeout(() => buscaRef.current?.focus(), 100)
+    _resolverPendingItem()
   }
 
   function _resolverPendingItem() {
@@ -468,7 +640,7 @@ export default function PDVPage() {
         } catch {}
       }
       setTela('sucesso')
-    } catch (e: any) { alert(e.response?.data?.detail || 'Erro ao finalizar venda') }
+    } catch (e: any) { toast.show(e.response?.data?.detail || 'Erro ao finalizar venda', 'error') }
     setSaving(false)
   }
 
@@ -495,7 +667,7 @@ export default function PDVPage() {
     if (!cart.length || saving) return
     const formaInfo = formasAPI.find(f => f.chave === pgtoForma)
     const aceita = formaInfo?.aceita_troco ?? (pgtoForma === 'DINHEIRO')
-    const valorRecebido = Number(pgtoValor) || 0
+    const valorRecebido = pgtoValor ? Number(pgtoValor) : total
     if (aceita && valorRecebido < total) return
     setSaving(true)
     try {
@@ -533,7 +705,7 @@ export default function PDVPage() {
         }, 1000)
       }
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Erro ao finalizar venda')
+      toast.show(e.response?.data?.detail || 'Erro ao finalizar venda', 'error')
     }
     setSaving(false)
   }
@@ -542,6 +714,58 @@ export default function PDVPage() {
     function onKey(e: KeyboardEvent) {
       lastActivityRef.current = Date.now()
       if (showScreensaver) { e.preventDefault(); e.stopPropagation(); setShowScreensaver(false); return }
+
+      // ── Modal Abertura de Caixa ──
+      if (showAbertura) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          if (!caixaFechado) setShowAbertura(false)
+          return
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          // Avança entre os campos: operador → supervisor → fundo → abrir
+          const activeEl = document.activeElement as HTMLElement
+          if (activeEl === operadorAbRef.current) {
+            if (params?.supervisor_obrigatorio_abertura) supervisorAbRef.current?.focus()
+            else fundoAbRef.current?.focus()
+          } else if (activeEl === fundoAbRef.current) {
+            abrirCaixa()
+          } else {
+            fundoAbRef.current?.focus()
+          }
+          return
+        }
+        return  // Bloqueia atalhos globais enquanto abertura estiver aberta
+      }
+
+      // ── Modal Fechamento de Caixa ──
+      if (showFecharCaixa) {
+        if (showResultado) {
+          if (e.key === 'Escape' || e.key === 'Enter') {
+            e.preventDefault()
+            setShowFecharCaixa(false); setFechamentoResult(null); setShowResultado(false)
+            return
+          }
+          return
+        }
+        if (showSangriaObrig) {
+          if (e.key === 'Escape') { e.preventDefault(); setShowFecharCaixa(false); setShowSangriaObrig(false); return }
+          if (e.key === 'Enter') { e.preventDefault(); confirmarSangriaObrig(); return }
+          return
+        }
+        if (formaDetalhe) {
+          if (e.key === 'Escape') { e.preventDefault(); setFormaDetalhe(null); return }
+          return
+        }
+        if (showConferencia) {
+          if (e.key === 'Escape') { e.preventDefault(); setShowConferencia(false); return }
+          if (e.key === 'Enter') { e.preventDefault(); executarFechamento(); return }
+          return
+        }
+        if (e.key === 'Escape') { e.preventDefault(); setShowFecharCaixa(false); setFechamentoResult(null); setShowResultado(false); setShowConferencia(false); return }
+        return
+      }
 
       // ── Modal CPF início da venda ──
       if (showCpfInicio) {
@@ -660,6 +884,21 @@ export default function PDVPage() {
         return
       }
 
+      // A → abertura de caixa
+      if ((e.key === 'a' || e.key === 'A') && tela === 'venda' && !cpfBusca && !modoQtd) {
+        e.preventDefault()
+        setErroAbertura(''); setShowAbertura(true)
+        setTimeout(() => operadorAbRef.current?.focus(), 80)
+        return
+      }
+
+      // S → Saída / Fechamento de Caixa (só se caixa estiver aberto)
+      if ((e.key === 's' || e.key === 'S') && tela === 'venda' && !cpfBusca && !modoQtd && caixaFechado === false) {
+        e.preventDefault()
+        abrirFechamento()
+        return
+      }
+
       // Q → modo quantidade (digita qtd, Enter, depois escaneia produto)
       if ((e.key === 'q' || e.key === 'Q') && tela === 'venda' && !modoQtd && countdown === 0) {
         e.preventDefault()
@@ -718,6 +957,7 @@ export default function PDVPage() {
       // ESC → fecha modais em cascata
       if (e.key === 'Escape') {
         e.preventDefault()
+        if (showMovCaixa) { setShowMovCaixa(null); setMovCaixaVal(''); setMovCaixaObs(''); setMovCaixaMsg(''); return }
         if (showMenu) { setShowMenu(false); setMenuSel(0); return }
         if (showFechamento) { setShowFechamento(false); setTimeout(() => { buscaRef.current?.focus() }, 80); return }
         setPgtoAtivo(false)
@@ -728,7 +968,7 @@ export default function PDVPage() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [tela, cart.length, countdown, showMenu, menuSel, erroScan, showFechamento, cpfBusca, consultaMode, clienteResultados, nomeResultSel, modoQtd, aguardandoTroco, showAlterarPreco, buscaProdModal, buscaProdSel, prodConsultado, showPedido, pedidoInfo, pedidoTab, pedidoListSel, listaPedidos, listaMkt, showScreensaver, showCpfInicio, cpfInicioStep, cpfInicioSel, cpfInicioTipoSel, pendingFirstItem, erroPedido])
+  }, [tela, cart.length, countdown, showMenu, menuSel, erroScan, showFechamento, cpfBusca, consultaMode, clienteResultados, nomeResultSel, modoQtd, aguardandoTroco, showAlterarPreco, buscaProdModal, buscaProdSel, prodConsultado, showPedido, pedidoInfo, pedidoTab, pedidoListSel, listaPedidos, listaMkt, showScreensaver, showCpfInicio, cpfInicioStep, cpfInicioSel, cpfInicioTipoSel, pendingFirstItem, erroPedido, showMovCaixa, showFecharCaixa, fechamentoResult, showResultado, showConferencia, showSangriaObrig, formaDetalhe, caixaFechado, showAbertura, params])
 
 
   // ── Screensaver: 10s de inatividade ──────────────────────────────────────
@@ -843,7 +1083,7 @@ export default function PDVPage() {
       }
       setTela('sucesso')
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Erro ao registrar venda do pedido')
+      toast.show(e.response?.data?.detail || 'Erro ao registrar venda do pedido', 'error')
       setPedidoInfo(null)
       setTela('venda')
       setTimeout(() => buscaRef.current?.focus(), 100)
@@ -1010,6 +1250,11 @@ export default function PDVPage() {
                 <p className="font-black leading-snug text-white" style={{ fontSize: 13, textTransform: 'uppercase' }}>
                   <span style={{ color: '#60a5fa' }}>{String(idx + 1).padStart(2, '0')}. </span>{item.produto.descricao}
                 </p>
+                {item.preco < item.produto.preco_venda && (
+                  <p className="text-[9px] font-black" style={{ color: '#22c55e' }}>
+                    🏷️ ATACAREJO — Normal {fmtVal(item.produto.preco_venda)} → {fmtVal(item.preco)}
+                  </p>
+                )}
                 <div className="flex items-center justify-between mt-1">
                   <p className="text-[10px] font-mono" style={{ color: '#475569' }}>{item.produto.codigo}</p>
                   <p className="font-bold" style={{ color: '#94a3b8', fontSize: 13 }}>
@@ -1027,6 +1272,11 @@ export default function PDVPage() {
                   <div className="min-w-0">
                     <p className="font-black leading-tight text-white" style={{ fontSize: 13, textTransform:'uppercase' }}>{item.produto.descricao}</p>
                     <p className="text-[9px] font-mono" style={{ color: '#475569' }}>{item.produto.codigo}</p>
+                    {item.preco < item.produto.preco_venda && (
+                      <p className="text-[9px] font-black mt-0.5" style={{ color: '#22c55e' }}>
+                        🏷️ ATACAREJO — Normal {fmtVal(item.produto.preco_venda)} → Atac. {fmtVal(item.preco)}
+                      </p>
+                    )}
                   </div>
                   <span className="text-right font-bold text-xs" style={{ color: '#94a3b8' }}>
                     {item.peso_kg ? `${item.peso_kg.toFixed(3)}kg` : fmtQtd(item.quantidade)}
@@ -1338,7 +1588,13 @@ export default function PDVPage() {
     if (f) {
       setPgtoForma(f.chave)
       setPgtoAtivo(true)
-      setPgtoValorExterno(String(total.toFixed(2)))
+      // Dinheiro (aceita troco): começa em branco — operador digita o valor recebido
+      // Demais formas: preenche com o total exato
+      if (f.aceita_troco) {
+        setPgtoValor(''); setPgtoDigits('')
+      } else {
+        setPgtoValorExterno(String(total.toFixed(2)))
+      }
     }
   }
 
@@ -1350,6 +1606,7 @@ export default function PDVPage() {
       onMouseMove={registrarAtividade}
       onClick={registrarAtividade}
     >
+      {toast.node}
 
       {/* ══ MODAL CPF INÍCIO DA VENDA ══ */}
       {showCpfInicio && (
@@ -1482,6 +1739,26 @@ export default function PDVPage() {
       )}
 
       {/* ══ SCREENSAVER ══ */}
+      {/* ══ OVERLAY PDV SEM OPERADOR ══ */}
+      {caixaFechado === true && !showAbertura && !showFecharCaixa && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
+          style={{ background: 'rgba(0,0,0,0.35)' }}>
+          <div className="text-center px-8 py-6 rounded-3xl pointer-events-auto"
+            style={{ background: 'rgba(8,8,20,0.88)', border: '2px solid rgba(8,145,178,0.5)', backdropFilter: 'blur(16px)', maxWidth: 360 }}>
+            <p className="text-5xl mb-3">🔒</p>
+            <p className="text-2xl font-black text-white mb-1">PDV sem operador</p>
+            <p className="text-sm mb-4" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              É necessário registrar a abertura antes de operar
+            </p>
+            <button onClick={() => { setErroAbertura(''); setShowAbertura(true); setTimeout(() => operadorAbRef.current?.focus(), 80) }}
+              className="w-full py-3 rounded-2xl font-black text-white text-lg"
+              style={{ background: 'linear-gradient(135deg,#0891b2,#0e7490)', boxShadow: '0 8px 24px rgba(8,145,178,0.4)' }}>
+              🔓 Pressione A — Abrir Caixa
+            </button>
+          </div>
+        </div>
+      )}
+
       {showScreensaver && (
         <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center cursor-pointer"
           style={{ background: 'linear-gradient(135deg,#EA580C 0%,#F97316 40%,#C2410C 100%)' }}
@@ -1573,8 +1850,11 @@ export default function PDVPage() {
 
         <div className="flex-1 relative" style={{ maxWidth: isMobile ? '100%' : 560 }}>
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: '#f97316' }} />
-          <input ref={buscaRef} value={busca} onChange={e => setBusca(e.target.value)} autoFocus
-            placeholder="Código de barras ou nome do produto..."
+          <input ref={buscaRef} value={busca} onChange={e => {
+              if (caixaFechado) { setErroScan('PDV sem operador — pressione A para registrar a abertura'); return }
+              setBusca(e.target.value.replace(/\D/g, ''))
+            }} autoFocus inputMode="numeric"
+            placeholder="Código de barras..."
             className="w-full pl-11 pr-4 outline-none"
             style={{ background: 'rgba(0,0,0,0.45)', border: '2px solid rgba(249,115,22,0.6)', borderRadius: 14,
               color: 'white', fontSize: 20, fontWeight: 800, padding: '11px 16px 11px 48px',
@@ -1586,13 +1866,14 @@ export default function PDVPage() {
               // Campo vazio: ignora — evita adicionar produto por Enter de navegação/autoFocus
               const cod = busca.trim()
               if (!cod) return
+              const rfocus = () => setTimeout(() => { buscaRef.current?.focus(); buscaRef.current?.select() }, 80)
               const balanca = parsearBalanca(cod)
               if (balanca) {
                 const prod = produtos.find(p => p.plu_codigo === balanca.plu && p.pesavel)
-                if (prod) { addItem(prod, 1, balanca.peso_kg); setBusca(''); return }
+                if (prod) { addItem(prod, 1, balanca.peso_kg); setBusca(''); rfocus(); return }
               }
               const emb = produtos.find(p => p.embalagem_codigo && p.embalagem_codigo === cod)
-              if (emb) { addItem(emb, emb.embalagem_qtd && emb.embalagem_qtd > 1 ? emb.embalagem_qtd : 1); setBusca(''); return }
+              if (emb) { addItem(emb, emb.embalagem_qtd && emb.embalagem_qtd > 1 ? emb.embalagem_qtd : 1); setBusca(''); rfocus(); return }
               const exato = produtos.find(p => p.codigo === cod || p.codigo_barras === cod)
               if (exato) {
                 if (exato.pesavel && qtdPendente === 1) {
@@ -1608,7 +1889,7 @@ export default function PDVPage() {
                   }
                   return
                 }
-                addItem(exato, qtdPendente); setBusca(''); setQtdPendente(1); return
+                addItem(exato, qtdPendente); setBusca(''); setQtdPendente(1); rfocus(); return
               }
               // PDV só aceita código exato cadastrado — código não encontrado
               setErroScan(cod)
@@ -1665,13 +1946,13 @@ export default function PDVPage() {
           <div className="flex flex-1 min-h-0" style={{ borderBottom: '2px solid #e2e8f0' }}>
 
             {/* Quadro LOGO DA EMPRESA */}
-            <div className="flex flex-col items-center justify-center gap-2 p-3"
+            <div className="relative overflow-hidden"
               style={{ flex: 1, background: '#f0f4ff', borderRight: '2px solid #e2e8f0' }}>
               {params?.logo_url ? (
                 <img src={params.logo_url} alt={params.nome_loja}
-                  className="object-contain" style={{ maxHeight: 120, maxWidth: '92%' }} />
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                <>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                   <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
                     style={{ background: '#1e3a5f' }}>
                     <ShoppingCart size={32} color="#f97316" />
@@ -1679,7 +1960,7 @@ export default function PDVPage() {
                   <p className="text-xs font-black text-center leading-tight" style={{ color: '#1e3a5f' }}>
                     {params?.nome_loja || 'NexusVarejo'}
                   </p>
-                </>
+                </div>
               )}
             </div>
 
@@ -1700,6 +1981,20 @@ export default function PDVPage() {
                       </p>
                     </div>
                   )}
+                  {/* Badge atacarejo */}
+                  {(() => { const atk = getAtkInfo(lastScanned); return atk ? (
+                    <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5"
+                      style={{ background: 'linear-gradient(135deg,#1a6b1a,#22c55e)', borderTop: '2px solid #16a34a' }}>
+                      <p className="text-[9px] font-black tracking-widest mb-0.5" style={{ color: '#bbf7d0' }}>🏷️ PRODUTO ATACAREJO — min {atk.qtdMin} un.</p>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px]" style={{ color: '#86efac', textDecoration: 'line-through' }}>Normal {fmtVal(atk.precoNormal)}</span>
+                        <span className="text-[13px] font-black" style={{ color: '#fff' }}>Atac. {fmtVal(atk.precoAtk)}</span>
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full" style={{ background: '#16a34a', color: '#fff' }}>
+                          -{Math.round((1 - atk.precoAtk / atk.precoNormal) * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                  ) : null })()}
                 </>
               ) : qtdPendente > 1 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -1765,9 +2060,8 @@ export default function PDVPage() {
                       e.preventDefault()
                       const f = formasSorted[Number(pgtoNum) - 1]
                       if (f) {
-                        setPgtoValorExterno(String(total.toFixed(2)))
-                        if (f.aceita_troco) pgtoRef.current?.focus()
-                        else setTimeout(finalizarRapido, 150)
+                        if (f.aceita_troco) { setPgtoValor(''); setPgtoDigits(''); pgtoRef.current?.focus() }
+                        else { setPgtoValorExterno(String(total.toFixed(2))); setTimeout(finalizarRapido, 150) }
                       }
                     }
                   }}
@@ -1781,6 +2075,8 @@ export default function PDVPage() {
                 <input ref={pgtoRef} type="text" inputMode="numeric"
                   value={fmtPgtoDisplay()}
                   onChange={e => onPgtoDigitChange(e.target.value)}
+                  onSelect={e => { const t = e.currentTarget; t.selectionStart = t.value.length; t.selectionEnd = t.value.length }}
+                  onFocus={e => { const t = e.target; setTimeout(() => { t.selectionStart = t.value.length; t.selectionEnd = t.value.length }, 0) }}
                   onKeyDown={e => { if (e.key === 'Enter') finalizarRapido() }}
                   placeholder={fmtVal(total)}
                   className="w-full text-right font-black rounded-xl px-3 py-2 outline-none"
@@ -1913,6 +2209,11 @@ export default function PDVPage() {
                 <p className="font-black leading-snug" style={{ color: '#111', fontSize: 13, textTransform: 'uppercase' }}>
                   <span style={{ color: '#94a3b8' }}>{String(idx + 1).padStart(2, '0')}. </span>{item.produto.descricao}
                 </p>
+                {item.preco < item.produto.preco_venda && (
+                  <p className="text-[9px] font-black" style={{ color: '#16a34a' }}>
+                    🏷️ ATACAREJO — Normal {fmtVal(item.produto.preco_venda)} → {fmtVal(item.preco)}
+                  </p>
+                )}
                 <div className="flex items-center justify-between mt-1">
                   <p className="text-[10px] font-mono" style={{ color: '#94a3b8' }}>{item.produto.codigo}</p>
                   <p className="font-bold" style={{ color: '#475569', fontSize: 13 }}>
@@ -1929,6 +2230,11 @@ export default function PDVPage() {
                   <div className="min-w-0">
                     <p className="font-black leading-tight" style={{ color: '#111', fontSize: 13, textTransform:'uppercase' }}>{item.produto.descricao}</p>
                     <p className="text-[9px] font-mono" style={{ color: '#94a3b8' }}>{item.produto.codigo}</p>
+                    {item.preco < item.produto.preco_venda && (
+                      <p className="text-[9px] font-black mt-0.5" style={{ color: '#16a34a' }}>
+                        🏷️ ATACAREJO — Normal {fmtVal(item.produto.preco_venda)} → Atac. {fmtVal(item.preco)}
+                      </p>
+                    )}
                   </div>
                   <span className="text-right font-bold text-xs" style={{ color: '#475569' }}>
                     {item.peso_kg ? `${item.peso_kg.toFixed(3)}kg` : fmtQtd(item.quantidade)}
@@ -2212,9 +2518,8 @@ export default function PDVPage() {
                         e.preventDefault()
                         const f = formasSorted[Number(pgtoNum) - 1]
                         if (f) {
-                          setPgtoValorExterno(String(total.toFixed(2)))
-                          if (f.aceita_troco) pgtoRef.current?.focus()
-                          else setTimeout(finalizarRapido, 150)
+                          if (f.aceita_troco) { setPgtoValor(''); setPgtoDigits(''); pgtoRef.current?.focus() }
+                          else { setPgtoValorExterno(String(total.toFixed(2))); setTimeout(finalizarRapido, 150) }
                         }
                       }
                     }}
@@ -2231,6 +2536,8 @@ export default function PDVPage() {
                   <input ref={pgtoRef} type="text" inputMode="numeric"
                     value={fmtPgtoDisplay()}
                     onChange={e => onPgtoDigitChange(e.target.value)}
+                    onSelect={e => { const t = e.currentTarget; t.selectionStart = t.value.length; t.selectionEnd = t.value.length }}
+                    onFocus={e => { const t = e.target; setTimeout(() => { t.selectionStart = t.value.length; t.selectionEnd = t.value.length }, 0) }}
                     onKeyDown={e => { if (e.key === 'Enter') finalizarRapido() }}
                     placeholder={fmtVal(total)}
                     className="w-full text-right font-black rounded-xl px-4 py-3 outline-none"
@@ -2281,7 +2588,7 @@ export default function PDVPage() {
           { n: 9, label: 'Suprimento',            sub: 'Entrada de dinheiro no caixa',   cor: '#22c55e',
             action: () => { setShowMenu(false); setMenuSel(0); setMovCaixaVal(''); setMovCaixaObs(''); setShowMovCaixa('suprimento') } },
           { n: 10, label: 'Fechar Caixa',         sub: 'Encerrar o caixa do dia',        cor: '#f59e0b',
-            action: () => { setShowMenu(false); setMenuSel(0); setMovCaixaVal(''); setShowMovCaixa('fechar') } },
+            action: () => { setShowMenu(false); setMenuSel(0); abrirFechamento() } },
           { n: 11, label: 'Parâmetros PDV',       sub: 'Configurações do terminal',      cor: '#64748b',
             action: () => { setShowMenu(false); setMenuSel(0); window.open('/pdv/parametros', '_blank') } },
           { n: 12, label: 'Sair / Logout',        sub: user?.nome || '',                 cor: '#dc2626',
@@ -2558,7 +2865,7 @@ export default function PDVPage() {
                         try {
                           await api.post('/pdv/supervisor/validar', { numero: Number(altSupNum), senha: altSupSenha })
                           setAltEtapa('preco')
-                        } catch { alert('Supervisor inválido ou senha incorreta') }
+                        } catch { toast.show('Supervisor inválido ou senha incorreta', 'error') }
                         setAltSalvando(false)
                       }}
                       className="w-full text-center font-black rounded-2xl py-3 outline-none"
@@ -2570,7 +2877,7 @@ export default function PDVPage() {
                       try {
                         await api.post('/pdv/supervisor/validar', { numero: Number(altSupNum), senha: altSupSenha })
                         setAltEtapa('preco')
-                      } catch { alert('Supervisor inválido ou senha incorreta') }
+                      } catch { toast.show('Supervisor inválido ou senha incorreta', 'error') }
                       setAltSalvando(false)
                     }}
                     className="w-full py-3.5 rounded-2xl font-black text-white"
@@ -2613,9 +2920,9 @@ export default function PDVPage() {
                             ? { ...pr, preco_venda: p }
                             : pr
                         ))
-                        alert(`Preço alterado com sucesso! R$ ${fmtVal(p)}`)
+                        toast.show(`Preço alterado! R$ ${fmtVal(p)}`)
                         setShowAlterarPreco(false)
-                      } catch (err: any) { alert(err.response?.data?.detail || 'Erro ao alterar preço') }
+                      } catch (err: any) { toast.show(err.response?.data?.detail || 'Erro ao alterar preço', 'error') }
                       setAltSalvando(false)
                     }}
                     className="w-full py-3.5 rounded-2xl font-black text-white"
@@ -2696,45 +3003,542 @@ export default function PDVPage() {
         </div>
       )}
 
+      {/* ══ MODAL FECHAMENTO DE CAIXA — ENTRADA ══ */}
+      {/* ══ MODAL SANGRIA OBRIGATÓRIA ══ */}
+      {showFecharCaixa && showSangriaObrig && !showResultado && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3"
+          style={{ background: 'rgba(0,0,0,0.96)' }}>
+          <div className="w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+            style={{ background: '#0f172a', border: '2px solid #ef4444' }}>
+
+            <div className="px-6 py-4 flex items-center justify-between"
+              style={{ background: 'linear-gradient(135deg,#dc2626,#7f1d1d)', borderBottom: '1px solid #991b1b' }}>
+              <div>
+                <p className="text-xl font-black text-white">⚠️ Sangria Obrigatória</p>
+                <p className="text-xs text-red-200 mt-0.5">Retire o dinheiro do caixa antes de fechar</p>
+              </div>
+              <button onClick={() => { setShowFecharCaixa(false); setShowSangriaObrig(false) }}
+                className="w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.15)', color: 'white' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Input valor sangria */}
+              <div>
+                <label className="block text-xs font-black mb-2 uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                  Valor da sangria (R$)
+                </label>
+                <input ref={sangriaObrigRef}
+                  value={sangriaObrigVal}
+                  inputMode="numeric"
+                  readOnly
+                  data-digits={sangriaObrigDig}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { confirmarSangriaObrig(); return }
+                    if (e.key === 'Escape') { setShowFecharCaixa(false); setShowSangriaObrig(false); return }
+                    if (e.key === 'Backspace') {
+                      const nd = sangriaObrigDig.slice(0, -1)
+                      setSangriaObrigDig(nd)
+                      if (sangriaObrigRef.current) sangriaObrigRef.current.dataset.digits = nd
+                      setSangriaObrigVal(fmtDinhContado(nd)); return
+                    }
+                    if (/^\d$/.test(e.key)) {
+                      const nd = (sangriaObrigDig + e.key).replace(/^0+/, '') || '0'
+                      setSangriaObrigDig(nd)
+                      if (sangriaObrigRef.current) sangriaObrigRef.current.dataset.digits = nd
+                      setSangriaObrigVal(fmtDinhContado(nd))
+                    }
+                  }}
+                  placeholder="0,00"
+                  className="w-full outline-none text-center"
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '2px solid rgba(239,68,68,0.5)',
+                    borderRadius: 16, color: '#F87171', fontSize: 40, fontWeight: 900,
+                    padding: '16px 20px', fontFamily: 'monospace', letterSpacing: 2 }}
+                />
+              </div>
+
+              <button onClick={confirmarSangriaObrig} disabled={fechamentoSaving}
+                className="w-full py-4 rounded-2xl font-black text-white text-base"
+                style={{ background: fechamentoSaving ? '#4B5563' : 'linear-gradient(135deg,#dc2626,#7f1d1d)',
+                         boxShadow: fechamentoSaving ? 'none' : '0 6px 20px rgba(220,38,38,0.3)' }}>
+                {fechamentoSaving ? '⏳ Registrando sangria...' : '💵 Confirmar Sangria e Continuar  [ENTER]'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL CONFERÊNCIA DO FECHAMENTO ══ */}
+      {showFecharCaixa && showConferencia && !showResultado && fechamentoData && (() => {
+        const formaMap = formasAPI.reduce((m: any, f: any) => { m[f.chave] = f; return m }, {} as Record<string,FormaAPI>)
+        const todasFormas = Object.entries(fechamentoData.por_forma || {})
+          .sort(([a], [b]) => (formaMap[a]?.ordem ?? 99) - (formaMap[b]?.ordem ?? 99))
+        const saldoRestante = fechamentoData.saldo_teorico_dinheiro || 0
+
+        const corForma = (f: string) => formaMap[f]?.cor || (f === 'DINHEIRO' ? '#34D399' : f === 'PIX' ? '#22d3ee' : '#60A5FA')
+        const nomeForma = (f: string) => formaMap[f]?.nome || f
+        const iconeForma = (f: string) => formaMap[f]?.icone || (f === 'DINHEIRO' ? '💵' : f === 'PIX' ? '📱' : '💳')
+
+        return (
+          <div className="fixed inset-0 z-[105] flex items-center justify-center p-3"
+            style={{ background: 'rgba(0,0,0,0.96)' }}>
+            <div className="w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+              style={{ background: '#0f172a', border: '2px solid #1e3a5f', maxHeight: '94vh' }}>
+
+              {/* Header */}
+              <div className="px-5 py-4 flex items-center justify-between flex-shrink-0"
+                style={{ background: 'linear-gradient(135deg,#1e3a5f,#0f2d50)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                <div>
+                  <p className="text-xl font-black text-white">📋 Conferência Final do Caixa</p>
+                  <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    {fechamentoData.qtd_vendas} venda{fechamentoData.qtd_vendas !== 1 ? 's' : ''} · Total {fmtMoeda(fechamentoData.total_vendas)} · toque na forma para ver os comprovantes
+                  </p>
+                </div>
+                <button onClick={() => { setShowConferencia(false); setShowSangriaObrig(false) }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }}>
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-4 space-y-3">
+
+                {/* ── Grid 2 colunas — formas de recebimento ── */}
+                <div className="grid grid-cols-2 gap-2">
+                  {todasFormas.map(([forma, valor]: any, idx: number) => {
+                    const qtd = fechamentoData.qtd_por_forma?.[forma] || 0
+                    const cor = corForma(forma)
+                    const ordem = formaMap[forma]?.ordem ?? (idx + 1)
+                    return (
+                      <button key={forma}
+                        onClick={() => { setFormaDetalhe(forma); setCupomExpandido(null) }}
+                        className="rounded-2xl p-3 text-left"
+                        style={{ background: cor + '12', border: `2px solid ${cor}40` }}>
+                        {/* Número + Nome */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0"
+                            style={{ background: cor, color: '#0f172a' }}>
+                            {ordem}
+                          </div>
+                          <span className="text-[11px] font-black text-white truncate leading-tight">{nomeForma(forma)}</span>
+                        </div>
+                        {/* Total */}
+                        <p className="text-base font-black" style={{ color: cor }}>{fmtMoeda(valor as number)}</p>
+                        {/* Comprovantes */}
+                        <p className="text-[9px] mt-0.5 font-bold" style={{ color: cor + 'bb' }}>
+                          {qtd} comprovante{qtd !== 1 ? 's' : ''} ›
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* ── Balanço de Caixa (apenas DINHEIRO) ── */}
+                <div className="rounded-2xl overflow-hidden" style={{ border: '2px solid rgba(251,191,36,0.35)' }}>
+                  <div className="px-4 py-2" style={{ background: 'rgba(251,191,36,0.1)', borderBottom: '1px solid rgba(251,191,36,0.15)' }}>
+                    <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#FBBF24' }}>💵 Balanço de Caixa — Dinheiro</p>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    {[
+                      { l: 'Fundo de caixa', v: fechamentoData.fundo_caixa, c: '#FBBF24' },
+                      { l: '+ Vendas em dinheiro', v: fechamentoData.total_dinheiro, c: '#34D399' },
+                      { l: '− Sangrias realizadas', v: -(fechamentoData.sangrias_dinheiro || 0), c: '#F87171' },
+                    ].map(({ l, v, c }) => (
+                      <div key={l} className="flex justify-between text-sm">
+                        <span style={{ color: 'rgba(255,255,255,0.55)' }}>{l}</span>
+                        <span className="font-black" style={{ color: c }}>{v < 0 ? '− ' : ''}{fmtMoeda(Math.abs(v || 0))}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between pt-2 mt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <span className="text-sm font-black text-white">Restante no caixa</span>
+                      <span className="font-black text-lg"
+                        style={{ color: saldoRestante === 0 ? '#34D399' : saldoRestante > 0 ? '#FBBF24' : '#F87171' }}>
+                        {saldoRestante === 0 ? '✓ R$ 0,00' : (saldoRestante > 0 ? '' : '− ') + fmtMoeda(Math.abs(saldoRestante))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Botões */}
+                <div className="space-y-2 pt-1">
+                  <button onClick={executarFechamento} disabled={fechamentoSaving}
+                    className="w-full py-4 rounded-2xl font-black text-white text-base flex items-center justify-center gap-3"
+                    style={{ background: fechamentoSaving ? '#4B5563' : 'linear-gradient(135deg,#dc2626,#7f1d1d)',
+                             boxShadow: fechamentoSaving ? 'none' : '0 8px 24px rgba(220,38,38,0.35)' }}>
+                    {fechamentoSaving ? '⏳ Processando...' : '✓  FECHAR CAIXA — BATIMENTO FINAL  [ENTER]'}
+                  </button>
+                  <button onClick={() => { setShowConferencia(false); setFormaDetalhe(null) }}
+                    className="w-full py-2.5 rounded-2xl font-bold text-sm"
+                    style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}>
+                    ← Cancelar  [ESC]
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ══ MODAL RESULTADO — FECHAMENTO FINAL E BATIMENTO ══ */}
+      {showFecharCaixa && showResultado && fechamentoResult && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-3"
+          style={{ background: 'rgba(0,0,0,0.96)' }}>
+          <div className="w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+            style={{ background: '#0f172a', maxHeight: '94vh',
+              border: `2px solid ${fechamentoResult.erro ? '#dc2626' : fechamentoResult.diferenca === 0 ? '#34D399' : fechamentoResult.diferenca > 0 ? '#FBBF24' : '#ef4444'}` }}>
+
+            {/* Header */}
+            <div className="px-6 py-4 flex items-center justify-between flex-shrink-0"
+              style={{ background: fechamentoResult.erro ? 'rgba(220,38,38,0.15)' :
+                       fechamentoResult.diferenca === 0 ? 'rgba(52,211,153,0.12)' :
+                       fechamentoResult.diferenca > 0 ? 'rgba(251,191,36,0.12)' : 'rgba(239,68,68,0.12)',
+                       borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div>
+                <p className="text-xl font-black text-white">
+                  {fechamentoResult.erro ? '❌ Erro' : '💰 Fechamento de Caixa — Batimento Final'}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')} · {fechamentoResult.terminal}
+                </p>
+              </div>
+              <button onClick={() => { setShowFecharCaixa(false); setFechamentoResult(null); setShowResultado(false) }}
+                className="w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5 space-y-3">
+              {fechamentoResult.erro ? (
+                <>
+                  <div className="text-center py-4">
+                    <p className="text-4xl mb-3">⚠️</p>
+                    <p className="font-black text-white text-lg">{fechamentoResult.erro}</p>
+                  </div>
+                  <button onClick={() => { setShowFecharCaixa(false); setFechamentoResult(null); setShowResultado(false) }}
+                    className="w-full py-3.5 rounded-2xl font-black text-white"
+                    style={{ background: 'rgba(255,255,255,0.12)' }}>
+                    Fechar  [ESC / ENTER]
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Total geral */}
+                  <div className="rounded-2xl p-3 flex items-center justify-between"
+                    style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#34D399' }}>Total Vendido no Turno</p>
+                      <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                        {fechamentoResult.qtd_vendas} venda{fechamentoResult.qtd_vendas !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <p className="text-2xl font-black" style={{ color: '#34D399' }}>{fmtMoeda(fechamentoResult.total_vendas)}</p>
+                  </div>
+
+                  {/* Formas de recebimento */}
+                  <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <div className="px-4 py-2" style={{ background: 'rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p className="text-xs font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>Formas de Recebimento</p>
+                    </div>
+                    {Object.entries(fechamentoResult.por_forma || {}).map(([forma, valor]: any) => {
+                      const cor = forma === 'DINHEIRO' ? '#34D399' : forma === 'PIX' ? '#22d3ee' : '#60A5FA'
+                      const emoji = forma === 'DINHEIRO' ? '💵' : forma === 'PIX' ? '📱' : '💳'
+                      const qtd = fechamentoResult.qtd_por_forma?.[forma] || 0
+                      return (
+                        <div key={forma} className="px-4 py-3 flex items-center justify-between"
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div className="flex items-center gap-2">
+                            <span style={{ fontSize: 18 }}>{emoji}</span>
+                            <span className="text-sm font-black text-white">{forma}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>{qtd}x</span>
+                          </div>
+                          <span className="text-sm font-black" style={{ color: cor }}>{fmtMoeda(valor)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Balanço Dinheiro */}
+                  <div className="rounded-2xl overflow-hidden" style={{ border: '2px solid rgba(251,191,36,0.3)' }}>
+                    <div className="px-4 py-2" style={{ background: 'rgba(251,191,36,0.08)', borderBottom: '1px solid rgba(251,191,36,0.15)' }}>
+                      <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#FBBF24' }}>💵 Balanço de Caixa</p>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      {[
+                        { l: 'Fundo de caixa', v: fechamentoResult.fundo_caixa, c: '#FBBF24' },
+                        { l: '+ Vendas em dinheiro', v: fechamentoResult.total_dinheiro, c: '#34D399' },
+                        { l: '− Sangrias realizadas', v: -(fechamentoResult.sangrias_dinheiro || 0), c: '#F87171' },
+                      ].map(({ l, v, c }) => (
+                        <div key={l} className="flex justify-between text-sm">
+                          <span style={{ color: 'rgba(255,255,255,0.55)' }}>{l}</span>
+                          <span className="font-black" style={{ color: c }}>{v < 0 ? '− ' : ''}{fmtMoeda(Math.abs(v || 0))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Diferença — destaque */}
+                  <div className="rounded-2xl p-4 text-center"
+                    style={{
+                      background: fechamentoResult.diferenca === 0 ? 'rgba(52,211,153,0.12)' :
+                                  fechamentoResult.diferenca > 0  ? 'rgba(251,191,36,0.12)' : 'rgba(239,68,68,0.12)',
+                      border: `2px solid ${fechamentoResult.diferenca === 0 ? 'rgba(52,211,153,0.5)' :
+                                           fechamentoResult.diferenca > 0 ? 'rgba(251,191,36,0.5)' : 'rgba(239,68,68,0.5)'}`
+                    }}>
+                    <p className="text-xs font-black uppercase tracking-widest mb-1"
+                      style={{ color: fechamentoResult.diferenca === 0 ? '#34D399' : fechamentoResult.diferenca > 0 ? '#FBBF24' : '#F87171' }}>
+                      {fechamentoResult.diferenca === 0 ? '✓ Caixa Conferido — Sem Diferença' :
+                       fechamentoResult.diferenca > 0 ? '↑ Sobrou no Caixa' : '↓ Faltou no Caixa'}
+                    </p>
+                    <p className="font-black"
+                      style={{ fontSize: 40, lineHeight: 1,
+                               color: fechamentoResult.diferenca === 0 ? '#34D399' : fechamentoResult.diferenca > 0 ? '#FBBF24' : '#F87171' }}>
+                      {fechamentoResult.diferenca === 0 ? 'R$ 0,00' :
+                       (fechamentoResult.diferenca > 0 ? '+ ' : '− ') + fmtMoeda(Math.abs(fechamentoResult.diferenca))}
+                    </p>
+                  </div>
+
+                  {/* Botões */}
+                  <div className="space-y-2 pt-1">
+                    <button onClick={imprimirFechamento}
+                      className="w-full py-3.5 rounded-2xl font-black text-base flex items-center justify-center gap-2"
+                      style={{ background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.4)', color: '#60A5FA' }}>
+                      🖨️ Imprimir Comprovante Analítico
+                    </button>
+                    <button onClick={() => { setShowFecharCaixa(false); setFechamentoResult(null); setShowResultado(false) }}
+                      className="w-full py-3.5 rounded-2xl font-black text-white text-base"
+                      style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                      Fechar  [ESC / ENTER]
+                    </button>
+                  </div>
+
+                  {/* Próxima operadora */}
+                  <div className="rounded-2xl p-3 text-center"
+                    style={{ background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.2)' }}>
+                    <p className="text-xs font-black" style={{ color: '#38BDF8' }}>PDV sem operador — pressione A para nova abertura</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL DETALHE POR FORMA DE PAGAMENTO ══ */}
+      {showFecharCaixa && !showResultado && formaDetalhe && (() => {
+        const vendas = fechamentoCupons.filter((c: any) => c.forma_pagamento === formaDetalhe)
+        const totalForma = vendas.reduce((s: number, c: any) => s + c.total, 0)
+        const formaInfo = formasAPI.find(f => f.chave === formaDetalhe)
+        const emoji = formaInfo?.icone || (formaDetalhe === 'DINHEIRO' ? '💵' : formaDetalhe === 'PIX' ? '📱' : formaDetalhe.includes('CREDITO') ? '💳' : formaDetalhe.includes('DEBITO') ? '💳' : '🔄')
+        const cor = formaInfo?.cor || (formaDetalhe === 'DINHEIRO' ? '#34D399' : '#60A5FA')
+        const nomeDetalhe = formaInfo?.nome || formaDetalhe
+        return (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-3"
+            style={{ background: 'rgba(0,0,0,0.96)' }}>
+            <div className="w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+              style={{ background: '#0f172a', border: `2px solid ${cor}44`, maxHeight: '90vh' }}>
+
+              {/* Header */}
+              <div className="px-5 py-4 flex items-center gap-3 flex-shrink-0"
+                style={{ background: `linear-gradient(135deg,${cor}18,transparent)`, borderBottom: `1px solid ${cor}22` }}>
+                <span style={{ fontSize: 28 }}>{emoji}</span>
+                <div className="flex-1">
+                  <p className="text-lg font-black text-white">{nomeDetalhe}</p>
+                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    {vendas.length} comprovante{vendas.length !== 1 ? 's' : ''} • Total: <strong style={{ color: cor }}>{fmtMoeda(totalForma)}</strong>
+                  </p>
+                </div>
+                <button onClick={() => setFormaDetalhe(null)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }}>
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Lista de vendas */}
+              <div className="overflow-y-auto flex-1">
+                {vendas.length === 0 ? (
+                  <p className="text-center py-10 text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                    Nenhuma venda com {formaDetalhe}
+                  </p>
+                ) : (
+                  <>
+                    {/* Cabeçalho tabela */}
+                    <div className="grid px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                      style={{ color: 'rgba(255,255,255,0.35)', borderBottom: '1px solid rgba(255,255,255,0.08)',
+                               gridTemplateColumns: '52px 56px 1fr 1fr 80px' }}>
+                      <span>Cupom</span>
+                      <span>Hora</span>
+                      <span>Cliente</span>
+                      <span>Subtotal</span>
+                      <span className="text-right">Total</span>
+                    </div>
+                    {vendas.map((c: any) => (
+                      <div key={c.id}>
+                        <button
+                          onClick={() => setCupomExpandido(cupomExpandido === c.id ? null : c.id)}
+                          className="w-full grid px-4 py-3 text-left"
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.05)',
+                                   background: cupomExpandido === c.id ? 'rgba(255,255,255,0.05)' : 'transparent',
+                                   gridTemplateColumns: '52px 56px 1fr 1fr 80px',
+                                   alignItems: 'center' }}>
+                          <span className="text-xs font-black font-mono" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                            #{String(c.numero).padStart(4,'0')}
+                          </span>
+                          <span className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.6)' }}>{c.hora}</span>
+                          <span className="text-xs font-bold text-white truncate pr-2">
+                            {c.cliente || <span style={{ color: 'rgba(255,255,255,0.3)' }}>—</span>}
+                          </span>
+                          <div className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                            {fmtMoeda(c.subtotal)}
+                            {(c.desconto || 0) > 0 && (
+                              <span className="ml-1" style={{ color: '#F87171' }}>-{fmtMoeda(c.desconto)}</span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-black" style={{ color: cor }}>{fmtMoeda(c.total)}</p>
+                            {(c.troco || 0) > 0 && (
+                              <p className="text-[10px]" style={{ color: '#FBBF24' }}>troco {fmtMoeda(c.troco)}</p>
+                            )}
+                          </div>
+                        </button>
+                        {/* Itens do cupom */}
+                        {cupomExpandido === c.id && (
+                          <div className="px-4 pb-3 pt-1"
+                            style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            {(c.itens || []).map((item: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between py-1.5"
+                                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                <div className="flex-1 min-w-0 pr-4">
+                                  <p className="text-xs font-bold text-white truncate">{item.descricao}</p>
+                                  <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                                    {item.quantidade} un × {fmtMoeda(item.preco_unitario)}
+                                    {(item.desconto_item || 0) > 0 && ` − desc ${fmtMoeda(item.desconto_item)}`}
+                                  </p>
+                                </div>
+                                <span className="text-sm font-black" style={{ color: '#A78BFA' }}>
+                                  {fmtMoeda(item.total_item)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {/* Totalizador rodapé */}
+                    <div className="px-4 py-3 flex items-center justify-between"
+                      style={{ background: `${cor}10`, borderTop: `1px solid ${cor}30` }}>
+                      <span className="text-sm font-black text-white">
+                        {vendas.length} comprovante{vendas.length !== 1 ? 's' : ''} em {nomeDetalhe}
+                      </span>
+                      <span className="text-xl font-black" style={{ color: cor }}>{fmtMoeda(totalForma)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="px-5 py-3 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <button onClick={() => setFormaDetalhe(null)}
+                  className="w-full py-3 rounded-2xl font-black text-white text-sm"
+                  style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  ← Voltar ao Fechamento  [ESC]
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ══ MODAL ABERTURA DE CAIXA ══ */}
       {showAbertura && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.88)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.92)' }}>
           <div className="w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl"
-            style={{ background: '#18181B', border: '2px solid #0891b2' }}>
-            <div className="flex items-center justify-between px-6 py-4"
-              style={{ background: '#0c4a6e', borderBottom: '2px solid #0891b2' }}>
-              <div>
-                <p className="font-black text-lg text-white">Abertura de Caixa</p>
-                <p className="text-[11px]" style={{ color: '#7dd3fc' }}>{params?.terminal || 'PDV-01'} — {new Date().toLocaleDateString('pt-BR')} {hora}</p>
+            style={{ background: '#0f172a', border: '2px solid #0891b2' }}>
+            {/* Header */}
+            <div className="px-6 py-4" style={{ background: 'linear-gradient(135deg,#0c4a6e,#075985)', borderBottom: '2px solid #0891b2' }}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-black text-xl text-white">🔓 Abertura de Caixa</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: '#7dd3fc' }}>{params?.terminal || 'PDV-01'} · {new Date().toLocaleDateString('pt-BR')} {hora}</p>
+                </div>
+                {!caixaFechado && (
+                  <button onClick={() => setShowAbertura(false)} style={{ color: '#71717A' }}><X size={20} /></button>
+                )}
               </div>
-              <button onClick={() => setShowAbertura(false)} style={{ color: '#71717A' }}><X size={20} /></button>
             </div>
             <div className="px-6 py-5 space-y-4">
+              {/* Operador */}
               <div>
-                <p className="text-xs font-black mb-1.5" style={{ color: '#71717A' }}>NÚMERO DO OPERADOR</p>
-                <input type="number" value={operadorNum}
-                  onChange={e => setOperadorNum(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && document.getElementById('ab-fundo')?.focus()}
-                  placeholder="0" autoFocus
-                  className="w-full px-4 py-4 rounded-2xl text-white text-center font-black"
-                  style={{ background: '#27272A', fontSize: 32, border: '2px solid #0891b2' }} />
+                <p className="text-xs font-black mb-2 tracking-widest" style={{ color: '#7dd3fc' }}>NÚMERO DO OPERADOR</p>
+                <input ref={operadorAbRef} type="text" inputMode="numeric" value={operadorNum}
+                  onChange={e => setOperadorNum(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (params?.supervisor_obrigatorio_abertura) supervisorAbRef.current?.focus()
+                      else fundoAbRef.current?.focus()
+                    }
+                  }}
+                  placeholder="001"
+                  className="w-full px-4 py-4 rounded-2xl text-white text-center font-black outline-none"
+                  style={{ background: '#1e293b', fontSize: 36, fontFamily: 'monospace', border: `2px solid ${operadorNum ? '#0891b2' : '#334155'}` }} />
               </div>
+
+              {/* Supervisor (só se parâmetro ativo) */}
+              {params?.supervisor_obrigatorio_abertura && (
+                <div className="rounded-2xl p-4 space-y-3" style={{ background: '#1e293b', border: '1px solid #f59e0b44' }}>
+                  <p className="text-xs font-black tracking-widest" style={{ color: '#fbbf24' }}>🛡️ SUPERVISOR</p>
+                  <input ref={supervisorAbRef} type="text" inputMode="numeric" value={supervisorAbNum}
+                    onChange={e => setSupervisorAbNum(e.target.value.replace(/\D/g, ''))}
+                    onKeyDown={e => e.key === 'Enter' && document.getElementById('ab-sup-senha')?.focus()}
+                    placeholder="Número do supervisor"
+                    className="w-full px-3 py-3 rounded-xl text-white text-center font-black outline-none"
+                    style={{ background: '#0f172a', fontSize: 22, fontFamily: 'monospace', border: '1px solid #f59e0b66' }} />
+                  <input id="ab-sup-senha" type="password" value={supervisorAbSenha}
+                    onChange={e => setSupervisorAbSenha(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && fundoAbRef.current?.focus()}
+                    placeholder="Senha"
+                    className="w-full px-3 py-3 rounded-xl text-white text-center font-black outline-none"
+                    style={{ background: '#0f172a', fontSize: 22, border: '1px solid #f59e0b66' }} />
+                </div>
+              )}
+
+              {/* Fundo de Caixa */}
               <div>
-                <p className="text-xs font-black mb-1.5" style={{ color: '#71717A' }}>FUNDO DE CAIXA R$</p>
-                <input id="ab-fundo" type="number" step="0.01" min="0" value={fundoCaixa}
+                <p className="text-xs font-black mb-2 tracking-widest" style={{ color: '#7dd3fc' }}>FUNDO DE CAIXA R$</p>
+                <input ref={fundoAbRef} type="text" inputMode="decimal" value={fundoCaixa}
                   onChange={e => setFundoCaixa(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && abrirCaixa()}
                   placeholder="0,00"
-                  className="w-full px-4 py-4 rounded-2xl text-white text-center font-black"
-                  style={{ background: '#27272A', fontSize: 32, fontFamily: 'monospace', border: '2px solid #0891b2' }} />
+                  className="w-full px-4 py-4 rounded-2xl text-white text-center font-black outline-none"
+                  style={{ background: '#1e293b', fontSize: 36, fontFamily: 'monospace', border: `2px solid ${fundoCaixa ? '#0891b2' : '#334155'}` }} />
               </div>
+
+              {/* Erro */}
+              {erroAbertura && (
+                <div className="px-4 py-3 rounded-xl text-center text-sm font-bold" style={{ background: '#450a0a', color: '#fca5a5', border: '1px solid #ef4444' }}>
+                  ⚠ {erroAbertura}
+                </div>
+              )}
+
               <button onClick={abrirCaixa} disabled={!operadorNum || salvandoAb}
-                className="w-full py-4 rounded-2xl font-black text-white text-lg"
-                style={{ background: operadorNum ? 'linear-gradient(135deg,#0891b2,#0e7490)' : '#27272A',
-                  color: operadorNum ? 'white' : '#52525B' }}>
-                {salvandoAb ? 'REGISTRANDO...' : '✓ ABRIR CAIXA'}
+                className="w-full py-4 rounded-2xl font-black text-xl"
+                style={{
+                  background: operadorNum ? 'linear-gradient(135deg,#0891b2,#0e7490)' : '#1e293b',
+                  color: operadorNum ? 'white' : '#334155',
+                  boxShadow: operadorNum ? '0 8px 24px rgba(8,145,178,0.4)' : 'none',
+                }}>
+                {salvandoAb ? '⏳ REGISTRANDO...' : '✓ ABRIR CAIXA'}
               </button>
+
+              {caixaFechado && (
+                <p className="text-center text-xs" style={{ color: '#475569' }}>
+                  O PDV exige abertura de caixa para operar · Pressione <strong style={{ color: '#7dd3fc' }}>A</strong> a qualquer momento para abrir
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -2743,90 +3547,124 @@ export default function PDVPage() {
       {/* ══ MODAL SANGRIA / SUPRIMENTO / FECHAR CAIXA ══ */}
       {showMovCaixa && (() => {
         const cfg = {
-          sangria:    { title: 'Sangria de Caixa',   sub: 'Retirada de dinheiro',  cor: '#ef4444', bg: '#450a0a', icon: '💸', endpoint: '/caixa/sangria',    btnLabel: '✓ REGISTRAR SANGRIA' },
-          suprimento: { title: 'Suprimento de Caixa', sub: 'Entrada de dinheiro',   cor: '#22c55e', bg: '#052e16', icon: '💰', endpoint: '/caixa/suprimento', btnLabel: '✓ REGISTRAR SUPRIMENTO' },
-          fechar:     { title: 'Fechar Caixa',         sub: 'Encerrar o caixa do dia', cor: '#f59e0b', bg: '#451a03', icon: '🔒', endpoint: '/caixa/fechar',    btnLabel: '✓ FECHAR CAIXA' },
+          sangria:    { title: 'Sangria de Caixa',    cor: '#ef4444', bg: '#450a0a', icon: '💸', endpoint: '/caixa/sangria',    btnLabel: '✓ REGISTRAR SANGRIA' },
+          suprimento: { title: 'Suprimento de Caixa', cor: '#22c55e', bg: '#052e16', icon: '💰', endpoint: '/caixa/suprimento', btnLabel: '✓ REGISTRAR SUPRIMENTO' },
+          fechar:     { title: 'Fechar Caixa',         cor: '#f59e0b', bg: '#451a03', icon: '🔒', endpoint: '/caixa/fechar',    btnLabel: '✓ FECHAR CAIXA' },
         }[showMovCaixa]
+
+        const formasMovimento = formasAPI.length > 0
+          ? formasAPI.map(f => ({ chave: f.chave, nome: f.nome }))
+          : [{ chave: 'DINHEIRO', nome: 'Dinheiro' }, { chave: 'PIX', nome: 'Pix' }, { chave: 'DEBITO', nome: 'Débito' }, { chave: 'CREDITO', nome: 'Crédito' }]
+
+        const registrar = async () => {
+          setMovCaixaMsg('')
+          setMovCaixaSaving(true)
+          try {
+            const body: any = {}
+            if (showMovCaixa !== 'fechar') {
+              body.valor = Number(movCaixaVal.replace(',', '.'))
+              body.observacao = [movCaixaForma, movCaixaObs].filter(Boolean).join(' — ') || undefined
+            } else {
+              if (movCaixaVal) body.total_contado = Number(movCaixaVal.replace(',', '.'))
+            }
+            await api.post(cfg.endpoint, body)
+            setMovCaixaMsg('ok')
+            setTimeout(() => { setShowMovCaixa(null); setMovCaixaVal(''); setMovCaixaObs(''); setMovCaixaMsg(''); setMovCaixaForma('DINHEIRO') }, 1200)
+          } catch (e: any) {
+            setMovCaixaMsg(e.response?.data?.detail || 'Erro ao registrar')
+          }
+          setMovCaixaSaving(false)
+        }
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center"
             style={{ background: 'rgba(0,0,0,0.88)' }}>
             <div className="w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl"
-              style={{ background: '#18181B', border: `2px solid ${cfg.cor}` }}>
+              style={{ background: '#0f172a', border: `2px solid ${cfg.cor}` }}>
+              {/* Header */}
               <div className="flex items-center justify-between px-6 py-4"
                 style={{ background: cfg.bg, borderBottom: `2px solid ${cfg.cor}` }}>
-                <div>
-                  <p className="font-black text-lg text-white flex items-center gap-2">
-                    <span>{cfg.icon}</span> {cfg.title}
-                  </p>
-                  <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                    {params?.terminal || 'PDV-01'} — {new Date().toLocaleDateString('pt-BR')} {hora}
-                  </p>
-                </div>
-                <button onClick={() => setShowMovCaixa(null)} style={{ color: '#71717A' }}><X size={20} /></button>
+                <p className="font-black text-lg text-white">{cfg.icon} {cfg.title}</p>
+                <button onClick={() => { setShowMovCaixa(null); setMovCaixaVal(''); setMovCaixaObs(''); setMovCaixaMsg('') }} style={{ color: '#71717A' }}><X size={20} /></button>
               </div>
+
               <div className="px-6 py-5 space-y-4">
-                {showMovCaixa !== 'fechar' && (
+                {showMovCaixa !== 'fechar' ? (
                   <>
+                    {/* Forma de recebimento */}
                     <div>
-                      <p className="text-xs font-black mb-1.5" style={{ color: '#71717A' }}>VALOR R$</p>
-                      <input type="number" min="0.01" step="0.01" value={movCaixaVal}
-                        onChange={e => setMovCaixaVal(e.target.value)}
-                        autoFocus
-                        placeholder="0,00"
-                        className="w-full px-4 py-4 rounded-2xl text-white text-center font-black"
-                        style={{ background: '#27272A', fontSize: 36, fontFamily: 'monospace', border: `2px solid ${cfg.cor}`, outline: 'none' }} />
+                      <p className="text-xs font-black mb-2 tracking-widest" style={{ color: '#71717A' }}>FORMA</p>
+                      <div className="flex flex-wrap gap-2">
+                        {formasMovimento.map(f => (
+                          <button key={f.chave} onClick={() => setMovCaixaForma(f.chave)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-black"
+                            style={{
+                              background: movCaixaForma === f.chave ? cfg.cor : cfg.cor + '22',
+                              color: movCaixaForma === f.chave ? '#fff' : cfg.cor,
+                              border: `1.5px solid ${movCaixaForma === f.chave ? cfg.cor : cfg.cor + '55'}`,
+                            }}>
+                            {f.nome}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+
+                    {/* Valor */}
                     <div>
-                      <p className="text-xs font-black mb-1.5" style={{ color: '#71717A' }}>OBSERVAÇÃO (opcional)</p>
-                      <input type="text" value={movCaixaObs}
+                      <p className="text-xs font-black mb-1.5 tracking-widest" style={{ color: '#71717A' }}>VALOR R$</p>
+                      <input ref={movCaixaValRef} type="text" inputMode="decimal" value={movCaixaVal}
+                        onChange={e => setMovCaixaVal(e.target.value.replace(/[^\d,\.]/g, ''))}
+                        onKeyDown={e => { if (e.key === 'Enter') movCaixaObsRef.current?.focus() }}
+                        autoFocus placeholder="0,00"
+                        className="w-full px-4 py-4 rounded-2xl text-white text-center font-black outline-none"
+                        style={{ background: '#1e293b', fontSize: 36, fontFamily: 'monospace', border: `2px solid ${movCaixaVal ? cfg.cor : '#334155'}` }} />
+                    </div>
+
+                    {/* Observação */}
+                    <div>
+                      <p className="text-xs font-black mb-1.5 tracking-widest" style={{ color: '#71717A' }}>OBSERVAÇÃO (opcional)</p>
+                      <input ref={movCaixaObsRef} type="text" value={movCaixaObs}
                         onChange={e => setMovCaixaObs(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') registrar() }}
                         placeholder="Motivo ou descrição..."
-                        className="w-full px-4 py-3 rounded-2xl text-white font-bold"
-                        style={{ background: '#27272A', border: '1px solid #3F3F46', outline: 'none' }} />
+                        className="w-full px-4 py-3 rounded-2xl text-white font-bold outline-none"
+                        style={{ background: '#1e293b', border: '1px solid #334155' }} />
                     </div>
                   </>
-                )}
-                {showMovCaixa === 'fechar' && (
+                ) : (
                   <div>
-                    <p className="text-xs font-black mb-1.5" style={{ color: '#71717A' }}>TOTAL CONTADO R$ (opcional)</p>
-                    <input type="number" min="0" step="0.01" value={movCaixaVal}
+                    <p className="text-xs font-black mb-1.5 tracking-widest" style={{ color: '#71717A' }}>TOTAL CONTADO R$ (opcional)</p>
+                    <input type="text" inputMode="decimal" value={movCaixaVal}
                       onChange={e => setMovCaixaVal(e.target.value)}
-                      autoFocus
-                      placeholder="0,00"
-                      className="w-full px-4 py-4 rounded-2xl text-white text-center font-black"
-                      style={{ background: '#27272A', fontSize: 36, fontFamily: 'monospace', border: `2px solid ${cfg.cor}`, outline: 'none' }} />
-                    <p className="text-[10px] mt-2 text-center" style={{ color: '#52525B' }}>
-                      Deixe em branco se não quiser informar o total contado
-                    </p>
+                      onKeyDown={e => { if (e.key === 'Enter') registrar() }}
+                      autoFocus placeholder="0,00"
+                      className="w-full px-4 py-4 rounded-2xl text-white text-center font-black outline-none"
+                      style={{ background: '#1e293b', fontSize: 36, fontFamily: 'monospace', border: `2px solid ${cfg.cor}` }} />
+                    <p className="text-[10px] mt-2 text-center" style={{ color: '#52525B' }}>Deixe em branco se não quiser informar o total contado</p>
                   </div>
                 )}
-                <button
-                  disabled={movCaixaSaving || (showMovCaixa !== 'fechar' && !movCaixaVal)}
-                  onClick={async () => {
-                    setMovCaixaSaving(true)
-                    try {
-                      const body: any = {}
-                      if (showMovCaixa !== 'fechar') {
-                        body.valor = Number(movCaixaVal)
-                        body.observacao = movCaixaObs || undefined
-                      } else {
-                        if (movCaixaVal) body.total_contado = Number(movCaixaVal)
-                      }
-                      await api.post(cfg.endpoint, body)
-                      alert(`${cfg.title} registrado(a) com sucesso!`)
-                      setShowMovCaixa(null)
-                    } catch (e: any) {
-                      alert(e.response?.data?.detail || 'Erro ao registrar')
-                    }
-                    setMovCaixaSaving(false)
-                  }}
-                  className="w-full py-4 rounded-2xl font-black text-white text-base"
+
+                {/* Feedback */}
+                {movCaixaMsg && movCaixaMsg !== 'ok' && (
+                  <div className="px-4 py-3 rounded-xl text-center text-sm font-bold" style={{ background: '#450a0a', color: '#fca5a5', border: '1px solid #ef4444' }}>
+                    ⚠ {movCaixaMsg}
+                  </div>
+                )}
+                {movCaixaMsg === 'ok' && (
+                  <div className="px-4 py-3 rounded-xl text-center text-sm font-black" style={{ background: '#052e16', color: '#86efac', border: '1px solid #22c55e' }}>
+                    ✓ Registrado com sucesso!
+                  </div>
+                )}
+
+                <button disabled={movCaixaSaving || movCaixaMsg === 'ok' || (showMovCaixa !== 'fechar' && !movCaixaVal)}
+                  onClick={registrar}
+                  className="w-full py-4 rounded-2xl font-black text-xl"
                   style={{
-                    background: (movCaixaSaving || (showMovCaixa !== 'fechar' && !movCaixaVal))
-                      ? '#27272A' : `linear-gradient(135deg,${cfg.cor},${cfg.cor}cc)`,
-                    color: (showMovCaixa !== 'fechar' && !movCaixaVal) ? '#52525B' : 'white',
+                    background: (!movCaixaVal && showMovCaixa !== 'fechar') ? '#1e293b' : `linear-gradient(135deg,${cfg.cor},${cfg.cor}bb)`,
+                    color: (!movCaixaVal && showMovCaixa !== 'fechar') ? '#334155' : 'white',
+                    boxShadow: movCaixaVal ? `0 8px 24px ${cfg.cor}55` : 'none',
                   }}>
-                  {movCaixaSaving ? 'Registrando...' : cfg.btnLabel}
+                  {movCaixaSaving ? '⏳ Registrando...' : cfg.btnLabel}
                 </button>
                 <p className="text-center text-[10px]" style={{ color: '#334155' }}>ESC para cancelar</p>
               </div>

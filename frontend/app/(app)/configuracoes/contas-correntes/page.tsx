@@ -321,11 +321,13 @@ export default function ContasCorrentesPage() {
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <h2 className="modal-title">{editConta.id ? 'Editar Conta' : 'Nova Conta'}</h2>
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2">
-                  <label className="field-label">Nome *</label>
-                  <input className="field-input" value={editConta.nome||''} onChange={e => setEditConta(f => ({...f, nome:e.target.value}))} />
-                </div>
+              {/* Nome — linha inteira */}
+              <div>
+                <label className="field-label">Nome *</label>
+                <input className="field-input" value={editConta.nome||''} onChange={e => setEditConta(f => ({...f, nome:e.target.value}))} />
+              </div>
+              {/* Banco + Tipo */}
+              <div className="grid gap-3" style={{ gridTemplateColumns:'1fr 140px' }}>
                 <div>
                   <label className="field-label">Banco</label>
                   <input className="field-input" value={editConta.banco||''} onChange={e => setEditConta(f => ({...f, banco:e.target.value}))} />
@@ -336,6 +338,9 @@ export default function ContasCorrentesPage() {
                     {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+              </div>
+              {/* Agência + Nº Conta */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="field-label">Agência</label>
                   <input className="field-input" value={editConta.agencia||''} onChange={e => setEditConta(f => ({...f, agencia:e.target.value}))} />
@@ -344,35 +349,41 @@ export default function ContasCorrentesPage() {
                   <label className="field-label">Nº Conta</label>
                   <input className="field-input" value={editConta.conta||''} onChange={e => setEditConta(f => ({...f, conta:e.target.value}))} />
                 </div>
+              </div>
+              {/* Saldo Inicial + Ativo */}
+              <div className="grid gap-3" style={{ gridTemplateColumns:'1fr auto' }}>
                 <div>
                   <label className="field-label">Saldo Inicial (R$)</label>
                   <input type="number" step="0.01" className="field-input" value={editConta.saldo_inicial||0} onChange={e => setEditConta(f => ({...f, saldo_inicial:Number(e.target.value)}))} />
                 </div>
-                <div className="flex items-center gap-2 col-span-2 pt-1">
-                  <input type="checkbox" id="cc-ativo" checked={editConta.ativo !== false} onChange={e => setEditConta(f => ({...f, ativo:e.target.checked}))} />
-                  <label htmlFor="cc-ativo" className="text-xs" style={{ color:'var(--muted)' }}>Conta ativa</label>
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={editConta.ativo !== false} onChange={e => setEditConta(f => ({...f, ativo:e.target.checked}))} />
+                    <span className="text-xs font-bold" style={{ color:'var(--muted)' }}>Ativa</span>
+                  </label>
                 </div>
               </div>
-              {/* Ícone e Cor */}
+              {/* Ícone */}
               <div>
                 <label className="field-label">Ícone</label>
                 <div className="flex gap-2 flex-wrap mt-1">
                   {ICONES.map(i => (
                     <button key={i} onClick={() => setEditConta(f=>({...f,icone:i}))}
-                      className="w-8 h-8 rounded-lg text-lg flex items-center justify-center"
-                      style={{ background: editConta.icone===i ? '#6366f133' : 'var(--card2)', border: editConta.icone===i ? '1px solid #6366f1' : '1px solid transparent' }}>
+                      className="w-9 h-9 rounded-xl text-xl flex items-center justify-center"
+                      style={{ background: editConta.icone===i ? '#6366f133' : 'var(--card2)', border: editConta.icone===i ? '2px solid #6366f1' : '2px solid transparent' }}>
                       {i}
                     </button>
                   ))}
                 </div>
               </div>
+              {/* Cor */}
               <div>
                 <label className="field-label">Cor</label>
                 <div className="flex gap-2 flex-wrap mt-1">
                   {CORES.map(c => (
                     <button key={c} onClick={() => setEditConta(f=>({...f,cor:c}))}
-                      className="w-6 h-6 rounded-full"
-                      style={{ background:c, outline: editConta.cor===c ? `2px solid ${c}` : 'none', outlineOffset:2 }} />
+                      className="w-7 h-7 rounded-full"
+                      style={{ background:c, outline: editConta.cor===c ? `3px solid ${c}` : 'none', outlineOffset:2 }} />
                   ))}
                 </div>
               </div>
@@ -393,11 +404,13 @@ export default function ContasCorrentesPage() {
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <h2 className="modal-title">{editTaxa.id ? 'Editar Taxa' : 'Nova Taxa de Cartão'}</h2>
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2">
-                  <label className="field-label">Nome *</label>
-                  <input className="field-input" placeholder="Ex: Cielo Débito VISA" value={editTaxa.nome||''} onChange={e => setEditTaxa(f => ({...f, nome:e.target.value}))} />
-                </div>
+              {/* Nome */}
+              <div>
+                <label className="field-label">Nome *</label>
+                <input className="field-input" placeholder="Ex: Cielo Débito VISA" value={editTaxa.nome||''} onChange={e => setEditTaxa(f => ({...f, nome:e.target.value}))} />
+              </div>
+              {/* Bandeira + Modalidade */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="field-label">Bandeira</label>
                   <input className="field-input" placeholder="VISA / MASTER / ELO..." value={editTaxa.bandeira||''} onChange={e => setEditTaxa(f => ({...f, bandeira:e.target.value}))} />
@@ -408,6 +421,9 @@ export default function ContasCorrentesPage() {
                     {MODALIDADES.map(m => <option key={m} value={m}>{MOD_LABEL[m]}</option>)}
                   </select>
                 </div>
+              </div>
+              {/* Taxa + Prazo */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="field-label">Taxa (%)</label>
                   <input type="number" step="0.01" className="field-input" value={editTaxa.taxa_pct||0} onChange={e => setEditTaxa(f => ({...f, taxa_pct:Number(e.target.value)}))} />
@@ -416,18 +432,20 @@ export default function ContasCorrentesPage() {
                   <label className="field-label">Prazo Liquidação (dias)</label>
                   <input type="number" className="field-input" value={editTaxa.prazo_liquidacao||1} onChange={e => setEditTaxa(f => ({...f, prazo_liquidacao:Number(e.target.value)}))} />
                 </div>
-                <div className="col-span-2">
-                  <label className="field-label">Conta Destino</label>
-                  <select className="field-input" value={editTaxa.conta_id||''} onChange={e => setEditTaxa(f => ({...f, conta_id:e.target.value ? Number(e.target.value) : null}))}>
-                    <option value="">— Sem conta vinculada —</option>
-                    {contas.map(c => <option key={c.id} value={c.id}>{c.icone} {c.nome}</option>)}
-                  </select>
-                </div>
-                <div className="flex items-center gap-2 col-span-2">
-                  <input type="checkbox" id="taxa-ativo" checked={editTaxa.ativo !== false} onChange={e => setEditTaxa(f => ({...f, ativo:e.target.checked}))} />
-                  <label htmlFor="taxa-ativo" className="text-xs" style={{ color:'var(--muted)' }}>Taxa ativa</label>
-                </div>
               </div>
+              {/* Conta Destino */}
+              <div>
+                <label className="field-label">Conta Destino</label>
+                <select className="field-input" value={editTaxa.conta_id||''} onChange={e => setEditTaxa(f => ({...f, conta_id:e.target.value ? Number(e.target.value) : null}))}>
+                  <option value="">— Sem conta vinculada —</option>
+                  {contas.map(c => <option key={c.id} value={c.id}>{c.icone} {c.nome}</option>)}
+                </select>
+              </div>
+              {/* Ativo */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={editTaxa.ativo !== false} onChange={e => setEditTaxa(f => ({...f, ativo:e.target.checked}))} />
+                <span className="text-xs font-bold" style={{ color:'var(--muted)' }}>Taxa ativa</span>
+              </label>
             </div>
             <div className="modal-footer">
               <button onClick={() => setModalTaxa(false)} className="btn-secondary text-xs">Cancelar</button>
@@ -445,7 +463,8 @@ export default function ContasCorrentesPage() {
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <h2 className="modal-title">Lançamento Manual</h2>
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
+              {/* Tipo + Valor */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="field-label">Tipo</label>
                   <select className="field-input" value={formMov.tipo} onChange={e => setFormMov(f => ({...f, tipo:e.target.value}))}>
@@ -457,14 +476,16 @@ export default function ContasCorrentesPage() {
                   <label className="field-label">Valor (R$)</label>
                   <input type="number" step="0.01" className="field-input" value={formMov.valor||''} onChange={e => setFormMov(f => ({...f, valor:Number(e.target.value)}))} />
                 </div>
-                <div className="col-span-2">
-                  <label className="field-label">Descrição *</label>
-                  <input className="field-input" value={formMov.descricao} onChange={e => setFormMov(f => ({...f, descricao:e.target.value}))} />
-                </div>
-                <div>
-                  <label className="field-label">Data</label>
-                  <input type="date" className="field-input" value={formMov.data} onChange={e => setFormMov(f => ({...f, data:e.target.value}))} />
-                </div>
+              </div>
+              {/* Descrição */}
+              <div>
+                <label className="field-label">Descrição *</label>
+                <input className="field-input" value={formMov.descricao} onChange={e => setFormMov(f => ({...f, descricao:e.target.value}))} />
+              </div>
+              {/* Data */}
+              <div>
+                <label className="field-label">Data</label>
+                <input type="date" className="field-input" value={formMov.data} onChange={e => setFormMov(f => ({...f, data:e.target.value}))} />
               </div>
             </div>
             <div className="modal-footer">

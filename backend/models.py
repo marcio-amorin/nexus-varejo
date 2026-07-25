@@ -193,6 +193,7 @@ class NotaFiscalEntrada(Base):
     condicao_pagamento = Column(String(20), default="A_VISTA")  # A_VISTA | PRAZO
     prazo_dias        = Column(String(100), nullable=True)      # ex: "30,60,90"
     status            = Column(String(20), default="RECEBIDA")  # RECEBIDA | CANCELADA
+    status_conf       = Column(String(20), default="PENDENTE")  # PENDENTE | CONFERIDA | DIVERGENCIA
     observacoes       = Column(Text, nullable=True)
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -993,6 +994,8 @@ class PedidoVenda(Base):
     # ABERTO | AGUARDANDO_PDV | EM_SEPARACAO | PRONTO_NF | FATURADO | CANCELADO
     status_separacao  = Column(String(20), default="PENDENTE")
     # PENDENTE | EM_SEPARACAO | PRONTO
+    status_conferencia = Column(String(20), nullable=True)
+    # PENDENTE | CONFERIDO | DIVERGENCIA
     subtotal          = Column(Float, default=0.0)
     desconto_total    = Column(Float, default=0.0)
     total             = Column(Float, default=0.0)
@@ -1095,6 +1098,39 @@ class ContaCorrente(Base):
 
     movimentos = relationship("MovimentoConta", back_populates="conta", cascade="all, delete-orphan")
     taxas_cartao = relationship("TaxaCartao", back_populates="conta")
+
+
+# ─── Conferência NF Entrada (Recebimento Cego) ────────────────────────────────
+
+class ConferenciaNFEntrada(Base):
+    __tablename__ = "conferencias_nf_entrada"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    nf_id           = Column(Integer, ForeignKey("nf_entrada.id"), nullable=False)
+    usuario_id      = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    data_conf       = Column(DateTime(timezone=True), server_default=func.now())
+    tem_divergencia = Column(Boolean, default=False)
+    observacao      = Column(Text, nullable=True)
+
+    itens = relationship("ItemConferenciaNFEntrada", back_populates="conferencia", cascade="all, delete-orphan")
+    nf    = relationship("NotaFiscalEntrada")
+
+
+class ItemConferenciaNFEntrada(Base):
+    __tablename__ = "itens_conferencia_nf_entrada"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    conferencia_id  = Column(Integer, ForeignKey("conferencias_nf_entrada.id"), nullable=False)
+    produto_id      = Column(Integer, ForeignKey("produtos.id"), nullable=True)
+    descricao       = Column(String(500))
+    qty_nf          = Column(Float, default=0.0)
+    qty_conferida   = Column(Float, default=0.0)
+    data_validade   = Column(String(10), nullable=True)
+    divergencia     = Column(Boolean, default=False)
+    em_ruptura      = Column(Boolean, default=False)
+
+    conferencia = relationship("ConferenciaNFEntrada", back_populates="itens")
+    produto     = relationship("Produto")
 
 
 class MovimentoConta(Base):
@@ -1364,3 +1400,29 @@ class VendedorPedido(Base):
     status          = Column(String(30), default="NOVO")  # NOVO | PAGO | ENVIADO | ENTREGUE | CANCELADO
     data_pedido     = Column(DateTime(timezone=True), nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── Monitor XML NF Entrada ──────────────────────────────────────────────────
+
+class MonitorXml(Base):
+    """XMLs de NF-e recebidos aguardando conferência e importação."""
+    __tablename__ = "monitor_xml"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+    chave_nfe        = Column(String(50), nullable=True, unique=True)
+    numero_nf        = Column(String(20), nullable=True)
+    serie            = Column(String(5),  nullable=True)
+    data_emissao     = Column(String(20), nullable=True)
+    fornecedor_nome  = Column(String(300), nullable=True)
+    fornecedor_doc   = Column(String(20),  nullable=True)
+    fornecedor_found = Column(Boolean, default=False)
+    valor_total      = Column(Float, default=0)
+    total_itens      = Column(Integer, default=0)
+    itens_ok         = Column(Integer, default=0)   # produtos encontrados
+    itens_novos      = Column(Integer, default=0)   # produtos não cadastrados
+    xml_raw          = Column(Text, nullable=True)
+    dados_json       = Column(Text, nullable=True)  # resultado do parse-xml como JSON
+    status           = Column(String(20), default="PENDENTE")
+    # PENDENTE | OK | DIVERGENCIA | IMPORTADO | REJEITADO
+    obs              = Column(Text, nullable=True)

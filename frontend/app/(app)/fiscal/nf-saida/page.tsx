@@ -302,10 +302,10 @@ export default function NFSaidaPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ background:'var(--bg)' }}>
       {/* Header */}
-      <div className="flex-shrink-0 p-3 space-y-2" style={{ borderBottom:'1px solid var(--border)' }}>
-        <div className="flex items-center justify-between">
+      <div className="flex-shrink-0 p-3 pb-0" style={{ borderBottom:'1px solid var(--border)' }}>
+        <div className="flex items-center justify-between pb-2">
           <div>
-            <h1 className="text-sm font-black" style={{ color:'var(--text)' }}>📄 NF-e DE SAÍDA</h1>
+            <h1 className="text-sm font-black" style={{ color:'var(--text)' }}>Notas Fiscais</h1>
             <p className="text-[10px]" style={{ color:'var(--muted)' }}>
               {config ? `Próxima NF nº ${config.proximo_numero} · Série ${config.serie}` : 'Emissão de Notas Fiscais para Clientes'}
             </p>
@@ -323,7 +323,7 @@ export default function NFSaidaPage() {
             </button>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 pt-2">
           <input value={busca} onChange={e => setBusca(e.target.value)}
             className="px-2.5 py-1 rounded-lg text-[11px] outline-none"
             style={{ background:'var(--card)', border:'1px solid var(--border)', color:'var(--text)', flex:1 }}

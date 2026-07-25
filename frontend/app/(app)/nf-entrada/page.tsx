@@ -140,8 +140,8 @@ export default function NFEntradaPage() {
     <div className="pg">
       <div className="pg-header flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-base font-black text-white">NF de Entrada</h1>
-          <p className="text-[10px]" style={{ color: 'var(--muted)' }}>{nfs.length} nota(s) lançada(s)</p>
+          <h1 className="text-base font-black text-white">Notas Fiscais</h1>
+          <p className="text-[10px]" style={{ color: 'var(--muted)' }}>{nfs.length} nota(s) de entrada lançada(s)</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowXml(true)}

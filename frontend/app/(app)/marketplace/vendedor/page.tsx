@@ -91,10 +91,13 @@ export default function PainelVendedor() {
       {/* KPIs */}
       <div className="pg-stats grid grid-cols-4 gap-2">
         {[
-          { label:'Anúncios Ativos',  value: dash?.total_anuncios||0, cor:'#22c55e',  icon:Package   },
-          { label:'Total Faturado',   value: fmtR(dash?.total_faturado||0), cor:'#f97316', icon:TrendingUp },
-          { label:'Total Vendas',     value: dash?.total_vendas||0,   cor:'#3b82f6',  icon:Store     },
-          { label:'Pendentes',        value: dash?.pendentes||0,      cor:'#f59e0b',  icon:RefreshCw },
+          { label:'Anúncios Ativos', value: dash?.total_anuncios||0,         cor:'#22c55e', icon:Package    },
+          { label:'Total Faturado',  value: fmtR(dash?.total_faturado||0),   cor:'#f97316', icon:TrendingUp },
+          { label:'Total Vendas',    value: dash?.total_vendas||0,            cor:'#3b82f6', icon:Store      },
+          { label:'Lucro Líquido',
+            value: fmtR(dash?.lucro_total||0),
+            cor: (dash?.lucro_total||0) >= 0 ? '#22c55e' : '#ef4444',
+            icon: TrendingUp },
         ].map((k,i) => (
           <div key={i} className="rounded-xl p-3" style={{ background:'var(--card)', border:`1px solid ${k.cor}30` }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center mb-2" style={{ background:k.cor+'20' }}>
@@ -169,8 +172,10 @@ export default function PainelVendedor() {
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-xs font-black" style={{ color:'#22c55e' }}>{fmtR(p.valor_venda)}</p>
-                    {p.lucro_estimado > 0 && (
-                      <p className="text-[9px]" style={{ color:'#f97316' }}>lucro ~{fmtR(p.lucro_estimado)}</p>
+                    {p.lucro_estimado !== undefined && p.lucro_estimado !== null && (
+                      <p className="text-[9px] font-bold" style={{ color: (p.lucro_estimado||0) >= 0 ? '#22c55e' : '#ef4444' }}>
+                        lucro {fmtR(p.lucro_estimado)}
+                      </p>
                     )}
                   </div>
                 </div>

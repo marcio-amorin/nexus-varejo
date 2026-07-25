@@ -9,9 +9,33 @@ const SEP_COR: Record<string, { bg: string; c: string }> = {
   PRONTO:       { bg: '#34C75922', c: '#34C759' },
 }
 
+// Extrai info de embalagem da descrição: "PRODUTO [2CX×12UN]" → { qtd: 2, unidade: 'CX', qtdPorEmb: 12 }
+function parseEmbalagem(descricao: string) {
+  const m = descricao.match(/\[(\d+(?:\.\d+)?)(\w+)×(\d+)UN\]/)
+  if (m) return { qtd: parseFloat(m[1]), unidade: m[2], qtdPorEmb: parseInt(m[3]) }
+  return null
+}
+
+// Retorna { qtdSeparar, unidSeparar } — a unidade que o separador trabalha (CAIXAS quando possível)
+function infoSeparacao(it: ItemSep) {
+  // Prioridade 1: campos de embalagem do produto (direto do banco)
+  if (it.embalagem_qtd && it.embalagem_qtd > 1) {
+    return {
+      qtdSeparar:  it.quantidade / it.embalagem_qtd,
+      unidSeparar: it.embalagem_tipo || 'CX',
+    }
+  }
+  // Prioridade 2: parsing do formato "[2CX×72UN]" na descrição (legado)
+  const emb = parseEmbalagem(it.descricao)
+  if (emb) return { qtdSeparar: emb.qtd, unidSeparar: emb.unidade }
+  // Fallback: unidade base
+  return { qtdSeparar: it.quantidade, unidSeparar: it.unidade }
+}
+
 type ItemSep = {
   id: number; produto_id: number; descricao: string; codigo: string
   codigo_barras?: string; quantidade: number; unidade: string
+  embalagem_qtd?: number; embalagem_tipo?: string
 }
 type Pedido = {
   id: number; numero: string; cliente_nome: string; status: string
@@ -24,6 +48,8 @@ export default function SeparacaoPage() {
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState<Pedido | null>(null)
   const [coletados, setColetados] = useState<Record<number, number>>({})
+  const [faltantes, setFaltantes] = useState<Record<number, boolean>>({})
+  const [motivos,   setMotivos]   = useState<Record<number, string>>({})
   const [scanInput, setScanInput] = useState('')
   const [scanMsg, setScanMsg]   = useState<{ok: boolean; text: string} | null>(null)
   const [saving, setSaving]     = useState(false)
@@ -45,6 +71,8 @@ export default function SeparacaoPage() {
     const init: Record<number, number> = {}
     p.itens.forEach(it => { init[it.id] = 0 })
     setColetados(init)
+    setFaltantes({})
+    setMotivos({})
     setScanInput('')
     setScanMsg(null)
     setTimeout(() => scanRef.current?.focus(), 100)
@@ -55,31 +83,50 @@ export default function SeparacaoPage() {
     const cod = scanInput.trim()
     if (!cod || !selected) { setScanInput(''); return }
     const item = selected.itens.find(it =>
-      it.codigo === cod || it.codigo_barras === cod ||
-      it.descricao.toLowerCase().includes(cod.toLowerCase())
+      it.codigo === cod || it.codigo_barras === cod
     )
     if (!item) {
       setScanMsg({ ok: false, text: `Produto "${cod}" não encontrado no pedido` })
       setTimeout(() => setScanMsg(null), 3000)
     } else {
+      const { qtdSeparar } = infoSeparacao(item)
       setColetados(c => {
         const atual = c[item.id] || 0
-        const novo  = Math.min(atual + 1, item.quantidade)
-        return { ...c, [item.id]: novo }
+        return { ...c, [item.id]: Math.min(atual + 1, qtdSeparar) }
       })
+      // Ao escanear, remove faltante se estava marcado
+      setFaltantes(f => ({ ...f, [item.id]: false }))
       setScanMsg({ ok: true, text: `✓ ${item.descricao}` })
       setTimeout(() => setScanMsg(null), 1500)
     }
     setScanInput('')
   }
 
-  function setQtyColetado(itemId: number, qty: number) {
-    setColetados(c => ({ ...c, [itemId]: Math.max(0, qty) }))
+  function toggleFaltante(itemId: number) {
+    setFaltantes(f => {
+      const novoEstado = !f[itemId]
+      if (novoEstado) setColetados(c => ({ ...c, [itemId]: 0 }))
+      return { ...f, [itemId]: novoEstado }
+    })
   }
 
-  const totalColetado = selected ? selected.itens.reduce((s, it) => s + (coletados[it.id] || 0), 0) : 0
-  const totalPedido   = selected ? selected.itens.reduce((s, it) => s + it.quantidade, 0) : 0
-  const isCompleto    = totalColetado >= totalPedido && totalPedido > 0
+  // Todos os itens estão resolvidos (coletados OU marcados como faltante)
+  const todosResolvidos = selected ? selected.itens.every(it => {
+    if (faltantes[it.id]) return motivos[it.id]?.trim().length > 0 // faltante precisa de motivo
+    const { qtdSeparar } = infoSeparacao(it)
+    return (coletados[it.id] || 0) >= qtdSeparar
+  }) : false
+
+  const temFaltante = selected ? selected.itens.some(it => faltantes[it.id]) : false
+
+  // Para a barra de progresso: conta itens resolvidos
+  const totalItens    = selected?.itens.length || 0
+  const itensOk       = selected ? selected.itens.filter(it => {
+    if (faltantes[it.id]) return motivos[it.id]?.trim().length > 0
+    const { qtdSeparar } = infoSeparacao(it)
+    return (coletados[it.id] || 0) >= qtdSeparar
+  }).length : 0
+  const pctGeral = totalItens > 0 ? Math.round(itensOk / totalItens * 100) : 0
 
   async function concluirSeparacao() {
     if (!selected) return
@@ -118,31 +165,30 @@ export default function SeparacaoPage() {
               <Package size={16} color="#8B5CF6" /> {selected.numero}
             </h1>
             <p className="text-[10px]" style={{ color: 'var(--muted)' }}>
-              {selected.cliente_nome} · {totalColetado}/{totalPedido} itens coletados
+              {selected.cliente_nome} · {itensOk}/{totalItens} itens resolvidos
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-2 flex-1 min-w-[100px] rounded-full overflow-hidden" style={{ background: 'var(--card2)', width: 120 }}>
-            <div className="h-full rounded-full transition-all" style={{
-              width: `${totalPedido > 0 ? (totalColetado / totalPedido * 100) : 0}%`,
-              background: isCompleto ? '#34C759' : '#8B5CF6'
-            }} />
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--card2)', width: 100 }}>
+            <div className="h-full rounded-full transition-all"
+              style={{ width: `${pctGeral}%`, background: todosResolvidos ? '#34C759' : '#8B5CF6' }} />
           </div>
-          <span className="text-xs font-black" style={{ color: isCompleto ? '#34C759' : '#8B5CF6' }}>
-            {totalPedido > 0 ? Math.round(totalColetado / totalPedido * 100) : 0}%
+          <span className="text-xs font-black" style={{ color: todosResolvidos ? '#34C759' : '#8B5CF6' }}>
+            {pctGeral}%
           </span>
         </div>
       </div>
 
       {/* Scan input */}
       <div className="px-4 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'var(--card)', border: '1px solid #8B5CF644' }}>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ background: 'var(--card)', border: '1px solid #8B5CF644' }}>
           <Scan size={14} color="#8B5CF6" />
           <input ref={scanRef} value={scanInput}
             onChange={e => setScanInput(e.target.value)}
             onKeyDown={handleScan}
-            placeholder="Escanear código de barras ou digitar código..."
+            placeholder="Escanear código de barras..."
             className="flex-1 text-sm bg-transparent text-white outline-none" />
         </div>
         {scanMsg && (
@@ -153,42 +199,117 @@ export default function SeparacaoPage() {
         )}
       </div>
 
-      {/* Itens */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {selected.itens.map(it => {
-          const col  = coletados[it.id] || 0
-          const ok   = col >= it.quantidade
-          const pct  = it.quantidade > 0 ? Math.min(col / it.quantidade, 1) : 0
+      {/* Itens — layout confronto PV vs Separando */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {selected.itens.map((it, idx) => {
+          const { qtdSeparar, unidSeparar } = infoSeparacao(it)
+          const col      = coletados[it.id] || 0
+          const faltante = faltantes[it.id] || false
+          const motivo   = motivos[it.id] || ''
+          const ok       = !faltante && col >= qtdSeparar
+
+          const borderColor = faltante
+            ? (motivo.trim() ? '#EF444433' : '#F59E0B44')
+            : ok ? '#34C75933' : 'var(--border)'
+
+          function confirmarItemEnter(e: React.KeyboardEvent<HTMLInputElement>) {
+            if (e.key !== 'Enter') return
+            // Se qty < pedido → auto-faltante
+            if (col < qtdSeparar) {
+              setFaltantes(f => ({ ...f, [it.id]: true }))
+            }
+            // Foca no próximo input de separação
+            const inputs = document.querySelectorAll<HTMLInputElement>('.sep-qty-input')
+            const i = Array.from(inputs).indexOf(e.currentTarget)
+            if (i >= 0 && i < inputs.length - 1) inputs[i + 1].focus()
+          }
+
           return (
-            <div key={it.id} className="rounded-2xl p-3"
-              style={{ background: 'var(--card)', border: `1px solid ${ok ? '#34C75944' : 'var(--border)'}` }}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: ok ? '#34C75922' : 'var(--card2)' }}>
-                  {ok ? <Check size={14} color="#34C759" /> : <Package size={14} color="var(--muted)" />}
+            <div key={it.id} className="rounded-2xl overflow-hidden"
+              style={{ background: 'var(--card)', border: `1px solid ${borderColor}` }}>
+
+              {/* Cabeçalho do item */}
+              <div className="flex items-center gap-2 px-3 py-2">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: faltante ? '#EF444422' : ok ? '#34C75922' : 'var(--card2)' }}>
+                  {faltante ? <X size={12} color="#EF4444" /> : ok ? <Check size={12} color="#34C759" /> : <Package size={12} color="var(--muted)" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-white truncate">{it.descricao}</p>
+                  <p className="text-sm font-bold text-white leading-tight truncate">{it.descricao}</p>
                   <p className="text-[10px] font-mono" style={{ color: 'var(--muted)' }}>{it.codigo}</p>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                    <span className="font-black text-white">{col}</span>/{it.quantidade} {it.unidade}
-                  </span>
-                  <div className="flex flex-col gap-0.5">
-                    <button onClick={() => setQtyColetado(it.id, col + 1)}
-                      className="w-6 h-5 rounded flex items-center justify-center text-xs font-black"
-                      style={{ background: '#8B5CF622', color: '#8B5CF6' }}>+</button>
-                    <button onClick={() => setQtyColetado(it.id, col - 1)} disabled={col === 0}
-                      className="w-6 h-5 rounded flex items-center justify-center text-xs font-black"
-                      style={{ background: col > 0 ? '#EF444422' : 'var(--card2)', color: col > 0 ? '#EF4444' : 'var(--muted)' }}>−</button>
+                <span className="text-[9px] font-black px-2 py-0.5 rounded-lg flex-shrink-0"
+                  style={{
+                    background: faltante ? '#EF444422' : ok ? '#34C75922' : '#8B5CF622',
+                    color:      faltante ? '#EF4444'   : ok ? '#34C759'   : '#8B5CF6',
+                  }}>
+                  {faltante ? 'FALTANTE' : ok ? '✓ OK' : 'PENDENTE'}
+                </span>
+              </div>
+
+              {/* Linha divisória */}
+              <div style={{ height: 1, background: 'var(--border)' }} />
+
+              {/* Confronto PEDIDO | SEPARANDO ou campo faltante */}
+              {!faltante ? (
+                <div className="flex">
+                  {/* PEDIDO — quantidade do PV */}
+                  <div className="flex flex-col items-center justify-center gap-0.5 py-3 px-4"
+                    style={{ borderRight: '1px solid var(--border)', background: '#ffffff05', minWidth: 90 }}>
+                    <span className="text-[9px] font-black tracking-widest" style={{ color: 'var(--muted)' }}>PEDIDO</span>
+                    <span className="text-xl font-black text-white">{qtdSeparar}</span>
+                    <span className="text-[10px] font-bold" style={{ color: '#8B5CF6' }}>{unidSeparar}</span>
+                  </div>
+
+                  {/* SEPARANDO — input */}
+                  <div className="flex-1 flex flex-col items-center justify-center gap-0.5 py-3 px-4">
+                    <span className="text-[9px] font-black tracking-widest" style={{ color: 'var(--muted)' }}>SEPARANDO</span>
+                    <input
+                      type="number" min={0} max={qtdSeparar}
+                      value={col === 0 ? '' : col}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value) || 0
+                        setColetados(c => ({ ...c, [it.id]: Math.min(Math.max(0, v), qtdSeparar) }))
+                      }}
+                      onKeyDown={confirmarItemEnter}
+                      placeholder="0"
+                      className="sep-qty-input w-24 px-2 py-1.5 rounded-xl text-xl font-black text-white text-center outline-none"
+                      style={{ background: 'var(--card2)', border: `1px solid ${ok ? '#34C75966' : 'var(--border)'}` }}
+                    />
+                    <span className="text-[10px] font-bold" style={{ color: ok ? '#34C759' : '#8B5CF6' }}>{unidSeparar}</span>
                   </div>
                 </div>
-              </div>
-              {/* Barra de progresso */}
-              <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'var(--card2)' }}>
-                <div className="h-full rounded-full transition-all" style={{ width: `${pct * 100}%`, background: ok ? '#34C759' : '#8B5CF6' }} />
-              </div>
+              ) : (
+                /* Faltante — campo de observação */
+                <div className="px-3 py-2 space-y-1.5">
+                  <p className="text-[9px] font-black" style={{ color: '#EF4444' }}>
+                    QUANTIDADE FALTANTE — INFORME O MOTIVO:
+                  </p>
+                  <textarea
+                    autoFocus
+                    value={motivo}
+                    onChange={e => setMotivos(m => ({ ...m, [it.id]: e.target.value.toUpperCase() }))}
+                    placeholder="EX: SEM ESTOQUE, PRODUTO AVARIADO..."
+                    rows={2}
+                    className="w-full px-2 py-1.5 rounded-lg text-xs text-white outline-none resize-none"
+                    style={{
+                      background: '#EF444411',
+                      border: `1px solid ${motivo.trim() ? '#EF444444' : '#F59E0B88'}`,
+                      textTransform: 'uppercase',
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      setFaltantes(f => ({ ...f, [it.id]: false }))
+                      setColetados(c => ({ ...c, [it.id]: 0 }))
+                      setMotivos(m => ({ ...m, [it.id]: '' }))
+                    }}
+                    className="text-[10px] font-bold px-3 py-1 rounded-lg"
+                    style={{ background: 'var(--card2)', color: 'var(--muted)' }}>
+                    ↩ Corrigir quantidade
+                  </button>
+                </div>
+              )}
             </div>
           )
         })}
@@ -196,14 +317,27 @@ export default function SeparacaoPage() {
 
       {/* Footer */}
       <div className="px-4 py-3" style={{ borderTop: '1px solid var(--border)' }}>
-        <button onClick={concluirSeparacao} disabled={saving || !isCompleto}
+        {temFaltante && (
+          <p className="text-[10px] text-center font-bold mb-2" style={{ color: '#F59E0B' }}>
+            ⚠️ Pedido com faltante — será registrado com observação
+          </p>
+        )}
+        <button onClick={concluirSeparacao} disabled={saving || !todosResolvidos}
           className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2"
           style={{
-            background: isCompleto ? 'linear-gradient(135deg,#34C759,#16A34A)' : 'var(--card2)',
-            color: isCompleto ? 'white' : 'var(--muted)',
+            background: todosResolvidos
+              ? temFaltante
+                ? 'linear-gradient(135deg,#F59E0B,#D97706)'
+                : 'linear-gradient(135deg,#34C759,#16A34A)'
+              : 'var(--card2)',
+            color: todosResolvidos ? 'white' : 'var(--muted)',
           }}>
           {saving ? <RefreshCw size={16} className="animate-spin" /> : <Check size={16} />}
-          {isCompleto ? 'CONCLUIR SEPARAÇÃO — PRONTO PARA NF' : `Faltam ${totalPedido - totalColetado} item(s)`}
+          {!todosResolvidos
+            ? `Resolva todos os itens (${totalItens - itensOk} pendentes)`
+            : temFaltante
+              ? 'CONCLUIR COM FALTANTE'
+              : 'CONCLUIR SEPARAÇÃO — PRONTO'}
         </button>
       </div>
     </div>

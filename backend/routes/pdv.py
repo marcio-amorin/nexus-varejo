@@ -61,6 +61,7 @@ class ParametroUpdate(BaseModel):
     exige_senha_supervisor: Optional[bool] = None
     logo_url: Optional[str] = None
     solicitar_cpf_inicio: Optional[bool] = None
+    supervisor_obrigatorio_abertura: Optional[bool] = None
 
 class InstituicaoCreate(BaseModel):
     nome: str
@@ -205,6 +206,27 @@ def finalizar_venda(data: VendaPDVCreate, db: Session = Depends(get_db), user=De
     subtotal = sum(round(i.quantidade * i.preco_unitario - (i.desconto_item or 0), 2) for i in data.itens)
     total    = round(subtotal - (data.desconto or 0) - (data.credito_devolucao_usado or 0), 2)
     if total < 0: total = 0
+
+    # Validações de formas que exigem cliente + limite
+    formas_com_limite = {"CREDITO_ROTATIVO", "CONVENIO"}
+    for pgto in (data.pagamentos or []):
+        if pgto.forma in formas_com_limite:
+            if not data.cliente_id:
+                raise HTTPException(400, f"{pgto.forma.replace('_', ' ')} exige cliente cadastrado")
+            cli_lim = db.query(Cliente).filter(Cliente.id == data.cliente_id).first()
+            if not cli_lim:
+                raise HTTPException(400, "Cliente não encontrado")
+            limite = cli_lim.credito_rotativo or 0
+            if limite <= 0:
+                raise HTTPException(400, f"Cliente '{cli_lim.nome}' não possui limite de crédito rotativo")
+            usado = db.query(sqlfunc.coalesce(sqlfunc.sum(ContaReceber.valor), 0)).filter(
+                ContaReceber.cliente_id == data.cliente_id,
+                ContaReceber.forma_pagamento == pgto.forma,
+                ContaReceber.status == "PENDENTE",
+            ).scalar() or 0
+            disponivel = round(limite - usado, 2)
+            if pgto.valor > disponivel:
+                raise HTTPException(400, f"Limite insuficiente — disponível: R$ {disponivel:.2f} de R$ {limite:.2f}")
 
     # Número da venda
     last = db.query(Venda).order_by(Venda.id.desc()).first()
@@ -351,7 +373,8 @@ def _param_default():
             "cliente_cpf_obrigatorio": False, "desconto_maximo_pct": 10.0,
             "permite_venda_sem_estoque": True, "troco_solidario_ativo": True,
             "impressao_cupom": True, "mensagem_cupom": None,
-            "exige_senha_supervisor": False, "logo_url": None, "solicitar_cpf_inicio": False}
+            "exige_senha_supervisor": False, "logo_url": None, "solicitar_cpf_inicio": False,
+            "supervisor_obrigatorio_abertura": False}
 
 def _param_dict(p: ParametroPDV):
     return {"id": p.id, "terminal": p.terminal, "nome_loja": p.nome_loja,
@@ -365,7 +388,8 @@ def _param_dict(p: ParametroPDV):
             "mensagem_cupom": p.mensagem_cupom,
             "exige_senha_supervisor": getattr(p, "exige_senha_supervisor", False) or False,
             "logo_url": getattr(p, "logo_url", None),
-            "solicitar_cpf_inicio": getattr(p, "solicitar_cpf_inicio", False) or False}
+            "solicitar_cpf_inicio": getattr(p, "solicitar_cpf_inicio", False) or False,
+            "supervisor_obrigatorio_abertura": getattr(p, "supervisor_obrigatorio_abertura", False) or False}
 
 @router.get("/parametros")
 def get_parametros(db: Session = Depends(get_db), _=Depends(get_current_user)):
@@ -434,7 +458,7 @@ class _pwd:
 @router.get("/operadores")
 def list_operadores(db: Session = Depends(get_db), _=Depends(get_current_user)):
     ops = db.query(OperadorPDV).filter(OperadorPDV.is_active == True).order_by(OperadorPDV.numero).all()
-    return [{"id": o.id, "numero": o.numero, "nome": o.nome, "perfil": o.perfil} for o in ops]
+    return [{"id": o.id, "numero": o.numero, "nome": o.nome, "perfil": o.perfil, "senha_hash": bool(o.senha_hash)} for o in ops]
 
 @router.post("/operadores")
 def create_operador(data: OperadorCreate, db: Session = Depends(get_db), _=Depends(get_current_user)):

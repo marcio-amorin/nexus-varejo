@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { DollarSign, TrendingUp, Clock, BarChart2, Plus, RefreshCw } from 'lucide-react'
+import { DollarSign, TrendingUp, Clock, BarChart2, Plus, RefreshCw, Loader2 } from 'lucide-react'
 
 const API  = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -30,6 +30,8 @@ export default function FinanceiroAfiliados() {
   const [filtroMes, setFiltroMes] = useState(mesAtual)
   const [showForm, setShowForm]   = useState(false)
   const [form, setForm]           = useState(FORM_INIT)
+  const [syncando, setSyncando]   = useState(false)
+  const [syncMsg, setSyncMsg]     = useState('')
 
   useEffect(() => { carregar(); carregarPr() }, [filtroSt, filtroMes])
 
@@ -66,6 +68,22 @@ export default function FinanceiroAfiliados() {
     setShowForm(false); setForm(FORM_INIT); carregar()
   }
 
+  async function sincronizarML() {
+    setSyncando(true); setSyncMsg('')
+    try {
+      const r = await fetch(`${API}/afiliados/ml-sync-comissoes?dias=30`, { method:'POST', headers:hdr() })
+      const d = await r.json()
+      if (!r.ok) setSyncMsg(`Erro: ${d.detail || 'falha'}`)
+      else {
+        setSyncMsg(`${d.sincronizadas} novas vendas importadas${d.atualizadas ? ` | ${d.atualizadas} atualizadas` : ''}`)
+        carregar(); carregarPr()
+      }
+    } catch(e:any) {
+      setSyncMsg(`Erro: ${e.message}`)
+    }
+    setSyncando(false)
+  }
+
   async function atualizarStatus(id:number, status:string) {
     try {
       await fetch(`${API}/afiliados/comissoes/${id}/status?status=${status}`, { method:'PATCH', headers:hdr() })
@@ -82,25 +100,43 @@ export default function FinanceiroAfiliados() {
         <div className="px-5 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-base font-black text-white flex items-center gap-2">
-              <DollarSign size={16}/> Financeiro &mdash; Comissões
+              <DollarSign size={16}/> Financeiro &mdash; Vendas ML
             </h1>
-            <p className="text-xs text-white/75 mt-0.5">Acompanhe seus ganhos com marketing de afiliados</p>
+            <p className="text-xs text-white/75 mt-0.5">Vendas reais do Mercado Livre — valor bruto e líquido após taxas</p>
           </div>
-          <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
-            style={{ background:'rgba(255,255,255,0.2)', color:'#fff', border:'1px solid rgba(255,255,255,0.35)' }}>
-            <Plus size={13}/> Registrar
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={sincronizarML} disabled={syncando}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
+              style={{ background:'rgba(255,255,255,0.15)', color:'#fff', border:'1px solid rgba(255,255,255,0.3)' }}>
+              {syncando ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}
+              {syncando ? 'Sincronizando...' : 'Sync ML'}
+            </button>
+            <button onClick={() => setShowForm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
+              style={{ background:'rgba(255,255,255,0.2)', color:'#fff', border:'1px solid rgba(255,255,255,0.35)' }}>
+              <Plus size={13}/> Registrar
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Mensagem sync */}
+      {syncMsg && (
+        <div className="px-3 py-2 rounded-xl text-xs font-bold"
+          style={{ background: syncMsg.startsWith('Erro') ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                   color:      syncMsg.startsWith('Erro') ? '#ef4444' : '#22c55e',
+                   border:     `1px solid ${syncMsg.startsWith('Erro') ? '#ef444430' : '#22c55e30'}` }}>
+          {syncMsg}
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="pg-stats grid grid-cols-4 gap-2">
         {[
-          { label:'A Receber',         value:fmtR(projecao?.a_receber||0),     cor:'#f59e0b', icon:Clock      },
-          { label:'Projeção Prox. Mês',value:fmtR(projecao?.projecao_mes||0),  cor:'#3b82f6', icon:TrendingUp },
-          { label:'Total Filtrado',    value:fmtR(totalFiltro),                 cor:'#22c55e', icon:DollarSign },
-          { label:'Registros',         value:String(comissoes.length),          cor:'#8b5cf6', icon:BarChart2  },
+          { label:'Total Líquido (Filtro)',value:fmtR(totalFiltro),               cor:'#22c55e', icon:DollarSign },
+          { label:'Projeção Prox. Mês',  value:fmtR(projecao?.projecao_mes||0), cor:'#3b82f6', icon:TrendingUp },
+          { label:'A Receber',           value:fmtR(projecao?.a_receber||0),    cor:'#f59e0b', icon:Clock      },
+          { label:'Registros',           value:String(comissoes.length),        cor:'#8b5cf6', icon:BarChart2  },
         ].map((k,i) => (
           <div key={i} className="rounded-xl p-3" style={{ background:'var(--card)', border:`1px solid ${k.cor}30` }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center mb-2" style={{ background:k.cor+'20' }}>
@@ -160,7 +196,7 @@ export default function FinanceiroAfiliados() {
             <thead>
               <tr>
                 <th>Produto</th><th>Plataforma</th><th>Data</th>
-                <th>Vl. Venda</th><th>Comissão</th><th>Status</th><th>Ações</th>
+                <th>Vl. Bruto</th><th>Líquido (após taxas)</th><th>Status</th><th>Ações</th>
               </tr>
             </thead>
             <tbody>

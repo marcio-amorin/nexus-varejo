@@ -1,6 +1,15 @@
 ﻿'use client'
-import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useEffect, useState, useRef, Suspense } from 'react'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+
+// Componente auxiliar que lê searchParams e sincroniza — precisa de Suspense
+function SearchParamsSyncer({ onUpdate }: { onUpdate: (sp: URLSearchParams) => void }) {
+  const sp = useSearchParams()
+  const ref = useRef(onUpdate)
+  ref.current = onUpdate
+  useEffect(() => { ref.current(sp) }, [sp])
+  return null
+}
 import Link from 'next/link'
 import {
   LayoutDashboard, Package, Users, Truck, FileText,
@@ -11,7 +20,7 @@ import {
   Monitor, History, Pencil, CalendarClock, Megaphone, Scale,
   Building2, ReceiptText, Calendar, Wallet, ArrowLeftRight, Receipt,
   CreditCard, Heart, BarChart, Send, FileOutput, Printer, ShoppingBasket, Zap,
-  Target, Link2, BookOpen, Image, DollarSign, Radar,
+  Target, Link2, BookOpen, Image, DollarSign, Radar, ClipboardCheck, AlertTriangle, Clock,
 } from 'lucide-react'
 
 // Tipo de item de navegação (suporta sub-itens)
@@ -38,13 +47,13 @@ const NAV: NavItem[] = [
   { href: '/marketplace/integracoes',  icon: RotateCcw,     label: 'Integrações',         group: 'marketplace' },
 
   // ── MARKETING AFILIADOS + VENDEDOR (Afiliados primeiro) ─────────────────
-  { href: '/marketplace/afiliados',              icon: Target,        label: '⚡ Afiliados — Painel',    group: 'corporativos' },
+  { href: '/marketplace/afiliados',              icon: Target,        label: 'Afiliados — Painel',      group: 'corporativos' },
   { href: '/marketplace/afiliados/metas',        icon: TrendingUp,    label: 'Meta Vendas',             group: 'corporativos' },
   { href: '/marketplace/afiliados/catalogo',     icon: BookOpen,      label: 'Catálogo Produtos',       group: 'corporativos' },
   { href: '/marketplace/afiliados/conteudo',     icon: Image,         label: 'Criador de Conteúdo',     group: 'corporativos' },
   { href: '/marketplace/afiliados/financeiro',   icon: DollarSign,    label: 'Financeiro / Comissões',  group: 'corporativos' },
   { href: '/marketplace/afiliados/config',       icon: Settings,      label: 'Config. Afiliados',       group: 'corporativos' },
-  { href: '/marketplace/vendedor',               icon: Store,         label: '🏪 Painel Vendedor',       group: 'corporativos' },
+  { href: '/marketplace/vendedor',               icon: Store,         label: 'Painel Vendedor',          group: 'corporativos' },
   { href: '/marketplace/vendedor/anuncios',      icon: Package,       label: 'Meus Anúncios',            group: 'corporativos' },
   { href: '/marketplace/vendedor/config',        icon: Settings,      label: 'Config. Vendedor',         group: 'corporativos' },
 
@@ -56,14 +65,22 @@ const NAV: NavItem[] = [
   { href: '/compras/solicitacoes', icon: FileText,       label: 'Solicitações',        group: 'compras' },
 
   // ── NOTAS FISCAIS ─────────────────────────────────────────────────────────
-  { href: '/nf-entrada',      icon: FileText,    label: 'NF de Entrada / XML', group: 'notas' },
-  { href: '/fiscal/nf-saida', icon: FileOutput,  label: 'NF-e de Saída',       group: 'notas' },
+  { href: '/nf-entrada/monitor-xml',  icon: Radar,          label: 'Monitor XML',        group: 'notas_entrada' },
+  { href: '/nf-entrada',              icon: FileText,       label: 'Lançamento NF',      group: 'notas_entrada' },
+  { href: '/nf-entrada/divergencias', icon: AlertTriangle,  label: 'Divergências NF',    group: 'notas_entrada' },
+  { href: '/fiscal/nf-saida',         icon: FileOutput,     label: 'Notas Fiscais Saída', group: 'notas_saida'  },
+
+  // ── SEPARAÇÃO DE MERCADORIA ────────────────────────────────────────────────
+  { href: '/separacao',             icon: ClipboardList,  label: 'Separação de Mercadoria', group: 'separacao_mod' },
+
+  // ── EXPEDIÇÃO / RECEBIMENTO ────────────────────────────────────────────────
+  { href: '/expedicao',                    icon: Truck,          label: 'Expedição / Recebimento',  group: 'expedicao' },
+  { href: '/conferencia',                  icon: ClipboardCheck, label: 'Conferência de Pedidos',   group: 'expedicao' },
+  { href: '/expedicao/conferencia-nf',     icon: Package,        label: 'Conferência NF Entrada',   group: 'expedicao' },
 
   // ── ESTOQUE ────────────────────────────────────────────────────────────────
   { href: '/estoque',               icon: Warehouse,      label: 'Estoque',             group: 'estoque' },
   { href: '/estoque/inventario',    icon: ClipboardMinus, label: 'Inventário',          group: 'estoque' },
-  { href: '/separacao',             icon: ClipboardList,  label: 'Separação de Pedidos',group: 'estoque' },
-  { href: '/recebimento',           icon: Package,        label: 'Recebimento / Coletor',group: 'estoque' },
   { href: '/trocas',                icon: ArrowLeftRight, label: 'Trocas e Devoluções', group: 'estoque' },
   { href: '/estoque/centros-custo', icon: Boxes,          label: 'Centros de Custo',    group: 'estoque' },
 
@@ -87,12 +104,23 @@ const NAV: NavItem[] = [
   { href: '/financeiro',    icon: BarChart,     label: 'Fluxo de Caixa / DRE',group: 'financeiro' },
   { href: '/contas-pagar',   icon: TrendingDown, label: 'Contas a Pagar',   group: 'financeiro' },
   { href: '/contas-receber', icon: TrendingUp,   label: 'Contas a Receber', group: 'financeiro' },
-  { href: '/convenio',       icon: Heart,        label: 'Convênio Empresas',group: 'financeiro' },
+  { href: '/convenio',       icon: Heart,        label: 'Convênio Empresas', group: 'financeiro' },
+  { href: '/relatorios?rel=dre-simplificado', icon: FileText, label: 'DRE Simplificado', group: 'financeiro' },
 
   // ── GESTÃO / RELATÓRIOS ───────────────────────────────────────────────────
-  { href: '/vendas',               icon: TrendingUp, label: 'Vendas / Histórico',    group: 'relatorios' },
-  { href: '/relatorio-operador',   icon: Users,      label: 'Vendas por Operador',   group: 'relatorios' },
-  { href: '/relatorios',           icon: BarChart2,  label: 'Relatórios',            group: 'relatorios' },
+  { href: '/vendas',                                    icon: TrendingUp, label: 'Vendas / Histórico',    group: 'relatorios' },
+  { href: '/relatorio-operador',                        icon: Users,      label: 'Vendas por Operador',   group: 'relatorios' },
+  { href: '/relatorios?rel=vendas-periodo',             icon: Calendar,   label: 'Vendas por Período',       group: 'relatorios' },
+  { href: '/relatorios?rel=vendas-por-produto',         icon: Package,    label: 'Vendas por Produto',       group: 'relatorios' },
+  { href: '/relatorios?rel=vendas-por-categoria',       icon: Tag,        label: 'Vendas por Categoria',     group: 'relatorios' },
+  { href: '/relatorios?rel=vendas-por-forma-pagamento', icon: CreditCard, label: 'Formas de Pagamento',      group: 'relatorios' },
+  { href: '/relatorios?rel=curva-abc',                  icon: BarChart2,  label: 'Curva ABC',                group: 'relatorios' },
+  { href: '/relatorios?rel=margem-produtos',            icon: TrendingUp, label: 'Margem por Produto',       group: 'relatorios' },
+  { href: '/relatorios?rel=estoque-atual',              icon: Warehouse,  label: 'Estoque Atual',            group: 'relatorios' },
+  { href: '/relatorios?rel=rentabilidade-analitico',    icon: BarChart,   label: 'Rentabilidade Analítico',  group: 'relatorios' },
+  { href: '/relatorios?rel=rentabilidade-sintetico',    icon: BarChart,   label: 'Rentabilidade Sintético',  group: 'relatorios' },
+  { href: '/relatorios?rel=vendas-conjugadas',          icon: Link2,      label: 'Vendas Conjugadas',        group: 'relatorios' },
+  { href: '/relatorios?rel=vendas-por-horario',         icon: Clock,      label: 'Vendas por Horário',       group: 'relatorios' },
 
   // ── CONFIGURAÇÕES ─────────────────────────────────────────────────────────
   { href: '/pdv/parametros',  icon: Settings,    label: 'Parâmetros PDV',    group: 'configuracoes' },
@@ -105,15 +133,18 @@ const NAV: NavItem[] = [
   { href: '/configuracoes/apis',                icon: Zap,         label: 'APIs de Produtos (EAN)', group: 'configuracoes' },
 
   // ── RADAR DE OPORTUNIDADES ────────────────────────────────────────────────
-  { href: '/oportunidades',  icon: Radar,  label: '🎯 Radar de Oportunidades',  group: 'oportunidades' },
+  { href: '/oportunidades',  icon: Radar,  label: 'Radar de Oportunidades',     group: 'oportunidades' },
 ]
 
 const GROUPS = [
   { key: 'pdv',           label: 'PDV'           },
   { key: 'corporativos',  label: 'VENDEDOR / PLATAFORMAS & AFILIADOS' },
   { key: 'marketplace',   label: 'MARKETPLACE'   },
-  { key: 'compras',       label: 'COMPRAS'       },
-  { key: 'notas',         label: 'NOTAS FISCAIS' },
+  { key: 'compras',        label: 'COMPRAS'                },
+  { key: 'notas_entrada',  label: 'NOTAS FISCAIS ENTRADA'  },
+  { key: 'notas_saida',    label: 'NOTAS FISCAIS SAÍDA'    },
+  { key: 'separacao_mod',  label: 'SEPARAÇÃO DE MERCADORIA' },
+  { key: 'expedicao',     label: 'EXPEDIÇÃO / RECEBIMENTO' },
   { key: 'estoque',       label: 'ESTOQUE'       },
   { key: 'gestao_precos', label: 'GESTÃO PREÇOS' },
   { key: 'cadastros',     label: 'CADASTROS'     },
@@ -124,15 +155,16 @@ const GROUPS = [
 ]
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router   = useRouter()
-  const pathname = usePathname()
+  const router      = useRouter()
+  const pathname    = usePathname()
+  const [searchParams, setSearchParamsState] = useState<URLSearchParams>(new URLSearchParams())
   const [open, setOpen]   = useState(false)
   const [user, setUser]   = useState<{ nome: string; perfil: string } | null>(null)
 
   // grupos colapsados: só PRINCIPAL aberto por padrão
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({
     principal: true, pdv: false, marketplace: false,
-    compras: false, notas: false, estoque: false,
+    compras: false, notas: false, separacao_mod: false, expedicao: false, estoque: false,
     gestao_precos: false, cadastros: false, financeiro: false,
     relatorios: false, configuracoes: false, corporativos: false, oportunidades: false,
   })
@@ -178,10 +210,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     router.push('/')
   }
 
-  // Verifica se um item simples está ativo
+  // Verifica se um item simples está ativo (suporta query string)
   function isActive(href: string, externo?: boolean) {
     if (externo) return false
-    return pathname === href || (pathname.startsWith(href + '/') && href !== '/estoque' && href !== '/compras' && href !== '/vendas')
+    if (href.includes('?')) {
+      const [hPath, hQuery] = href.split('?')
+      const hParams = new URLSearchParams(hQuery)
+      if (pathname !== hPath) return false
+      for (const [k, v] of hParams.entries()) {
+        if (searchParams.get(k) !== v) return false
+      }
+      return true
+    }
+    return pathname === href || (pathname.startsWith(href + '/') && href !== '/estoque' && href !== '/compras' && href !== '/vendas' && href !== '/nf-entrada')
   }
 
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
@@ -367,6 +408,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <Suspense fallback={null}>
+        <SearchParamsSyncer onUpdate={setSearchParamsState} />
+      </Suspense>
       <div className="hidden md:flex w-48 flex-shrink-0 flex-col">
         <Sidebar />
       </div>
@@ -388,8 +432,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
           <span className="font-black text-white text-sm">NexusVarejo</span>
         </div>
-        <main className="flex-1 md:overflow-hidden overflow-y-auto" style={{ background: 'var(--bg)' }}>
-          <div className="md:h-full">
+        <main className="flex-1 overflow-hidden" style={{ background: 'var(--bg)' }}>
+          <div className="h-full overflow-y-auto md:overflow-hidden">
             {children}
           </div>
         </main>

@@ -388,5 +388,12 @@ async def _startup():
     except Exception as _oe:
         print(f"[WARN] oportunidades loop: {_oe}", file=sys.stderr)
 
+    # Inicia sync automático ML Afiliados (a cada 6 horas)
+    try:
+        from routes.afiliados import iniciar_loop_ml_sync
+        iniciar_loop_ml_sync()
+    except Exception as _ae:
+        print(f"[WARN] ml-afiliados loop: {_ae}", file=sys.stderr)
+
 print("[BOOT] App criado. Aguardando uvicorn vincular porta...", file=sys.stderr)
 sys.stderr.flush()

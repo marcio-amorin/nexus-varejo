@@ -343,7 +343,8 @@ class SeparacaoUpdate(BaseModel):
 @router.get("/separacao")
 def listar_separacao(db: Session = Depends(get_db), _=Depends(get_current_user)):
     pedidos = db.query(PedidoVenda).filter(
-        PedidoVenda.status.notin_(["FATURADO", "CANCELADO"])
+        PedidoVenda.status.notin_(["FATURADO", "CANCELADO"]),
+        PedidoVenda.status_separacao.notin_(["PRONTO"]),
     ).order_by(PedidoVenda.id.desc()).limit(100).all()
     return [{
         "id":               p.id,
@@ -355,13 +356,15 @@ def listar_separacao(db: Session = Depends(get_db), _=Depends(get_current_user))
         "created_at":       p.created_at.isoformat() if p.created_at else None,
         "total_itens":      len(p.itens),
         "itens": [{
-            "id":          it.id,
-            "produto_id":  it.produto_id,
-            "descricao":   it.descricao,
-            "codigo":      it.produto.codigo if it.produto else "",
-            "codigo_barras": it.produto.codigo_barras if it.produto else None,
-            "quantidade":  it.quantidade,
-            "unidade":     it.produto.unidade if it.produto else "UN",
+            "id":             it.id,
+            "produto_id":     it.produto_id,
+            "descricao":      it.descricao,
+            "codigo":         it.produto.codigo if it.produto else "",
+            "codigo_barras":  it.produto.codigo_barras if it.produto else None,
+            "quantidade":     it.quantidade,
+            "unidade":        it.produto.unidade if it.produto else "UN",
+            "embalagem_qtd":  (it.produto.embalagem_qtd or 1) if it.produto else 1,
+            "embalagem_tipo": (it.produto.embalagem_tipo or "UN") if it.produto else "UN",
         } for it in p.itens],
     } for p in pedidos]
 
@@ -381,3 +384,174 @@ def atualizar_separacao(pid: int, data: SeparacaoUpdate, db: Session = Depends(g
         p.status = "AGUARDANDO_PDV"
     db.commit()
     return {"ok": True, "status_separacao": status}
+
+
+# ── Conferência de Pedidos (Cega) ─────────────────────────────────────────────
+
+class ItemConfPedidoSchema(BaseModel):
+    produto_id:    int
+    descricao:     str
+    qty_separada:  float
+    qty_conferida: float
+
+class FinalizarConfPedidoSchema(BaseModel):
+    itens: List[ItemConfPedidoSchema]
+
+
+@router.get("/conferencia")
+def listar_pedidos_conferencia(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Lista pedidos prontos para conferência (separação concluída, ainda não conferidos)."""
+    from sqlalchemy import or_
+    pedidos = db.query(PedidoVenda).filter(
+        PedidoVenda.status_separacao == "PRONTO",
+        PedidoVenda.status.notin_(["FATURADO", "CANCELADO"]),
+        or_(
+            PedidoVenda.status_conferencia == None,       # nunca conferido (NULL)
+            PedidoVenda.status_conferencia == "DIVERGENCIA",  # divergência anterior
+        )
+    ).order_by(PedidoVenda.id.desc()).all()
+
+    result = []
+    for p in pedidos:
+        tem_faltante = any(getattr(it, "faltante", False) for it in p.itens)
+        result.append({
+            "id":                 p.id,
+            "numero":             p.numero,
+            "cliente_nome":       p.cliente_nome or (p.cliente.nome if p.cliente else "Consumidor Final"),
+            "status_separacao":   p.status_separacao,
+            "status_conferencia": getattr(p, "status_conferencia", None),
+            "total":              p.total,
+            "total_itens":        len(p.itens),
+            "tem_faltante":       tem_faltante,
+            "itens": [{
+                "id":            it.id,
+                "produto_id":    it.produto_id,
+                "descricao":     it.descricao,
+                "codigo":        it.produto.codigo if it.produto else "",
+                "codigo_barras": it.produto.codigo_barras if it.produto else None,
+                "quantidade":    it.quantidade,
+                "qty_separada":  it.quantidade,  # qty separada = qtd do pedido (em unidades)
+                "unidade":       it.produto.unidade if it.produto else "UN",
+                "embalagem_qtd": (it.produto.embalagem_qtd or 1) if it.produto else 1,
+                "embalagem_tipo": (it.produto.embalagem_tipo or "UN") if it.produto else "UN",
+            } for it in p.itens],
+        })
+    return result
+
+
+@router.post("/pedidos/{pid}/conferencia-finalizar")
+def finalizar_conf_pedido(pid: int, body: FinalizarConfPedidoSchema, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Salva resultado da conferência de pedido. Marca DIVERGENCIA ou CONFERIDO."""
+    import json as _json
+    from sqlalchemy import text as sqlt
+
+    p = db.query(PedidoVenda).filter_by(id=pid).first()
+    if not p:
+        raise HTTPException(404, "Pedido não encontrado")
+
+    itens_div = [
+        it for it in body.itens
+        if abs(it.qty_separada - it.qty_conferida) > 0.001
+    ]
+    tem_divergencia = len(itens_div) > 0
+
+    status_conf = "DIVERGENCIA" if tem_divergencia else "CONFERIDO"
+
+    # Salvar detalhe da divergência como JSON para exibição ao supervisor
+    detalhe_json = _json.dumps([
+        {
+            "descricao":     it.descricao,
+            "qty_separada":  it.qty_separada,
+            "qty_conferida": it.qty_conferida,
+        }
+        for it in itens_div
+    ]) if tem_divergencia else None
+
+    # Garantir coluna conferencia_detalhe existe
+    try:
+        db.execute(sqlt("ALTER TABLE pedidos_venda ADD COLUMN IF NOT EXISTS conferencia_detalhe TEXT"))
+        db.commit()
+    except Exception:
+        pass
+
+    try:
+        p.status_conferencia = status_conf
+        if tem_divergencia:
+            db.execute(sqlt(f"UPDATE pedidos_venda SET conferencia_detalhe=:d WHERE id=:id"),
+                       {"d": detalhe_json, "id": pid})
+        else:
+            p.status = "PRONTO_NF"
+    except Exception:
+        db.execute(sqlt(f"UPDATE pedidos_venda SET status_conferencia='{status_conf}' WHERE id={pid}"))
+        if tem_divergencia:
+            db.execute(sqlt("UPDATE pedidos_venda SET conferencia_detalhe=:d WHERE id=:id"),
+                       {"d": detalhe_json, "id": pid})
+        else:
+            db.execute(sqlt(f"UPDATE pedidos_venda SET status='PRONTO_NF' WHERE id={pid}"))
+
+    db.commit()
+    return {
+        "ok":               True,
+        "tem_divergencia":  tem_divergencia,
+        "status_conferencia": status_conf,
+    }
+
+
+@router.get("/divergencias")
+def listar_divergencias(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Lista pedidos com divergência de conferência aguardando liberação do supervisor."""
+    from sqlalchemy import text as sqlt
+    import json as _json
+    pedidos = db.query(PedidoVenda).filter(
+        PedidoVenda.status_conferencia == "DIVERGENCIA"
+    ).order_by(PedidoVenda.id.desc()).all()
+
+    result = []
+    for p in pedidos:
+        # Buscar detalhe da divergência
+        row = db.execute(sqlt("SELECT conferencia_detalhe FROM pedidos_venda WHERE id=:id"), {"id": p.id}).fetchone()
+        detalhe = []
+        if row and row[0]:
+            try: detalhe = _json.loads(row[0])
+            except: pass
+
+        result.append({
+            "id":             p.id,
+            "numero":         p.numero,
+            "cliente_nome":   p.cliente_nome or (p.cliente.nome if p.cliente else "Consumidor Final"),
+            "total":          p.total,
+            "total_itens":    len(p.itens),
+            "detalhe":        detalhe,
+        })
+    return result
+
+
+@router.post("/pedidos/{pid}/liberar-divergencia")
+def liberar_divergencia(pid: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Supervisor libera pedido com divergência → segue para NF."""
+    from sqlalchemy import text as sqlt
+    p = db.query(PedidoVenda).filter_by(id=pid).first()
+    if not p:
+        raise HTTPException(404, "Pedido não encontrado")
+    try:
+        p.status_conferencia = "LIBERADO"
+        p.status = "PRONTO_NF"
+    except Exception:
+        db.execute(sqlt(f"UPDATE pedidos_venda SET status_conferencia='LIBERADO', status='PRONTO_NF' WHERE id={pid}"))
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/pedidos/{pid}/reconferir")
+def reconferir_pedido(pid: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Supervisor devolve pedido para reconferência."""
+    from sqlalchemy import text as sqlt
+    p = db.query(PedidoVenda).filter_by(id=pid).first()
+    if not p:
+        raise HTTPException(404, "Pedido não encontrado")
+    try:
+        p.status_conferencia = None
+    except Exception:
+        db.execute(sqlt(f"UPDATE pedidos_venda SET status_conferencia=NULL WHERE id={pid}"))
+    db.commit()
+    return {"ok": True}

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import NotaFiscalEntrada, ItemNFEntrada, Produto, MovimentoEstoque, ContaPagar, Fornecedor
+from models import NotaFiscalEntrada, ItemNFEntrada, Produto, MovimentoEstoque, ContaPagar, Fornecedor, ConferenciaNFEntrada, ItemConferenciaNFEntrada
 from utils.security import get_current_user
 from pydantic import BaseModel
 from typing import Optional, List
@@ -597,6 +597,218 @@ def nf_coletor_detalhe(nf_id: int, db: Session = Depends(get_db), _=Depends(get_
             "controla_validade": getattr(it.produto, "controla_validade", False) if it.produto else False,
         } for it in nf.itens],
     }
+
+
+# ── Conferência Cega NF Entrada (Recebimento) ────────────────────────────────
+
+class ItemConfNFSchema(BaseModel):
+    produto_id:    int
+    descricao:     str
+    qty_conferida: float
+    data_validade: Optional[str] = None
+
+class FinalizarConfNFSchema(BaseModel):
+    itens:      List[ItemConfNFSchema]
+    observacao: Optional[str] = None
+
+
+@router.get("/conf/pendentes")
+def listar_nfs_pendentes_conf(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """NFs recebidas que ainda não foram conferidas ou que divergiram."""
+    nfs = (db.query(NotaFiscalEntrada)
+           .filter(NotaFiscalEntrada.status == "RECEBIDA")
+           .filter(NotaFiscalEntrada.status_conf.in_(["PENDENTE", "DIVERGENCIA"]))
+           .order_by(NotaFiscalEntrada.data_entrada.desc())
+           .all())
+    return [{
+        "id":          nf.id,
+        "numero":      nf.numero,
+        "serie":       nf.serie,
+        "fornecedor":  nf.fornecedor.razao_social if nf.fornecedor else "Desconhecido",
+        "data_entrada": str(nf.data_entrada),
+        "valor_total": nf.valor_total,
+        "status_conf": nf.status_conf,
+        "total_itens": len(nf.itens),
+    } for nf in nfs]
+
+
+@router.get("/conf/{nf_id}/cego")
+def conferencia_cega_nf(nf_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Retorna NF com produtos MAS SEM quantidades (recebimento cego)."""
+    nf = db.query(NotaFiscalEntrada).filter_by(id=nf_id).first()
+    if not nf:
+        raise HTTPException(404, "NF não encontrada")
+    itens = []
+    for it in nf.itens:
+        prod = it.produto
+        itens.append({
+            "id":                it.id,
+            "produto_id":        it.produto_id,
+            "descricao":         prod.descricao if prod else str(it.produto_id),
+            "codigo":            prod.codigo if prod else "",
+            "codigo_barras":     prod.codigo_barras if prod else None,
+            "unidade":           prod.unidade if prod else "UN",
+            "controla_validade": getattr(prod, "controla_validade", False) if prod else False,
+            "em_ruptura":        (prod.estoque_atual <= 0) if prod else False,
+            # qty_nf omitida — conferência cega
+        })
+    return {
+        "id":          nf.id,
+        "numero":      nf.numero,
+        "serie":       nf.serie,
+        "fornecedor":  nf.fornecedor.razao_social if nf.fornecedor else "",
+        "data_entrada": str(nf.data_entrada),
+        "status_conf": nf.status_conf,
+        "itens":       itens,
+    }
+
+
+@router.post("/conf/{nf_id}/finalizar")
+def finalizar_conf_nf(nf_id: int, body: FinalizarConfNFSchema, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Salva conferência, compara com NF, detecta divergências."""
+    nf = db.query(NotaFiscalEntrada).filter_by(id=nf_id).first()
+    if not nf:
+        raise HTTPException(404, "NF não encontrada")
+
+    qty_map: dict[int, float] = {it.produto_id: it.quantidade for it in nf.itens}
+
+    tem_divergencia = False
+    itens_conf = []
+    itens_div  = []
+
+    for item in body.itens:
+        qty_nf      = qty_map.get(item.produto_id, 0)
+        divergencia = abs(qty_nf - item.qty_conferida) > 0.001
+        prod        = db.query(Produto).filter_by(id=item.produto_id).first()
+        em_ruptura  = (prod.estoque_atual <= 0) if prod else False
+
+        if divergencia:
+            tem_divergencia = True
+            itens_div.append({
+                "produto_id":   item.produto_id,
+                "descricao":    item.descricao,
+                "qty_conferida": item.qty_conferida,
+                "em_ruptura":   em_ruptura,
+                "data_validade": item.data_validade,
+            })
+
+        itens_conf.append(ItemConferenciaNFEntrada(
+            produto_id    = item.produto_id,
+            descricao     = item.descricao,
+            qty_nf        = qty_nf,
+            qty_conferida = item.qty_conferida,
+            data_validade = item.data_validade,
+            divergencia   = divergencia,
+            em_ruptura    = em_ruptura,
+        ))
+
+    conf = ConferenciaNFEntrada(
+        nf_id           = nf_id,
+        tem_divergencia = tem_divergencia,
+        observacao      = body.observacao,
+        itens           = itens_conf,
+    )
+    db.add(conf)
+    nf.status_conf = "DIVERGENCIA" if tem_divergencia else "CONFERIDA"
+    db.commit()
+
+    return {
+        "tem_divergencia":   tem_divergencia,
+        "status_conf":       nf.status_conf,
+        "itens_divergentes": itens_div,
+    }
+
+
+@router.get("/conf/{nf_id}/resultado")
+def resultado_conf_nf(nf_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Última conferência da NF — mostra divergências para o lançador ver."""
+    conf = (db.query(ConferenciaNFEntrada)
+            .filter_by(nf_id=nf_id)
+            .order_by(ConferenciaNFEntrada.data_conf.desc())
+            .first())
+    if not conf:
+        return {"tem_divergencia": False, "itens": []}
+    return {
+        "tem_divergencia": conf.tem_divergencia,
+        "data_conf":       conf.data_conf.isoformat() if conf.data_conf else None,
+        "itens": [{
+            "produto_id":   it.produto_id,
+            "descricao":    it.descricao,
+            "qty_nf":       it.qty_nf,
+            "qty_conferida": it.qty_conferida,
+            "divergencia":  it.divergencia,
+            "em_ruptura":   it.em_ruptura,
+            "data_validade": it.data_validade,
+        } for it in conf.itens],
+    }
+
+
+@router.get("/divergencias-recebimento")
+def listar_divergencias_recebimento(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Lista NFs com divergência de recebimento para o monitor do Modo Liberação."""
+    nfs = (db.query(NotaFiscalEntrada)
+           .filter(NotaFiscalEntrada.status_conf == "DIVERGENCIA")
+           .order_by(NotaFiscalEntrada.id.desc())
+           .all())
+
+    result = []
+    for nf in nfs:
+        conf = (db.query(ConferenciaNFEntrada)
+                .filter_by(nf_id=nf.id)
+                .order_by(ConferenciaNFEntrada.data_conf.desc())
+                .first())
+
+        itens_div = []
+        if conf:
+            for it in conf.itens:
+                if it.divergencia:
+                    itens_div.append({
+                        "produto_id":    it.produto_id,
+                        "descricao":     it.descricao,
+                        "qty_nf":        it.qty_nf,
+                        "qty_conferida": it.qty_conferida,
+                        "diferenca":     round(it.qty_conferida - it.qty_nf, 3),
+                        "em_ruptura":    it.em_ruptura,
+                    })
+
+        result.append({
+            "id":              nf.id,
+            "numero":          nf.numero,
+            "serie":           nf.serie,
+            "data_emissao":    nf.data_emissao.isoformat() if nf.data_emissao else None,
+            "fornecedor_id":   nf.fornecedor_id,
+            "fornecedor_nome": nf.fornecedor.nome if nf.fornecedor else "—",
+            "valor_total":     nf.valor_total,
+            "status_conf":     nf.status_conf,
+            "data_conf":       conf.data_conf.isoformat() if conf and conf.data_conf else None,
+            "total_div":       len(itens_div),
+            "itens_divergentes": itens_div,
+        })
+
+    return result
+
+
+@router.post("/{nf_id}/liberar-divergencia")
+def liberar_divergencia_nf(nf_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Supervisor libera NF com divergência — muda status_conf para CONFERIDA."""
+    nf = db.query(NotaFiscalEntrada).filter_by(id=nf_id).first()
+    if not nf:
+        raise HTTPException(404, "NF não encontrada")
+    nf.status_conf = "CONFERIDA"
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/{nf_id}/reconferir")
+def reconferir_nf(nf_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Reseta a conferência da NF para que o conferente possa reconferir."""
+    nf = db.query(NotaFiscalEntrada).filter_by(id=nf_id).first()
+    if not nf:
+        raise HTTPException(404, "NF não encontrada")
+    nf.status_conf = "PENDENTE"
+    db.query(ConferenciaNFEntrada).filter_by(nf_id=nf_id).delete()
+    db.commit()
+    return {"ok": True}
 
 
 @router.delete("/{nf_id}")

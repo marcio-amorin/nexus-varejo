@@ -222,7 +222,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }
       return true
     }
-    return pathname === href || (pathname.startsWith(href + '/') && href !== '/estoque' && href !== '/compras' && href !== '/vendas' && href !== '/nf-entrada')
+    return pathname === href || (pathname.startsWith(href + '/') && href !== '/estoque' && href !== '/compras' && href !== '/vendas' && href !== '/nf-entrada' && href !== '/marketplace/vendedor')
   }
 
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (

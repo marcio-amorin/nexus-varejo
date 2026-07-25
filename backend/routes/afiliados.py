@@ -3564,6 +3564,10 @@ header .tag{font-size:15px;opacity:.8;margin-top:8px;font-weight:600}
 .categoria-titulo{font-size:14px;font-weight:800;color:#1a1a2e;padding:16px 14px 4px;display:flex;align-items:baseline;gap:6px}
 .categoria-titulo span{font-size:11px;font-weight:600;color:#9aa}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:10px 14px 4px;max-width:1120px;margin:0 auto}
+.card.extra{display:none}
+.categoria-sec.expandido .card.extra{display:flex}
+.ver-mais{display:block;width:calc(100% - 28px);max-width:1120px;margin:2px auto 22px;background:#fff;border:1.5px solid #3483FA;color:#3483FA;font-weight:800;font-size:12.5px;padding:11px;border-radius:10px;cursor:pointer;text-align:center}
+.ver-mais:active{background:#eef4ff}
 .card{background:#fff;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(20,20,40,.08);border:1px solid #ececf2;transition:transform .15s,box-shadow .15s}
 .card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(20,20,40,.1)}
 .card:active{transform:scale(.98)}
@@ -3611,19 +3615,26 @@ function filtrarLojinha() {
   var visiveis = 0;
   cards.forEach(function (c) {
     var nome = (c.querySelector('.nome') || {}).textContent || '';
+    if (!q) { c.style.display = ''; return; }  // sem busca: volta pro padrao (6 + "ver mais")
     var bate = nome.toLowerCase().indexOf(q) !== -1;
-    c.style.display = bate ? '' : 'none';
+    c.style.display = bate ? 'flex' : 'none';
     if (bate) visiveis++;
   });
   secoes.forEach(function (s) {
-    var temVisivel = s.querySelectorAll('.card').length &&
-      Array.prototype.some.call(s.querySelectorAll('.card'), function (c) { return c.style.display !== 'none'; });
+    var cardsSec = s.querySelectorAll('.card');
+    var temVisivel = !q || Array.prototype.some.call(cardsSec, function (c) { return c.style.display !== 'none'; });
     s.style.display = temVisivel ? '' : 'none';
+    var btn = s.querySelector('.ver-mais');
+    if (btn) btn.style.display = (q || s.classList.contains('expandido')) ? 'none' : '';
   });
   document.getElementById('contador').textContent = q
     ? (visiveis + (visiveis === 1 ? ' oferta encontrada' : ' ofertas encontradas'))
     : (cards.length + ' ofertas disponíveis agora');
-  document.getElementById('sem-resultado').style.display = (visiveis === 0 && cards.length > 0) ? 'block' : 'none';
+  document.getElementById('sem-resultado').style.display = (q && visiveis === 0 && cards.length > 0) ? 'block' : 'none';
+}
+function lojinhaVerMais(btn) {
+  btn.closest('.categoria-sec').classList.add('expandido');
+  btn.style.display = 'none';
 }
 </script>
 </body></html>"""
@@ -3653,15 +3664,13 @@ def loja_publica(db: Session = Depends(get_db)):
 
     from routes.vendedor import _detectar_cat
 
-    # ── Ofertas em destaque: preço de impulso (baixo, tipo R$60-150) em vez
-    # de maior comissão — R$7 mil de iPhone não convida a comprar por impulso
-    # igual um produto de R$90. Ranqueia por proximidade de R$95 (o "ponto
-    # doce" de compra por impulso), um por categoria primeiro pra variar,
-    # depois completa com o que sobrar até encher a faixa.
-    _ALVO_DESTAQUE = 95.0
-    _QTD_DESTAQUE = 8
-    candidatos_destaque = [p for p in prods if p.imagem_url and p.preco and 40 <= p.preco <= 180]
-    candidatos_destaque.sort(key=lambda p: abs((p.preco or 0) - _ALVO_DESTAQUE))
+    # ── Ofertas em destaque: preço de impulso R$90-149 em vez de maior
+    # comissão — R$7 mil de iPhone não convida a comprar por impulso igual
+    # um produto de R$90. Dentro da faixa, o melhor por comissão; um por
+    # categoria primeiro pra variar, depois completa com o que sobrar.
+    _QTD_DESTAQUE = 6
+    candidatos_destaque = [p for p in prods if p.imagem_url and p.preco and 90 <= p.preco <= 149]
+    candidatos_destaque.sort(key=lambda p: p.comissao_valor or 0, reverse=True)
     destaques = []
     categorias_no_destaque = set()
     for p in candidatos_destaque:
@@ -3726,13 +3735,23 @@ def loja_publica(db: Session = Depends(get_db)):
     categorias_ordenadas = sorted(
         cards_por_cat.keys(), key=lambda c: (c == "Outros", -len(cards_por_cat[c]))
     )
+    _VITRINE_POR_CAT = 6
     secoes = []
     for cat in categorias_ordenadas:
         itens = cards_por_cat[cat]
+        itens_html = [
+            c.replace('<div class="card">', '<div class="card extra">', 1) if i >= _VITRINE_POR_CAT else c
+            for i, c in enumerate(itens)
+        ]
+        ver_mais = (
+            f'<button class="ver-mais" onclick="lojinhaVerMais(this)">Ver mais produtos de {cat} →</button>'
+            if len(itens) > _VITRINE_POR_CAT else ''
+        )
         secoes.append(
             f'<div class="categoria-sec" data-cat="{cat}">'
             f'<h2 class="categoria-titulo">{cat} <span>({len(itens)})</span></h2>'
-            f'<div class="grid">{"".join(itens)}</div>'
+            f'<div class="grid">{"".join(itens_html)}</div>'
+            f'{ver_mais}'
             f'</div>'
         )
     corpo = "".join(secoes) if secoes else '<div class="vazio">Em breve, novas ofertas! 🚀</div>'

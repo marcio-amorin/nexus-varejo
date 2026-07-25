@@ -3455,7 +3455,6 @@ from io import BytesIO as _BytesIO
 
 _PROMO_STATIC   = _os_promo.path.join(_os_promo.path.dirname(_os_promo.path.dirname(__file__)), "static", "promos")
 _PROMO_BASE_URL = _os_promo.getenv("PUBLIC_BASE_URL", "https://varejo.nexusgestaovarejo.com.br")
-_FONT_BOLD      = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 def _fmt_preco_promo(v) -> str:
     try:
@@ -3463,104 +3462,27 @@ def _fmt_preco_promo(v) -> str:
     except Exception:
         return ""
 
-async def _criar_arte_promocional(prod, tipo: str = "STORIES") -> str | None:
-    """Gera uma arte de venda impactante e devolve a URL pública. None se falhar.
-    Layout FLUÍDO e proporcional: funciona tanto no feed (4:5) quanto no story (9:16)
-    sem cortar nada — os elementos são empilhados em sequência a partir do topo."""
+async def _criar_video_promocional(prod) -> str | None:
+    """Gera um Reel (vídeo 9:16) com zoom suave (Ken Burns) sobre a foto real
+    do produto — publicação normal, sem arte/overlay montado em cima (preço,
+    oferta e link já vão na legenda do post). Retorna a URL pública."""
+    import subprocess
     try:
-        from PIL import Image, ImageDraw, ImageFont
-        import textwrap as _tw
+        from PIL import Image
         _os_promo.makedirs(_PROMO_STATIC, exist_ok=True)
-        W, H = (1080, 1920) if tipo == "STORIES" else (1080, 1350)
-        s = H / 1920.0  # escala proporcional
-
-        # fundo: gradiente roxo -> laranja, escurecido
-        top, bot = (124, 58, 237), (234, 88, 12)
-        col = Image.new("RGB", (1, H))
-        for y in range(H):
-            t = y / H
-            col.putpixel((0, y), (int(top[0]*(1-t)+bot[0]*t),
-                                  int(top[1]*(1-t)+bot[1]*t),
-                                  int(top[2]*(1-t)+bot[2]*t)))
-        bg = Image.blend(col.resize((W, H)), Image.new("RGB", (W, H), (0, 0, 0)), 0.42)
-        draw = ImageDraw.Draw(bg)
-
-        f_hook  = ImageFont.truetype(_FONT_BOLD, int(78*s))
-        f_urg   = ImageFont.truetype(_FONT_BOLD, int(36*s))
-        f_nome  = ImageFont.truetype(_FONT_BOLD, int(44*s))
-        f_label = ImageFont.truetype(_FONT_BOLD, int(40*s))
-        f_preco = ImageFont.truetype(_FONT_BOLD, int(150*s))
-        f_cta   = ImageFont.truetype(_FONT_BOLD, int(52*s))
-
-        def _c(txt, font, y, fill, sw=6):
-            w = draw.textlength(txt, font=font)
-            draw.text(((W - w)//2, y), txt, font=font, fill=fill,
-                      stroke_width=max(2, int(sw*s)), stroke_fill=(0, 0, 0))
-
-        M = int(55*s)
-        # 1) Faixa vermelha "SUPER OFERTA" no topo
-        bh = int(H*0.09)
-        # y0 precisa limpar o overlay do proprio Instagram no Story (avatar,
-        # usuario, barra de progresso) - perto do topo (0.028) ficava por
-        # baixo desse overlay e cortava a foto.
-        y0 = int(H*0.10)
-        draw.rounded_rectangle([M, y0, W-M, y0+bh], radius=int(30*s), fill=(220, 30, 40))
-        _c("SUPER OFERTA", f_hook, y0 + int(bh*0.16), (255, 221, 51), sw=4)
-
-        # 2) Card branco com a foto (tamanho adaptativo)
-        card = int(min(W*0.80, H*0.40))
-        cx = (W - card)//2
-        cy = y0 + bh + int(H*0.02)
-        draw.rounded_rectangle([cx, cy, cx+card, cy+card], radius=int(38*s), fill=(255, 255, 255))
+        W, H = 1080, 1920
+        base = Image.new("RGB", (W, H), (245, 245, 245))
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 r = await client.get(prod.imagem_url)
             pim = Image.open(_BytesIO(r.content)).convert("RGBA")
-            inner = card - int(44*s)
+            inner = int(W * 0.86)
             pim.thumbnail((inner, inner))
-            bg.paste(pim, (cx + (card-pim.width)//2, cy + (card-pim.height)//2), pim)
+            base.paste(pim, ((W - pim.width)//2, (H - pim.height)//2), pim)
         except Exception:
             pass
-
-        # 3) Bloco de texto empilhado abaixo do card
-        y = cy + card + int(H*0.025)
-        for ln in _tw.wrap((prod.titulo or "").strip(), width=30)[:2]:
-            _c(ln, f_nome, y, (255, 255, 255), sw=4)
-            y += int(50*s)
-        y += int(H*0.008)
-        _c("POR APENAS:", f_label, y, (255, 221, 51), sw=3)
-        y += int(48*s)
-        preco_txt = _fmt_preco_promo(prod.preco)
-        pw = draw.textlength(preco_txt, font=f_preco)
-        ph = int(158*s)
-        draw.rounded_rectangle([(W-pw)//2 - int(45*s), y - int(8*s),
-                                (W+pw)//2 + int(45*s), y + ph], radius=int(30*s), fill=(16, 120, 44))
-        _c(preco_txt, f_preco, y, (255, 255, 255), sw=5)
-        y += ph + int(H*0.015)
-        _c("CORRE! OFERTA POR TEMPO LIMITADO", f_urg, y, (255, 255, 255), sw=3)
-        y += int(56*s)
-        # 4) Botão CTA laranja
-        cta_h = int(112*s)
-        draw.rounded_rectangle([M, y, W-M, y+cta_h], radius=int(44*s), fill=(234, 88, 12))
-        _c("COMPRE PELO LINK DA BIO", f_cta, y + int(cta_h*0.28), (255, 255, 255), sw=2)
-
-        fname = f"promo_{prod.id}_{tipo}.jpg"
-        bg.convert("RGB").save(_os_promo.path.join(_PROMO_STATIC, fname), "JPEG", quality=88)
-        return f"{_PROMO_BASE_URL}/static/promos/{fname}"
-    except Exception:
-        return None
-
-
-async def _criar_video_promocional(prod) -> str | None:
-    """Gera um Reel (vídeo 9:16) a partir da arte promocional, com zoom suave
-    (Ken Burns). Reusa a arte impactante já gerada. Retorna a URL pública."""
-    import subprocess
-    try:
-        # garante a arte-base 1080x1920 (com preço + CTA queimados)
-        await _criar_arte_promocional(prod, "STORIES")
         arte_path = _os_promo.path.join(_PROMO_STATIC, f"promo_{prod.id}_STORIES.jpg")
-        if not _os_promo.path.exists(arte_path):
-            return None
+        base.save(arte_path, "JPEG", quality=90)
         reel_name = f"reel_{prod.id}.mp4"
         reel_path = _os_promo.path.join(_PROMO_STATIC, reel_name)
         cmd = [

@@ -1407,6 +1407,9 @@ async def reparar_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depe
 def remover_anuncio(anuncio_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     a = db.query(VendedorAnuncio).filter_by(id=anuncio_id).first()
     if not a: raise HTTPException(404, "Anúncio não encontrado")
+    # Pedidos já recebidos ficam (é histórico de venda real) — só desvincula
+    # do anúncio, senão o delete quebra por causa da foreign key.
+    db.query(VendedorPedido).filter_by(anuncio_id=anuncio_id).update({"anuncio_id": None})
     db.delete(a); db.commit()
     return {"ok": True}
 

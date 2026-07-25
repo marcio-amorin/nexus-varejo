@@ -3622,7 +3622,10 @@ header .tag{font-size:12px;opacity:.68;margin-top:5px;font-weight:500}
 .contador{text-align:center;padding:14px 16px 2px;font-size:11px;color:#8a8a97;font-weight:600;letter-spacing:.3px}
 .sem-resultado{display:none;text-align:center;color:#888;padding:50px 20px;font-size:13px}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:14px;max-width:1120px;margin:0 auto}
+.categoria-sec{max-width:1120px;margin:0 auto}
+.categoria-titulo{font-size:14px;font-weight:800;color:#1a1a2e;padding:16px 14px 4px;display:flex;align-items:baseline;gap:6px}
+.categoria-titulo span{font-size:11px;font-weight:600;color:#9aa}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:10px 14px 4px;max-width:1120px;margin:0 auto}
 .card{background:#fff;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(20,20,40,.08);border:1px solid #ececf2;transition:transform .15s,box-shadow .15s}
 .card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(20,20,40,.1)}
 .card:active{transform:scale(.98)}
@@ -3655,7 +3658,7 @@ footer .selo .ic{color:#16a34a}
 <div class="busca">""" + _IC_SEARCH + """<input type="text" id="busca-input" placeholder="Buscar produto..." oninput="filtrarLojinha()" /></div>
 </div>
 <div class="contador" id="contador">__TOTAL__ ofertas disponíveis agora</div>
-<div class="grid" id="grid">__CARDS__</div>
+<div id="lojinha-corpo">__CARDS__</div>
 <div class="sem-resultado" id="sem-resultado">Nenhum produto encontrado 🔍</div>
 <footer>
 <div class="selo">""" + _IC_LOCK + """ Pagamento processado com segurança pelo Mercado Livre</div>
@@ -3664,13 +3667,19 @@ footer .selo .ic{color:#16a34a}
 <script>
 function filtrarLojinha() {
   var q = document.getElementById('busca-input').value.trim().toLowerCase();
-  var cards = document.querySelectorAll('#grid .card');
+  var cards = document.querySelectorAll('#lojinha-corpo .card');
+  var secoes = document.querySelectorAll('.categoria-sec');
   var visiveis = 0;
   cards.forEach(function (c) {
     var nome = (c.querySelector('.nome') || {}).textContent || '';
     var bate = nome.toLowerCase().indexOf(q) !== -1;
     c.style.display = bate ? '' : 'none';
     if (bate) visiveis++;
+  });
+  secoes.forEach(function (s) {
+    var temVisivel = s.querySelectorAll('.card').length &&
+      Array.prototype.some.call(s.querySelectorAll('.card'), function (c) { return c.style.display !== 'none'; });
+    s.style.display = temVisivel ? '' : 'none';
   });
   document.getElementById('contador').textContent = q
     ? (visiveis + (visiveis === 1 ? ' oferta encontrada' : ' ofertas encontradas'))
@@ -3703,22 +3712,21 @@ def loja_publica(db: Session = Depends(get_db)):
         AfiliadoProduto.publish_status == "publicado"
     ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(400).all()
 
-    cards = []
+    from routes.vendedor import _detectar_cat
+
+    cards_por_cat: dict[str, list[str]] = {}
     titulos_vistos = set()
+    total_cards = 0
     for p in prods:
         chave_dup = (p.titulo or "").strip().lower()
         if chave_dup and chave_dup in titulos_vistos:
             continue  # evita mostrar o mesmo produto repetido lado a lado
         titulos_vistos.add(chave_dup)
 
-        link_obj = db.query(AfiliadoLink).filter_by(produto_id=p.id).order_by(
-            AfiliadoLink.created_at.desc()
-        ).first()
-        url = (link_obj.url_afiliado if link_obj else None) or p.url_produto or "#"
         img = p.imagem_url or ""
         titulo = _truncar_titulo(p.titulo)
         preco = _fmt_preco_promo(p.preco)
-        cards.append(
+        card = (
             f'<div class="card"><div class="imgwrap"><img src="{img}" loading="lazy" alt=""></div>'
             f'<div class="info"><div class="nome">{titulo}</div>'
             f'<div class="preco">{preco}</div>'
@@ -3726,11 +3734,28 @@ def loja_publica(db: Session = Depends(get_db)):
             f'<a class="btn" href="/afiliados/ir/{p.id}" target="_blank" rel="noopener nofollow">{_IC_CART} Comprar agora</a>'
             f'</div></div>'
         )
-    corpo = "".join(cards) if cards else '<div class="vazio">Em breve, novas ofertas! 🚀</div>'
+        cat = _detectar_cat(p.titulo or "")
+        cards_por_cat.setdefault(cat, []).append(card)
+        total_cards += 1
+
+    # Maiores categorias primeiro (mais opções pro cliente logo de cara); "Outros" sempre por último
+    categorias_ordenadas = sorted(
+        cards_por_cat.keys(), key=lambda c: (c == "Outros", -len(cards_por_cat[c]))
+    )
+    secoes = []
+    for cat in categorias_ordenadas:
+        itens = cards_por_cat[cat]
+        secoes.append(
+            f'<div class="categoria-sec" data-cat="{cat}">'
+            f'<h2 class="categoria-titulo">{cat} <span>({len(itens)})</span></h2>'
+            f'<div class="grid">{"".join(itens)}</div>'
+            f'</div>'
+        )
+    corpo = "".join(secoes) if secoes else '<div class="vazio">Em breve, novas ofertas! 🚀</div>'
     og_image = f'<meta property="og:image" content="{prods[0].imagem_url}">' if prods and prods[0].imagem_url else ''
     html = (_LOJA_TEMPLATE
             .replace("__CARDS__", corpo)
-            .replace("__TOTAL__", str(len(cards)))
+            .replace("__TOTAL__", str(total_cards))
             .replace("__OG_IMAGE__", og_image))
     return HTMLResponse(html)
 

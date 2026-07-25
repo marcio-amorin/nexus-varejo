@@ -407,6 +407,7 @@ def _detectar_cat(titulo: str) -> str:
     if re.search(r'bolsa|mochila|carteira|colar|brinco|anel|óculos|cinto', t): return 'Acessórios'
     if re.search(r'suplemento|whey|creatina|proteína|proteina|\bbcaa\b|pré.treino|pre.treino|colágeno|colageno|vitamina[^s]|ômega|omega.3|bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação', t): return 'Esporte'
     if re.search(r'câmera|camera|drone|gopro|ring light|tripé', t): return 'Foto & Vídeo'
+    if re.search(r'papel higiênic|guardanapo|detergente|sabão em pó|amaciante|água sanitária|desinfetante|esponja de aço|saco de lixo|percarbonato|cotonete|absorvente|fralda|arroz|feijão|macarrão|açúcar|café|óleo de soja|refrigerante|bolacha|biscoito|fósforo|inseticida|desodorizador|papel toalha|sabão em barra', t): return 'Supermercado'
     return 'Outros'
 
 # ─── Config Vendedor ──────────────────────────────────────────────────────────

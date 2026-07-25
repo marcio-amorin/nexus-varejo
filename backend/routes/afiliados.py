@@ -3284,10 +3284,12 @@ async def _gerar_conteudo_interno(db, prod, rede, tipo):
             texto, hashtags = _gerar_texto_template(prod, rede, tipo)
     except Exception:
         texto, hashtags = _gerar_texto_template(prod, rede, tipo)
-    link_obj = db.query(AfiliadoLink).filter_by(produto_id=prod.id).order_by(
-        AfiliadoLink.created_at.desc()
-    ).first()
-    link_url = link_obj.url_afiliado if link_obj else (prod.url_produto or "")
+    # Aponta pra lojinha (não pro produto individual): no Facebook o link do
+    # texto é clicável e leva direto pra vitrine; no Instagram a legenda não é
+    # clicável (limitação da própria plataforma) — por isso a arte promocional
+    # já traz "COMPRE PELO LINK DA BIO", e o link da bio do Instagram/Facebook
+    # precisa ser configurado manualmente (no perfil) apontando pra essa mesma URL.
+    link_url = f"{_PROMO_BASE_URL}/afiliados/loja"
     # Gera a mídia impactante: vídeo (Reel) se REELS, senão arte de imagem
     # (preço + CTA queimados). Se falhar, cai na foto original do produto.
     media = None

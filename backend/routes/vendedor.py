@@ -399,7 +399,7 @@ def _detectar_cat(titulo: str) -> str:
     if re.search(r'smart tv|televisão|\btv\b|qled|oled|4k|android tv|roku', t): return 'TV & Vídeo'
     if re.search(r'notebook|laptop|computador|monitor|\btablet\b|ipad|impressora|carregador|cabo usb|power bank|adaptador|hub usb|pen drive|pen-drive|\bssd\b|hd externo', t): return 'Informática'
     if re.search(r'playstation|xbox|nintendo|ps5|ps4|switch|joystick|gamer|gift card', t): return 'Games'
-    if re.search(r'air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador|luminária|ventilador|climatizador|aquecedor|ferro de passar|purificador', t): return 'Eletrodomésticos'
+    if re.search(r'air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador|luminária|ventilador|climatizador|aquecedor|ferro de passar|purificador|lavadora de alta pressão|lava.?jato|kärcher|karcher', t): return 'Eletrodomésticos'
     if re.search(r'tênis|sapato|bota|sandália|chinelo|sapatênis', t): return 'Calçados'
     if re.search(r'camiseta|camisa|blusa|vestido|calça|jaqueta|moletom|shorts|saia|legging', t): return 'Roupas'
     if re.search(r'smartwatch|watch|relógio', t): return 'Smartwatches'

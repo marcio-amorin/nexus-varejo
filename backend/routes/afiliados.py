@@ -2646,15 +2646,31 @@ async def _publicar_na_rede(conteudo, cfg) -> dict:
             if not page_id:
                 return {"ok": False, "erro": "page_id não configurado"}
             async with httpx.AsyncClient(timeout=30) as client:
+                # Publicar em Página exige o token DA PÁGINA, não o token de
+                # usuário (que dá o erro antigo "publish_actions deprecated"
+                # — permissão que a Meta descontinuou pra postar em perfil
+                # pessoal em 2018). Troca pelo token certo via /me/accounts.
+                page_token = token
+                try:
+                    racc = await client.get(
+                        "https://graph.facebook.com/v19.0/me/accounts",
+                        params={"access_token": token}
+                    )
+                    for pg in (racc.json().get("data") or []):
+                        if str(pg.get("id")) == str(page_id) and pg.get("access_token"):
+                            page_token = pg["access_token"]
+                            break
+                except Exception:
+                    pass
                 if img:
                     r = await client.post(
                         f"https://graph.facebook.com/v19.0/{page_id}/photos",
-                        json={"message": caption, "url": img, "access_token": token}
+                        json={"message": caption, "url": img, "access_token": page_token}
                     )
                 else:
                     r = await client.post(
                         f"https://graph.facebook.com/v19.0/{page_id}/feed",
-                        json={"message": caption, "access_token": token}
+                        json={"message": caption, "access_token": page_token}
                     )
                 data = r.json()
                 ok = ("id" in data) or ("post_id" in data)
@@ -3361,6 +3377,7 @@ async def _auto_poster_ciclo(db) -> dict:
                             c.resultado_post_id = res.get("post_id")
                             postados += 1
                         else:
+                            c.status = "ERRO"  # sem isso ficava preso em RASCUNHO pra sempre, escondendo a falha
                             erros += 1
                             detalhes.append({"produto": (p.titulo or "")[:40], "rede": rede, "tipo": tipo, "erro": (res.get("erro") or "")[:120]})
                     else:
@@ -3580,8 +3597,8 @@ header .tag{font-size:15px;opacity:.8;margin-top:8px;font-weight:600}
 .sem-resultado{display:none;text-align:center;color:#888;padding:50px 20px;font-size:13px}
 
 .categoria-sec{max-width:1120px;margin:0 auto}
-.categoria-titulo{font-size:14px;font-weight:800;color:#1a1a2e;padding:16px 14px 4px;display:flex;align-items:baseline;gap:6px}
-.categoria-titulo span{font-size:11px;font-weight:600;color:#9aa}
+.categoria-titulo{font-size:21px;font-weight:900;color:#1a1a2e;padding:20px 14px 6px;display:flex;align-items:baseline;gap:8px}
+.categoria-titulo span{font-size:14px;font-weight:700;color:#8a8a97}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:10px 14px 4px;max-width:1120px;margin:0 auto}
 .card.extra{display:none}
 .categoria-sec.expandido .card.extra{display:flex}

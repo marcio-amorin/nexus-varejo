@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Image, Zap, Send, Copy, Check, RefreshCw, Sparkles } from 'lucide-react'
+import { Image, Zap, Send, Copy, Check, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
 
 const API      = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const GRAD     = 'linear-gradient(135deg,#ea580c 0%,#f97316 40%,#f59e0b 80%,#fbbf24 100%)'
@@ -73,6 +73,14 @@ export default function CriadorConteudo() {
       if (!d.ok) alert(`Erro: ${d.detail||'Erro ao publicar'}`)
     } catch {}
     setPublicando(null); carregarLista()
+  }
+
+  async function excluir(id:number) {
+    if (!confirm('Excluir este conteúdo?')) return
+    try {
+      await fetch(`${API}/afiliados/conteudos/${id}`, { method:'DELETE', headers:hdr() })
+    } catch {}
+    carregarLista()
   }
 
   async function copiar(c:any) {
@@ -241,6 +249,11 @@ export default function CriadorConteudo() {
                       <Send size={10}/>
                     </button>
                   )}
+                  <button onClick={() => excluir(c.id)}
+                    className="w-6 h-6 rounded-lg flex items-center justify-center"
+                    style={{ background:'rgba(239,68,68,0.15)', color:'#ef4444' }}>
+                    <Trash2 size={10}/>
+                  </button>
                 </div>
               </div>
             )

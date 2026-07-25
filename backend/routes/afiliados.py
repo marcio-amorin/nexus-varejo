@@ -2574,6 +2574,15 @@ async def publicar_conteudo(
     else:
         raise HTTPException(400, resultado.get("erro", "Erro ao publicar"))
 
+@router.delete("/conteudos/{id}")
+def excluir_conteudo(id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    c = db.query(AfiliadoConteudo).get(id)
+    if not c:
+        raise HTTPException(404)
+    db.delete(c)
+    db.commit()
+    return {"ok": True}
+
 async def _publicar_na_rede(conteudo, cfg) -> dict:
     """Publica na rede social via API — método provado do Nexus Imobiliária:
     Instagram via graph.instagram.com + espera a mídia processar (status FINISHED)

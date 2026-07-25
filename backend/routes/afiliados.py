@@ -2100,7 +2100,7 @@ async def _gerar_texto_groq(prod, rede: str, tipo: str, api_key: str) -> tuple:
     avaliacao = (prod.avaliacao or 0) if prod else 0
 
     estilos = {
-        "INSTAGRAM": {"POST": "post engajante com emojis, tom animado, máx 150 palavras, termina pedindo para marcar um amigo",
+        "INSTAGRAM": {"POST": "post engajante com emojis, tom animado, máx 150 palavras, termina pedindo pra marcar um amigo NOS COMENTÁRIOS (nunca invente um @usuário no texto, não existe conta real pra marcar)",
                       "REELS": "script curto estilo 'POV' para Reels, máx 80 palavras, muito dinâmico",
                       "STORIES": "texto ultra-curto para stories, máx 30 palavras, impactante"},
         "FACEBOOK":  {"POST": "post informativo, tom confiável, máx 120 palavras, foco em custo-benefício"},
@@ -2156,7 +2156,7 @@ async def _gerar_texto_gemini(prod, rede: str, tipo: str, api_key: str) -> tuple
     avaliacao = (prod.avaliacao or 0) if prod else 0
 
     estilos = {
-        "INSTAGRAM": {"POST": "post engajante com emojis, tom animado, máx 150 palavras, termina pedindo para marcar um amigo",
+        "INSTAGRAM": {"POST": "post engajante com emojis, tom animado, máx 150 palavras, termina pedindo pra marcar um amigo NOS COMENTÁRIOS (nunca invente um @usuário no texto, não existe conta real pra marcar)",
                       "REELS": "script curto estilo 'POV' para Reels, máx 80 palavras, muito dinâmico",
                       "STORIES": "texto ultra-curto para stories, máx 30 palavras, impactante"},
         "FACEBOOK":  {"POST": "post informativo, tom confiável, máx 120 palavras, foco em custo-benefício",
@@ -2214,7 +2214,7 @@ async def _gerar_texto_claude(prod, rede: str, tipo: str, api_key: str) -> tuple
     avaliacao = (prod.avaliacao or 0) if prod else 0
 
     estilos = {
-        "INSTAGRAM": {"POST": "post engajante com emojis, tom animado, máx 150 palavras, termina pedindo para marcar um amigo ou salvar o post",
+        "INSTAGRAM": {"POST": "post engajante com emojis, tom animado, máx 150 palavras, termina pedindo pra marcar um amigo NOS COMENTÁRIOS ou salvar o post (nunca invente um @usuário no texto, não existe conta real pra marcar)",
                       "REELS": "script de vídeo curto estilo 'POV' ou 'Você precisa ver isso', máx 80 palavras, muito dinâmico",
                       "STORIES": "texto ultra-curto para stories, máx 30 palavras, impactante, com call-to-action"},
         "FACEBOOK":  {"POST": "post informativo com prós do produto, tom confiável, máx 120 palavras, foco em custo-benefício",

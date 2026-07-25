@@ -3501,7 +3501,10 @@ async def _criar_arte_promocional(prod, tipo: str = "STORIES") -> str | None:
         M = int(55*s)
         # 1) Faixa vermelha "SUPER OFERTA" no topo
         bh = int(H*0.09)
-        y0 = int(H*0.028)
+        # y0 precisa limpar o overlay do proprio Instagram no Story (avatar,
+        # usuario, barra de progresso) - perto do topo (0.028) ficava por
+        # baixo desse overlay e cortava a foto.
+        y0 = int(H*0.10)
         draw.rounded_rectangle([M, y0, W-M, y0+bh], radius=int(30*s), fill=(220, 30, 40))
         _c("SUPER OFERTA", f_hook, y0 + int(bh*0.16), (255, 221, 51), sw=4)
 

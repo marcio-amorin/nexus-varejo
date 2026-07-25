@@ -4,6 +4,7 @@ sys.stderr.flush()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 # Pasta de imagens estáticas
 try:
@@ -37,6 +38,11 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/loja")
+def loja_atalho():
+    """Atalho curto pra lojinha (link de bio) — redireciona pra /afiliados/loja."""
+    return RedirectResponse("/afiliados/loja")
 
 @app.get("/debug")
 def debug():

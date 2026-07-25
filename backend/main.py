@@ -205,6 +205,8 @@ def _background_init():
                 ("vendas","tipo_fiscal","VARCHAR(20) DEFAULT 'CUPOM'"),
                 ("movimentos_estoque","usuario_nome","VARCHAR(100)"),
                 ("movimentos_estoque","centro_custo_id","INTEGER"),
+                ("afiliado_produtos","publish_status","VARCHAR(20) DEFAULT 'pendente'"),
+                ("afiliado_produtos","publicado_em","TIMESTAMP"),
                 ("usuarios","permissoes","TEXT"),
                 ("usuarios","ultimo_acesso","DATETIME"),
                 ("produtos","cfop_saida","VARCHAR(10) DEFAULT '5102'"),
@@ -394,6 +396,20 @@ async def _startup():
         iniciar_loop_ml_sync()
     except Exception as _ae:
         print(f"[WARN] ml-afiliados loop: {_ae}", file=sys.stderr)
+
+    # Inicia Auto-Publisher — máquina de vendas automática (1x/dia por padrão)
+    try:
+        from routes.vendedor import iniciar_loop_auto_publish
+        iniciar_loop_auto_publish()
+    except Exception as _pe:
+        print(f"[WARN] auto-publish loop: {_pe}", file=sys.stderr)
+
+    # Inicia Auto-Poster — distribuição automática nas redes (Elo 2)
+    try:
+        from routes.afiliados import iniciar_loop_auto_poster
+        iniciar_loop_auto_poster()
+    except Exception as _po:
+        print(f"[WARN] auto-poster loop: {_po}", file=sys.stderr)
 
 print("[BOOT] App criado. Aguardando uvicorn vincular porta...", file=sys.stderr)
 sys.stderr.flush()

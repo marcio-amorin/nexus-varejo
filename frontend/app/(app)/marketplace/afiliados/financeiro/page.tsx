@@ -91,7 +91,8 @@ export default function FinanceiroAfiliados() {
     carregar()
   }
 
-  const totalFiltro = comissoes.reduce((s,c) => s+(c.comissao_valor||0), 0)
+  const totalFiltro = comissoes.reduce((s,c) => s+(c.status!=='CANCELADO' ? (c.comissao_valor||0) : 0), 0)
+  const totalLucro  = comissoes.reduce((s,c) => s+(c.status!=='CANCELADO' ? (c.lucro_estimado??0) : 0), 0)
 
   return (
     <div className="pg">
@@ -133,10 +134,10 @@ export default function FinanceiroAfiliados() {
       {/* KPIs */}
       <div className="pg-stats grid grid-cols-4 gap-2">
         {[
-          { label:'Total Líquido (Filtro)',value:fmtR(totalFiltro),               cor:'#22c55e', icon:DollarSign },
-          { label:'Projeção Prox. Mês',  value:fmtR(projecao?.projecao_mes||0), cor:'#3b82f6', icon:TrendingUp },
+          { label:'Total Faturado',      value:fmtR(totalFiltro),               cor:'#f97316', icon:DollarSign },
+          { label:'Lucro Líquido',       value:fmtR(totalLucro),                cor:'#22c55e', icon:TrendingUp },
+          { label:'Projeção Prox. Mês',  value:fmtR(projecao?.projecao_mes||0), cor:'#3b82f6', icon:BarChart2  },
           { label:'A Receber',           value:fmtR(projecao?.a_receber||0),    cor:'#f59e0b', icon:Clock      },
-          { label:'Registros',           value:String(comissoes.length),        cor:'#8b5cf6', icon:BarChart2  },
         ].map((k,i) => (
           <div key={i} className="rounded-xl p-3" style={{ background:'var(--card)', border:`1px solid ${k.cor}30` }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center mb-2" style={{ background:k.cor+'20' }}>
@@ -196,7 +197,7 @@ export default function FinanceiroAfiliados() {
             <thead>
               <tr>
                 <th>Produto</th><th>Plataforma</th><th>Data</th>
-                <th>Vl. Bruto</th><th>Líquido (após taxas)</th><th>Status</th><th>Ações</th>
+                <th>Vl. Bruto</th><th>Líquido (após taxas)</th><th>Lucro</th><th>Status</th><th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -211,6 +212,9 @@ export default function FinanceiroAfiliados() {
                     <td style={{ color:'var(--muted)' }}>{c.data_venda || '—'}</td>
                     <td style={{ color:'var(--text)' }}>{fmtR(c.valor_venda)}</td>
                     <td className="font-black" style={{ color:'#22c55e' }}>{fmtR(c.comissao_valor)}</td>
+                    <td className="font-black" style={{ color: c.lucro_estimado == null ? 'var(--muted)' : (c.lucro_estimado||0) >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {c.lucro_estimado == null ? '—' : fmtR(c.lucro_estimado)}
+                    </td>
                     <td><span className="badge" style={{ background:sc.bg, color:sc.cor }}>{c.status}</span></td>
                     <td>
                       <div className="flex gap-1">

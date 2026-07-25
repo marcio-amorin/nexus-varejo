@@ -106,23 +106,23 @@ def dashboard(db: Session = Depends(get_db), _=Depends(get_current_user)):
     hoje = date.today()
     mes_atual = hoje.strftime("%Y-%m")
 
+    from sqlalchemy import func, extract
+    from models import VendedorPedido
+
     total_produtos  = db.query(AfiliadoProduto).filter_by(ativo=True).count()
     total_links     = db.query(AfiliadoLink).count()
     total_conteudos = db.query(AfiliadoConteudo).filter_by(status="PUBLICADO").count()
 
-    # Comissões do mês
-    from sqlalchemy import func, extract
-    com_mes = db.query(func.sum(AfiliadoComissao.comissao_valor)).filter(
+    # ── Financeiro 100% baseado em COMISSÃO (modelo afiliado, sem estoque) ──
+    # Ganho de vocês = comissao_valor. CANCELADO nunca conta.
+    _filtro_mes = [
         AfiliadoComissao.status.in_(["APROVADO", "PAGO"]),
         extract("year", AfiliadoComissao.data_venda) == hoje.year,
         extract("month", AfiliadoComissao.data_venda) == hoje.month,
-    ).scalar() or 0
-
-    com_total = db.query(func.sum(AfiliadoComissao.comissao_valor)).filter(
-        AfiliadoComissao.status == "PAGO"
-    ).scalar() or 0
-
-    com_pendente = db.query(func.sum(AfiliadoComissao.comissao_valor)).filter(
+    ]
+    comissao_mes = db.query(func.sum(AfiliadoComissao.comissao_valor)).filter(*_filtro_mes).scalar() or 0
+    vendas_mes   = db.query(AfiliadoComissao).filter(*_filtro_mes).count()
+    comissao_receber = db.query(func.sum(AfiliadoComissao.comissao_valor)).filter(
         AfiliadoComissao.status.in_(["PENDENTE", "APROVADO"])
     ).scalar() or 0
 
@@ -134,25 +134,35 @@ def dashboard(db: Session = Depends(get_db), _=Depends(get_current_user)):
         AfiliadoProduto.comissao_valor.desc()
     ).limit(5).all()
 
-    # Comissões recentes
+    # Comissões recentes com lucro
     recentes = db.query(AfiliadoComissao).order_by(
         AfiliadoComissao.created_at.desc()
     ).limit(10).all()
+    rec_ids = [c.referencia_ext.replace("ML-ORDER-","") for c in recentes if c.referencia_ext and c.referencia_ext.startswith("ML-ORDER-")]
+    lucro_rec_map: dict = {}
+    if rec_ids:
+        for p in db.query(VendedorPedido).filter(VendedorPedido.pedido_ext_id.in_(rec_ids)).all():
+            lucro_rec_map[f"ML-ORDER-{p.pedido_ext_id}"] = p.lucro_estimado or 0
 
     return {
         "kpis": {
-            "total_produtos":   total_produtos,
-            "total_links":      total_links,
-            "conteudos_publicados": total_conteudos,
-            "comissao_mes":     round(com_mes, 2),
-            "comissao_total":   round(com_total, 2),
-            "comissao_pendente": round(com_pendente, 2),
+            "total_produtos":        total_produtos,
+            "total_links":           total_links,
+            "conteudos_publicados":  total_conteudos,
+            "comissao_mes":          round(comissao_mes, 2),      # GANHO do mês (comissão)
+            "comissao_receber":      round(comissao_receber, 2),  # comissão a receber
+            "vendas_mes":            vendas_mes,                  # nº de vendas (comissões)
+            # compat: chaves antigas agora refletem COMISSÃO (sem faturado/lucro enganoso)
+            "faturado_mes":          round(comissao_mes, 2),
+            "lucro_mes":             round(comissao_mes, 2),
+            "a_receber":             round(comissao_receber, 2),
+            "comissao_pendente":     round(comissao_receber, 2),
         },
         "meta_mes": {
-            "mes_ano":     meta.mes_ano if meta else mes_atual,
-            "meta_renda":  meta.meta_renda if meta else 0,
-            "realizado":   meta.realizado_renda if meta else round(com_mes, 2),
-            "pct":         round((com_mes / meta.meta_renda * 100) if meta and meta.meta_renda else 0, 1),
+            "mes_ano":    meta.mes_ano if meta else mes_atual,
+            "meta_renda": meta.meta_renda if meta else 0,
+            "realizado":  round(comissao_mes, 2),
+            "pct":        round((comissao_mes / meta.meta_renda * 100) if meta and meta.meta_renda else 0, 1),
         } if meta else None,
         "top_produtos": [
             {"id": p.id, "titulo": p.titulo, "plataforma": p.plataforma,
@@ -162,8 +172,8 @@ def dashboard(db: Session = Depends(get_db), _=Depends(get_current_user)):
         ],
         "comissoes_recentes": [
             {"titulo": c.titulo_produto, "plataforma": c.plataforma,
-             "valor": c.comissao_valor, "status": c.status,
-             "data": str(c.data_venda)}
+             "valor": c.valor_venda, "lucro": lucro_rec_map.get(c.referencia_ext),
+             "status": c.status, "data": str(c.data_venda)}
             for c in recentes
         ],
     }
@@ -1959,6 +1969,7 @@ def listar_comissoes(
     _=Depends(get_current_user)
 ):
     from sqlalchemy import extract
+    from models import VendedorPedido
     q = db.query(AfiliadoComissao)
     if status:
         q = q.filter_by(status=status)
@@ -1969,7 +1980,25 @@ def listar_comissoes(
             extract("month", AfiliadoComissao.data_venda) == int(mes),
         )
     comissoes = q.order_by(AfiliadoComissao.created_at.desc()).all()
-    return [_comissao_dict(c) for c in comissoes]
+
+    # Busca lucro_estimado do VendedorPedido para vendas ML (ref = "ML-ORDER-{pedido_ext_id}")
+    lucro_map: dict[str, float] = {}
+    ml_ids = [
+        c.referencia_ext.replace("ML-ORDER-", "")
+        for c in comissoes
+        if c.referencia_ext and c.referencia_ext.startswith("ML-ORDER-")
+    ]
+    if ml_ids:
+        pedidos = db.query(VendedorPedido).filter(VendedorPedido.pedido_ext_id.in_(ml_ids)).all()
+        for p in pedidos:
+            lucro_map[f"ML-ORDER-{p.pedido_ext_id}"] = p.lucro_estimado or 0
+
+    result = []
+    for c in comissoes:
+        d = _comissao_dict(c)
+        d["lucro_estimado"] = lucro_map.get(c.referencia_ext)
+        result.append(d)
+    return result
 
 @router.post("/comissoes")
 def registrar_comissao(body: ComissaoIn, db: Session = Depends(get_db), _=Depends(get_current_user)):
@@ -2546,52 +2575,84 @@ async def publicar_conteudo(
         raise HTTPException(400, resultado.get("erro", "Erro ao publicar"))
 
 async def _publicar_na_rede(conteudo, cfg) -> dict:
-    """Publica na rede social via API"""
+    """Publica na rede social via API — método provado do Nexus Imobiliária:
+    Instagram via graph.instagram.com + espera a mídia processar (status FINISHED)
+    antes de publicar; Facebook via /photos (foto com legenda)."""
     try:
         extra = json.loads(cfg.extra_json or "{}")
+        token = cfg.access_token
+        img   = conteudo.imagem_sugerida or ""
+        caption = f"{conteudo.texto_post}\n\n{conteudo.hashtags}\n\n🔗 {conteudo.link_afiliado}"
 
         if conteudo.rede_social == "INSTAGRAM":
-            # Meta Graph API — Instagram Business
-            page_id = extra.get("instagram_business_id", "")
-            if not page_id:
+            ig_id = extra.get("instagram_business_id", "")
+            if not ig_id:
                 return {"ok": False, "erro": "instagram_business_id não configurado"}
-            token = cfg.access_token
-            caption = f"{conteudo.texto_post}\n\n{conteudo.hashtags}\n\n🔗 {conteudo.link_afiliado}"
-            async with httpx.AsyncClient(timeout=20) as client:
-                # Cria container de mídia
+            if not img:
+                return {"ok": False, "erro": "produto sem imagem (Instagram exige imagem)"}
+            is_reels = (conteudo.tipo_conteudo == "REELS")
+            async with httpx.AsyncClient(timeout=60) as client:
+                # 1. Cria container de mídia (feed / STORIES / REELS)
+                media_payload = {"access_token": token}
+                if is_reels:
+                    media_payload["media_type"] = "REELS"
+                    media_payload["video_url"] = img
+                    media_payload["caption"] = caption
+                elif conteudo.tipo_conteudo == "STORIES":
+                    media_payload["image_url"] = img
+                    media_payload["media_type"] = "STORIES"   # Story não leva legenda
+                else:
+                    media_payload["image_url"] = img
+                    media_payload["caption"] = caption
                 r1 = await client.post(
-                    f"https://graph.facebook.com/v19.0/{page_id}/media",
-                    params={"access_token": token},
-                    json={"caption": caption, "media_type": "IMAGE",
-                          "image_url": conteudo.imagem_sugerida or ""}
+                    f"https://graph.instagram.com/v19.0/{ig_id}/media",
+                    json=media_payload
                 )
-                data1 = r1.json()
-                if "id" not in data1:
-                    return {"ok": False, "erro": str(data1)}
-                # Publica
+                creation_id = r1.json().get("id")
+                if not creation_id:
+                    return {"ok": False, "erro": str(r1.json())}
+                # 2. Espera a Meta processar (vídeo/Reel demora bem mais que imagem)
+                for _ in range(45 if is_reels else 10):
+                    rs = await client.get(
+                        f"https://graph.instagram.com/v19.0/{creation_id}",
+                        params={"fields": "status_code", "access_token": token}
+                    )
+                    st = rs.json().get("status_code")
+                    if st == "FINISHED":
+                        break
+                    if st == "ERROR":
+                        return {"ok": False, "erro": "Meta reportou erro ao processar a mídia"}
+                    await asyncio.sleep(2)
+                # 3. Publica
                 r2 = await client.post(
-                    f"https://graph.facebook.com/v19.0/{page_id}/media_publish",
-                    params={"access_token": token},
-                    json={"creation_id": data1["id"]}
+                    f"https://graph.instagram.com/v19.0/{ig_id}/media_publish",
+                    json={"creation_id": creation_id, "access_token": token}
                 )
                 data2 = r2.json()
-                return {"ok": "id" in data2, "post_id": data2.get("id"), "erro": str(data2) if "id" not in data2 else ""}
+                return {"ok": "id" in data2, "post_id": data2.get("id"),
+                        "erro": str(data2) if "id" not in data2 else ""}
 
         elif conteudo.rede_social == "FACEBOOK":
             page_id = extra.get("page_id", "")
-            token   = cfg.access_token
-            msg = f"{conteudo.texto_post}\n\n{conteudo.link_afiliado}"
-            async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.post(
-                    f"https://graph.facebook.com/v19.0/{page_id}/feed",
-                    params={"access_token": token},
-                    json={"message": msg}
-                )
+            if not page_id:
+                return {"ok": False, "erro": "page_id não configurado"}
+            async with httpx.AsyncClient(timeout=30) as client:
+                if img:
+                    r = await client.post(
+                        f"https://graph.facebook.com/v19.0/{page_id}/photos",
+                        json={"message": caption, "url": img, "access_token": token}
+                    )
+                else:
+                    r = await client.post(
+                        f"https://graph.facebook.com/v19.0/{page_id}/feed",
+                        json={"message": caption, "access_token": token}
+                    )
                 data = r.json()
-                return {"ok": "id" in data, "post_id": data.get("id"), "erro": str(data) if "id" not in data else ""}
+                ok = ("id" in data) or ("post_id" in data)
+                return {"ok": ok, "post_id": data.get("id") or data.get("post_id"),
+                        "erro": str(data) if not ok else ""}
 
         elif conteudo.rede_social == "TIKTOK":
-            # TikTok Content Posting API
             return {"ok": False, "erro": "TikTok auto-post: envie o conteúdo manualmente pelo app"}
 
         return {"ok": False, "erro": "Rede social não implementada"}
@@ -2693,23 +2754,39 @@ async def ml_sync_comissoes(
                 paging    = data.get("paging") or {}
                 total_api = paging.get("total", len(resultados))
 
+                # Busca detalhes completos de cada pedido (para pegar fee_details reais)
+                order_ids = [o.get("id") for o in resultados if o.get("id")]
+                detalhes_tasks = [
+                    client.get(f"https://api.mercadolibre.com/orders/{oid}", headers=headers)
+                    for oid in order_ids
+                ]
+                detalhes_resps = await asyncio.gather(*detalhes_tasks, return_exceptions=True)
+                detalhes_map = {}
+                for oid, resp in zip(order_ids, detalhes_resps):
+                    if isinstance(resp, Exception) or resp.status_code != 200:
+                        continue
+                    detalhes_map[oid] = resp.json()
+
                 for order in resultados:
-                    ref = f"ML-ORDER-{order.get('id', '')}"
+                    oid = order.get("id")
+                    ref = f"ML-ORDER-{oid}"
+                    # Usa detalhes completos se disponível (tem fee_details reais)
+                    full = detalhes_map.get(oid, order)
 
                     # Título: primeiro item do pedido
-                    items = order.get("order_items") or []
+                    items = full.get("order_items") or []
                     titulo = (items[0].get("item", {}).get("title") or "Venda ML") if items else "Venda ML"
                     titulo = titulo[:200]
 
-                    # Valor bruto e taxas
-                    valor_bruto = float(order.get("total_amount") or 0)
+                    # Valor bruto e taxas reais do ML
+                    valor_bruto = float(full.get("total_amount") or 0)
                     taxa_ml     = 0.0
-                    for pay in order.get("payments") or []:
+                    for pay in full.get("payments") or []:
                         for fee in pay.get("fee_details") or []:
                             taxa_ml += float(fee.get("amount") or 0)
                     valor_liquido = round(valor_bruto - taxa_ml, 2)
 
-                    data_str = order.get("date_created") or str(date.today())
+                    data_str = full.get("date_created") or str(date.today())
                     try:
                         data_venda = date.fromisoformat(data_str[:10])
                     except Exception:
@@ -2719,7 +2796,6 @@ async def ml_sync_comissoes(
                         referencia_ext=ref, plataforma="ML_AFILIADOS"
                     ).first()
                     if existente:
-                        # Atualiza se valores mudaram
                         existente.valor_venda    = valor_bruto
                         existente.comissao_valor = valor_liquido
                         existente.titulo_produto = titulo
@@ -3084,18 +3160,32 @@ async def _ml_sync_automatico():
                         resultados = data.get("results") or []
                         paging    = data.get("paging") or {}
                         total_api = paging.get("total", len(resultados))
+                        # Busca detalhes completos para ter fee_details reais
+                        order_ids_loop = [o.get("id") for o in resultados if o.get("id")]
+                        det_tasks = [
+                            client.get(f"https://api.mercadolibre.com/orders/{oid}", headers=headers)
+                            for oid in order_ids_loop
+                        ]
+                        det_resps = await asyncio.gather(*det_tasks, return_exceptions=True)
+                        det_map = {}
+                        for oid, resp in zip(order_ids_loop, det_resps):
+                            if not isinstance(resp, Exception) and resp.status_code == 200:
+                                det_map[oid] = resp.json()
+
                         for order in resultados:
-                            ref   = f"ML-ORDER-{order.get('id', '')}"
-                            items = order.get("order_items") or []
+                            oid  = order.get("id")
+                            ref  = f"ML-ORDER-{oid}"
+                            full = det_map.get(oid, order)
+                            items = full.get("order_items") or []
                             titulo = (items[0].get("item", {}).get("title") or "Venda ML")[:200] if items else "Venda ML"
-                            valor_bruto = float(order.get("total_amount") or 0)
+                            valor_bruto = float(full.get("total_amount") or 0)
                             taxa_ml = sum(
                                 float(fee.get("amount") or 0)
-                                for pay in (order.get("payments") or [])
+                                for pay in (full.get("payments") or [])
                                 for fee in (pay.get("fee_details") or [])
                             )
                             valor_liquido = round(valor_bruto - taxa_ml, 2)
-                            data_str = order.get("date_created") or str(date.today())
+                            data_str = full.get("date_created") or str(date.today())
                             try:
                                 data_venda = date.fromisoformat(data_str[:10])
                             except Exception:
@@ -3138,3 +3228,450 @@ def iniciar_loop_ml_sync():
         asyncio.set_event_loop(loop)
         loop.run_until_complete(_ml_sync_automatico())
     threading.Thread(target=_run, daemon=True, name="ml-afiliados-sync").start()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AUTO-POSTER — Distribuição automática nas redes (Elo 2)
+# ---------------------------------------------------------------------------
+# Fecha o ciclo da máquina de vendas: pega os produtos já publicados (com link
+# afiliado), gera conteúdo com IA e POSTA sozinho no Instagram/Facebook nos
+# horários de pico. Reusa _publicar_na_rede() + geradores de texto já existentes.
+# Se a conta da rede não estiver conectada, gera o conteúdo e deixa AGENDADO
+# (pronto) — assim que você conectar a conta, ele passa a postar automático.
+# ═══════════════════════════════════════════════════════════════════════════
+
+AUTO_POST_ATIVO         = os.getenv("AUTO_POST_ATIVO", "1") == "1"
+AUTO_POST_POR_CICLO     = int(os.getenv("AUTO_POST_POR_CICLO", "1"))   # 1 produto por horário de pico (4x/dia) — volume seguro p/ não tomar ban do IG
+AUTO_POST_REDES         = [r.strip().upper() for r in os.getenv("AUTO_POST_REDES", "INSTAGRAM,FACEBOOK").split(",") if r.strip()]
+AUTO_POST_TIPO          = os.getenv("AUTO_POST_TIPO", "POST")
+AUTO_POST_STORIES       = os.getenv("AUTO_POST_STORIES", "1") == "1"  # postar Story no IG além do feed
+AUTO_POST_REELS         = os.getenv("AUTO_POST_REELS", "1") == "1"     # postar Reel (vídeo) no IG
+AUTO_POST_SO_HORAS_PICO = os.getenv("AUTO_POST_SO_HORAS_PICO", "1") == "1"
+AUTO_POST_HORAS_PICO    = [7, 12, 19, 21]  # horários de pico de uso no Brasil
+AUTO_POST_INTERVALO_MIN = int(os.getenv("AUTO_POST_INTERVALO_MIN", "60"))
+
+
+def _redes_conectadas(db) -> list:
+    """Redes com conta ativa e token configurado (prontas para postar)."""
+    out = []
+    for rede in AUTO_POST_REDES:
+        cfg = db.query(AfiliadoConfig).filter_by(plataforma=rede, ativo=True).first()
+        if cfg and cfg.access_token:
+            out.append(rede)
+    return out
+
+
+async def _gerar_conteudo_interno(db, prod, rede, tipo):
+    """Gera (ou reaproveita) um AfiliadoConteudo para produto+rede, salvando no banco.
+    Reusa os geradores de texto IA já existentes."""
+    existente = db.query(AfiliadoConteudo).filter(
+        AfiliadoConteudo.produto_id == prod.id,
+        AfiliadoConteudo.rede_social == rede,
+        AfiliadoConteudo.tipo_conteudo == tipo,
+        AfiliadoConteudo.status != "PUBLICADO",
+    ).first()
+    if existente:
+        return existente
+    provedor, api_key = _get_ia_key(db)
+    try:
+        if provedor == "groq":
+            texto, hashtags = await _gerar_texto_groq(prod, rede, tipo, api_key)
+        elif provedor == "gemini":
+            texto, hashtags = await _gerar_texto_gemini(prod, rede, tipo, api_key)
+        elif provedor == "claude":
+            texto, hashtags = await _gerar_texto_claude(prod, rede, tipo, api_key)
+        else:
+            texto, hashtags = _gerar_texto_template(prod, rede, tipo)
+    except Exception:
+        texto, hashtags = _gerar_texto_template(prod, rede, tipo)
+    link_obj = db.query(AfiliadoLink).filter_by(produto_id=prod.id).order_by(
+        AfiliadoLink.created_at.desc()
+    ).first()
+    link_url = link_obj.url_afiliado if link_obj else (prod.url_produto or "")
+    # Gera a mídia impactante: vídeo (Reel) se REELS, senão arte de imagem
+    # (preço + CTA queimados). Se falhar, cai na foto original do produto.
+    media = None
+    if prod.imagem_url:
+        if tipo == "REELS":
+            media = await _criar_video_promocional(prod)
+        else:
+            media = await _criar_arte_promocional(prod, tipo)
+    c = AfiliadoConteudo(
+        produto_id=prod.id, titulo_produto=prod.titulo, rede_social=rede,
+        tipo_conteudo=tipo, texto_post=texto, hashtags=hashtags,
+        link_afiliado=link_url, imagem_sugerida=(media or prod.imagem_url), status="RASCUNHO",
+    )
+    db.add(c); db.flush()
+    return c
+
+
+async def _auto_poster_ciclo(db) -> dict:
+    """Um ciclo do Auto-Poster: gera + posta conteúdo dos produtos publicados."""
+    if not AUTO_POST_ATIVO:
+        return {"ativo": False, "postados": 0, "gerados": 0, "erros": 0, "detalhes": []}
+
+    redes = _redes_conectadas(db)
+    prods = db.query(AfiliadoProduto).filter(AfiliadoProduto.publish_status == "publicado").all()
+    # só os que ainda não têm nenhum conteúdo PUBLICADO
+    pendentes = []
+    for p in prods:
+        ja = db.query(AfiliadoConteudo).filter(
+            AfiliadoConteudo.produto_id == p.id,
+            AfiliadoConteudo.status == "PUBLICADO",
+        ).count()
+        if ja == 0:
+            pendentes.append(p)
+    pendentes = pendentes[:AUTO_POST_POR_CICLO]
+
+    postados = 0; gerados = 0; erros = 0; detalhes = []
+    alvo = redes if redes else AUTO_POST_REDES  # sem conta conectada → gera mesmo assim
+    for p in pendentes:
+        for rede in alvo:
+            # Instagram: feed POST + STORIES + REELS; demais redes: só POST
+            tipos = ["POST"]
+            if rede == "INSTAGRAM":
+                if AUTO_POST_STORIES:
+                    tipos.append("STORIES")
+                if AUTO_POST_REELS:
+                    tipos.append("REELS")
+            for tipo in tipos:
+                try:
+                    c = await _gerar_conteudo_interno(db, p, rede, tipo)
+                    gerados += 1
+                    if rede in redes:
+                        cfg = db.query(AfiliadoConfig).filter_by(plataforma=rede, ativo=True).first()
+                        res = await _publicar_na_rede(c, cfg)
+                        if res.get("ok"):
+                            c.status = "PUBLICADO"
+                            c.publicado_em = datetime.now()
+                            c.resultado_post_id = res.get("post_id")
+                            postados += 1
+                        else:
+                            erros += 1
+                            detalhes.append({"produto": (p.titulo or "")[:40], "rede": rede, "tipo": tipo, "erro": (res.get("erro") or "")[:120]})
+                    else:
+                        c.status = "AGENDADO"  # pronto, aguardando conexão da conta
+                    db.commit()
+                except Exception as e:
+                    erros += 1
+                    detalhes.append({"produto": (p.titulo or "")[:40], "rede": rede, "tipo": tipo, "erro": str(e)[:120]})
+                    db.rollback()
+    return {"ativo": True, "redes_conectadas": redes, "gerados": gerados,
+            "postados": postados, "erros": erros, "detalhes": detalhes}
+
+
+async def _auto_poster_loop():
+    """Loop em background: posta nos horários de pico, a cada N minutos."""
+    from database import SessionLocal
+    import sys
+    await asyncio.sleep(120)  # aguarda o app subir
+    while True:
+        try:
+            hora = datetime.now().hour
+            if (not AUTO_POST_SO_HORAS_PICO) or (hora in AUTO_POST_HORAS_PICO):
+                db = SessionLocal()
+                res = await _auto_poster_ciclo(db)
+                print(f"[AUTO-POSTER] {res.get('postados')} postados, {res.get('gerados')} gerados, "
+                      f"redes_conectadas={res.get('redes_conectadas')}", file=sys.stderr); sys.stderr.flush()
+                db.close()
+        except Exception as e:
+            print(f"[AUTO-POSTER] erro: {e}", file=sys.stderr); sys.stderr.flush()
+        await asyncio.sleep(AUTO_POST_INTERVALO_MIN * 60)
+
+
+def iniciar_loop_auto_poster():
+    """Chamado no startup da aplicação (main.py)."""
+    import threading
+    loop = asyncio.new_event_loop()
+    def _run():
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_auto_poster_loop())
+    threading.Thread(target=_run, daemon=True, name="auto-poster").start()
+
+
+# ── Endpoints de controle/monitoramento do Auto-Poster ───────────────────────
+
+@router.get("/auto-poster/status")
+def auto_poster_status(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    redes = _redes_conectadas(db)
+    postados  = db.query(AfiliadoConteudo).filter(AfiliadoConteudo.status == "PUBLICADO").count()
+    agendados = db.query(AfiliadoConteudo).filter(AfiliadoConteudo.status == "AGENDADO").count()
+    return {
+        "ativo": AUTO_POST_ATIVO,
+        "redes_conectadas": redes,
+        "redes_alvo": AUTO_POST_REDES,
+        "so_horas_pico": AUTO_POST_SO_HORAS_PICO,
+        "horas_pico": AUTO_POST_HORAS_PICO,
+        "por_ciclo": AUTO_POST_POR_CICLO,
+        "conteudos_postados": postados,
+        "conteudos_prontos_aguardando_conexao": agendados,
+    }
+
+
+@router.post("/auto-poster/rodar-agora")
+async def auto_poster_rodar_agora(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Dispara um ciclo de postagem imediatamente (teste/manual)."""
+    return await _auto_poster_ciclo(db)
+
+
+@router.get("/publicados")
+def listar_publicados(limit: int = 30, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Produtos que a máquina (Auto-Publisher) já publicou, mais recentes primeiro."""
+    prods = db.query(AfiliadoProduto).filter(
+        AfiliadoProduto.publish_status == "publicado"
+    ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(limit).all()
+    out = []
+    for p in prods:
+        out.append({
+            "id": p.id,
+            "titulo": p.titulo,
+            "imagem_url": p.imagem_url,
+            "plataforma": p.plataforma,
+            "comissao_pct": p.comissao_pct,
+            "comissao_valor": p.comissao_valor,
+            "preco": p.preco,
+            "publicado_em": p.publicado_em.isoformat() if p.publicado_em else None,
+        })
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARTE PROMOCIONAL — imagem de venda impactante (produto + preço + CTA)
+# Instagram não deixa texto/link em Story via API, então a informação é
+# "queimada" na própria imagem. Gera JPG em /static/promos (URL pública).
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os_promo
+from io import BytesIO as _BytesIO
+
+_PROMO_STATIC   = _os_promo.path.join(_os_promo.path.dirname(_os_promo.path.dirname(__file__)), "static", "promos")
+_PROMO_BASE_URL = _os_promo.getenv("PUBLIC_BASE_URL", "https://varejo.nexusgestaovarejo.com.br")
+_FONT_BOLD      = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+def _fmt_preco_promo(v) -> str:
+    try:
+        return "R$ " + ("%0.2f" % float(v)).replace(".", ",")
+    except Exception:
+        return ""
+
+async def _criar_arte_promocional(prod, tipo: str = "STORIES") -> str | None:
+    """Gera uma arte de venda impactante e devolve a URL pública. None se falhar.
+    Layout FLUÍDO e proporcional: funciona tanto no feed (4:5) quanto no story (9:16)
+    sem cortar nada — os elementos são empilhados em sequência a partir do topo."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import textwrap as _tw
+        _os_promo.makedirs(_PROMO_STATIC, exist_ok=True)
+        W, H = (1080, 1920) if tipo == "STORIES" else (1080, 1350)
+        s = H / 1920.0  # escala proporcional
+
+        # fundo: gradiente roxo -> laranja, escurecido
+        top, bot = (124, 58, 237), (234, 88, 12)
+        col = Image.new("RGB", (1, H))
+        for y in range(H):
+            t = y / H
+            col.putpixel((0, y), (int(top[0]*(1-t)+bot[0]*t),
+                                  int(top[1]*(1-t)+bot[1]*t),
+                                  int(top[2]*(1-t)+bot[2]*t)))
+        bg = Image.blend(col.resize((W, H)), Image.new("RGB", (W, H), (0, 0, 0)), 0.42)
+        draw = ImageDraw.Draw(bg)
+
+        f_hook  = ImageFont.truetype(_FONT_BOLD, int(78*s))
+        f_urg   = ImageFont.truetype(_FONT_BOLD, int(36*s))
+        f_nome  = ImageFont.truetype(_FONT_BOLD, int(44*s))
+        f_label = ImageFont.truetype(_FONT_BOLD, int(40*s))
+        f_preco = ImageFont.truetype(_FONT_BOLD, int(150*s))
+        f_cta   = ImageFont.truetype(_FONT_BOLD, int(52*s))
+
+        def _c(txt, font, y, fill, sw=6):
+            w = draw.textlength(txt, font=font)
+            draw.text(((W - w)//2, y), txt, font=font, fill=fill,
+                      stroke_width=max(2, int(sw*s)), stroke_fill=(0, 0, 0))
+
+        M = int(55*s)
+        # 1) Faixa vermelha "SUPER OFERTA" no topo
+        bh = int(H*0.09)
+        y0 = int(H*0.028)
+        draw.rounded_rectangle([M, y0, W-M, y0+bh], radius=int(30*s), fill=(220, 30, 40))
+        _c("SUPER OFERTA", f_hook, y0 + int(bh*0.16), (255, 221, 51), sw=4)
+
+        # 2) Card branco com a foto (tamanho adaptativo)
+        card = int(min(W*0.80, H*0.40))
+        cx = (W - card)//2
+        cy = y0 + bh + int(H*0.02)
+        draw.rounded_rectangle([cx, cy, cx+card, cy+card], radius=int(38*s), fill=(255, 255, 255))
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(prod.imagem_url)
+            pim = Image.open(_BytesIO(r.content)).convert("RGBA")
+            inner = card - int(44*s)
+            pim.thumbnail((inner, inner))
+            bg.paste(pim, (cx + (card-pim.width)//2, cy + (card-pim.height)//2), pim)
+        except Exception:
+            pass
+
+        # 3) Bloco de texto empilhado abaixo do card
+        y = cy + card + int(H*0.025)
+        for ln in _tw.wrap((prod.titulo or "").strip(), width=30)[:2]:
+            _c(ln, f_nome, y, (255, 255, 255), sw=4)
+            y += int(50*s)
+        y += int(H*0.008)
+        _c("POR APENAS:", f_label, y, (255, 221, 51), sw=3)
+        y += int(48*s)
+        preco_txt = _fmt_preco_promo(prod.preco)
+        pw = draw.textlength(preco_txt, font=f_preco)
+        ph = int(158*s)
+        draw.rounded_rectangle([(W-pw)//2 - int(45*s), y - int(8*s),
+                                (W+pw)//2 + int(45*s), y + ph], radius=int(30*s), fill=(16, 120, 44))
+        _c(preco_txt, f_preco, y, (255, 255, 255), sw=5)
+        y += ph + int(H*0.015)
+        _c("CORRE! OFERTA POR TEMPO LIMITADO", f_urg, y, (255, 255, 255), sw=3)
+        y += int(56*s)
+        # 4) Botão CTA laranja
+        cta_h = int(112*s)
+        draw.rounded_rectangle([M, y, W-M, y+cta_h], radius=int(44*s), fill=(234, 88, 12))
+        _c("COMPRE PELO LINK DA BIO", f_cta, y + int(cta_h*0.28), (255, 255, 255), sw=2)
+
+        fname = f"promo_{prod.id}_{tipo}.jpg"
+        bg.convert("RGB").save(_os_promo.path.join(_PROMO_STATIC, fname), "JPEG", quality=88)
+        return f"{_PROMO_BASE_URL}/static/promos/{fname}"
+    except Exception:
+        return None
+
+
+async def _criar_video_promocional(prod) -> str | None:
+    """Gera um Reel (vídeo 9:16) a partir da arte promocional, com zoom suave
+    (Ken Burns). Reusa a arte impactante já gerada. Retorna a URL pública."""
+    import subprocess
+    try:
+        # garante a arte-base 1080x1920 (com preço + CTA queimados)
+        await _criar_arte_promocional(prod, "STORIES")
+        arte_path = _os_promo.path.join(_PROMO_STATIC, f"promo_{prod.id}_STORIES.jpg")
+        if not _os_promo.path.exists(arte_path):
+            return None
+        reel_name = f"reel_{prod.id}.mp4"
+        reel_path = _os_promo.path.join(_PROMO_STATIC, reel_name)
+        cmd = [
+            "ffmpeg", "-y", "-loop", "1", "-t", "7", "-i", arte_path,
+            "-vf", "zoompan=z='min(zoom+0.0012,1.25)':d=210:s=1080x1920:fps=30,format=yuv420p",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-t", "7",
+            "-movflags", "+faststart", reel_path,
+        ]
+        loop = asyncio.get_event_loop()
+        r = await loop.run_in_executor(None, lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=120))
+        if r.returncode != 0:
+            return None
+        return f"{_PROMO_BASE_URL}/static/promos/{reel_name}"
+    except Exception:
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LOJINHA / VITRINE PÚBLICA — página "link na bio"
+# Lista os produtos publicados com foto + preço + botão que abre o link
+# afiliado. É o destino do "COMPRE PELO LINK DA BIO". URL pública, sem login.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_LOJA_TEMPLATE = """<!doctype html><html lang="pt-br"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Maxx Vendas — Ofertas</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f2f3f7;color:#1a1a2e;min-height:100vh;padding-bottom:40px}
+header{background:linear-gradient(135deg,#7c3aed 0%,#ec4899 55%,#ea580c 100%);color:#fff;text-align:center;padding:22px 16px 20px;position:sticky;top:0;z-index:10;box-shadow:0 2px 12px rgba(0,0,0,.15)}
+header .logo{font-size:26px;font-weight:900;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:8px}
+header .tag{font-size:12.5px;opacity:.92;margin-top:3px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:14px;max-width:1120px;margin:0 auto}
+.card{background:#fff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 10px rgba(0,0,0,.07);transition:transform .15s}
+.card:hover{transform:translateY(-3px)}
+.card .imgwrap{width:100%;height:148px;background:#fff;display:flex;align-items:center;justify-content:center;padding:10px;border-bottom:1px solid #f0f0f3}
+.card img{max-width:100%;max-height:100%;object-fit:contain}
+.info{padding:9px 11px 12px;display:flex;flex-direction:column;flex:1}
+.nome{color:#2a2a3a;font-size:12px;font-weight:600;line-height:1.3;height:31px;overflow:hidden}
+.preco{color:#16a34a;font-size:19px;font-weight:900;margin:6px 0 9px}
+.btn{margin-top:auto;text-align:center;text-decoration:none;background:linear-gradient(135deg,#ea580c,#f59e0b);color:#fff;font-weight:800;font-size:12px;padding:10px;border-radius:10px}
+.btn:active{opacity:.85}
+.vazio{text-align:center;color:#888;padding:60px 20px}
+footer{text-align:center;color:#9aa;font-size:11px;margin-top:22px;padding:0 16px}
+</style></head><body>
+<header><div class="logo">🛍️ Maxx Vendas</div><div class="tag">🔥 Ofertas imperdíveis selecionadas pra você</div></header>
+<div class="grid">__CARDS__</div>
+<footer>Maxx Vendas • ofertas atualizadas automaticamente</footer>
+</body></html>"""
+
+
+@router.get("/loja", response_class=HTMLResponse)
+def loja_publica(db: Session = Depends(get_db)):
+    """Vitrine pública ('link na bio') com os produtos publicados + link afiliado."""
+    try:
+        from models import LojaEvento
+        db.add(LojaEvento(tipo="visita")); db.commit()
+    except Exception:
+        db.rollback()
+    prods = db.query(AfiliadoProduto).filter(
+        AfiliadoProduto.publish_status == "publicado"
+    ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(60).all()
+
+    cards = []
+    for p in prods:
+        link_obj = db.query(AfiliadoLink).filter_by(produto_id=p.id).order_by(
+            AfiliadoLink.created_at.desc()
+        ).first()
+        url = (link_obj.url_afiliado if link_obj else None) or p.url_produto or "#"
+        img = p.imagem_url or ""
+        titulo = (p.titulo or "")[:70].replace("<", "").replace(">", "")
+        preco = _fmt_preco_promo(p.preco)
+        cards.append(
+            f'<div class="card"><div class="imgwrap"><img src="{img}" loading="lazy" alt=""></div>'
+            f'<div class="info"><div class="nome">{titulo}</div>'
+            f'<div class="preco">{preco}</div>'
+            f'<a class="btn" href="/afiliados/ir/{p.id}" target="_blank" rel="noopener nofollow">COMPRAR</a>'
+            f'</div></div>'
+        )
+    corpo = "".join(cards) if cards else '<div class="vazio">Em breve, novas ofertas! 🚀</div>'
+    return HTMLResponse(_LOJA_TEMPLATE.replace("__CARDS__", corpo))
+
+
+@router.get("/ir/{produto_id}")
+def loja_ir(produto_id: int, db: Session = Depends(get_db)):
+    """Rastreia o clique num produto da Lojinha e redireciona pro link afiliado."""
+    from models import LojaEvento
+    p = db.query(AfiliadoProduto).filter_by(id=produto_id).first()
+    link_obj = db.query(AfiliadoLink).filter_by(produto_id=produto_id).order_by(
+        AfiliadoLink.created_at.desc()
+    ).first() if p else None
+    url = (link_obj.url_afiliado if link_obj else None) or (p.url_produto if p else None) or "https://www.mercadolivre.com.br"
+    try:
+        db.add(LojaEvento(tipo="clique", produto_id=produto_id, titulo_produto=(p.titulo if p else None)))
+        db.commit()
+    except Exception:
+        db.rollback()
+    return RedirectResponse(url)
+
+
+@router.get("/loja/stats")
+def loja_stats(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Métricas da Lojinha: visitas, cliques, taxa de clique e top produtos."""
+    from models import LojaEvento
+    from sqlalchemy import func as _f
+    hoje = date.today()
+
+    def _cnt(tipo, so_hoje=False):
+        q = db.query(LojaEvento).filter(LojaEvento.tipo == tipo)
+        if so_hoje:
+            q = q.filter(_f.date(LojaEvento.created_at) == hoje)
+        return q.count()
+
+    visitas      = _cnt("visita")
+    visitas_hoje = _cnt("visita", True)
+    cliques      = _cnt("clique")
+    cliques_hoje = _cnt("clique", True)
+    top = db.query(LojaEvento.titulo_produto, _f.count(LojaEvento.id).label("n")).filter(
+        LojaEvento.tipo == "clique", LojaEvento.titulo_produto != None
+    ).group_by(LojaEvento.titulo_produto).order_by(_f.count(LojaEvento.id).desc()).limit(5).all()
+
+    return {
+        "visitas": visitas, "visitas_hoje": visitas_hoje,
+        "cliques": cliques, "cliques_hoje": cliques_hoje,
+        "taxa_clique": round((cliques / visitas * 100) if visitas else 0, 1),
+        "top_produtos": [{"titulo": (t or "?")[:45], "cliques": n} for t, n in top],
+    }

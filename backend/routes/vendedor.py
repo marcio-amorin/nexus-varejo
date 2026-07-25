@@ -10,7 +10,7 @@ import json, httpx, asyncio, re, os, urllib.parse
 
 router = APIRouter(prefix="/vendedor", tags=["vendedor"])
 
-ML_REDIRECT_URI  = os.getenv("ML_REDIRECT_URI", "https://nexus-varejo-backend.onrender.com/afiliados/ml-callback")
+ML_REDIRECT_URI  = os.getenv("ML_REDIRECT_URI", "https://varejo.nexusgestaovarejo.com.br/afiliados/ml-callback")
 ML_AUTH_URL      = "https://auth.mercadolivre.com.br/authorization"
 _ML_APP_ID       = os.getenv("ML_CLIENT_ID", "3153350893755305")
 _ML_APP_SECRET   = os.getenv("ML_CLIENT_SECRET", "wCq5uo8Ytbu2AXfzd8fRN8Pa5hwgKFyB")
@@ -1487,7 +1487,9 @@ def dashboard_vendedor(db: Session = Depends(get_db), _=Depends(get_current_user
     total_faturado = db.query(func.sum(VendedorAnuncio.faturamento)).scalar() or 0
     total_vendas   = db.query(func.sum(VendedorAnuncio.vendas_count)).scalar() or 0
     pendentes      = db.query(VendedorAnuncio).filter_by(status="PENDENTE").count()
-    lucro_total    = db.query(func.sum(VendedorPedido.lucro_estimado)).scalar() or 0
+    lucro_total    = db.query(func.sum(VendedorPedido.lucro_estimado)).filter(
+        VendedorPedido.status != "CANCELADO"
+    ).scalar() or 0
     recentes       = db.query(VendedorAnuncio).order_by(VendedorAnuncio.created_at.desc()).limit(5).all()
 
     return {
@@ -1564,6 +1566,8 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
         for order in results:
             ext_id    = str(order.get("id", ""))
             status_ml = order.get("status", "novo").upper()
+            if status_ml == "CANCELLED":
+                status_ml = "CANCELADO"   # normaliza p/ o vocabulário PT usado nos filtros de relatório
             existe    = db.query(VendedorPedido).filter_by(pedido_ext_id=ext_id).first()
 
             # Taxa cobrada pelo ML neste pedido
@@ -1612,3 +1616,184 @@ async def sync_pedidos_ml(db: Session = Depends(get_db), _=Depends(get_current_u
         return {"ok": True, "novos_pedidos": novos, "total_encontrados": len(results), "seller_id_usado": seller_id}
     except Exception as e:
         return {"ok": False, "msg": str(e)[:200]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AUTO-PUBLISHER — Máquina de vendas automática (Elo 1)
+# ---------------------------------------------------------------------------
+# Lê os melhores produtos do catálogo afiliado ainda NÃO publicados, aplica
+# curadoria (comissão mínima + faixa de preço) e publica automaticamente
+# (link afiliado + conteúdo) respeitando um limite diário. Roda em background
+# 24/7 — mesmo padrão dos loops de oportunidades e ml-sync.
+# Reusa integralmente a lógica já existente de publicar_tudo().
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Regras de curadoria — ajustáveis por variável de ambiente sem mexer no código
+AUTO_PUBLISH_ATIVO           = os.getenv("AUTO_PUBLISH_ATIVO", "1") == "1"
+AUTO_PUBLISH_QTD_DIA         = int(os.getenv("AUTO_PUBLISH_QTD_DIA", "30"))   # total/dia: gera link + enche a Lojinha
+AUTO_PUBLISH_ML_DIA          = int(os.getenv("AUTO_PUBLISH_ML_DIA", "0"))     # 0 = NÃO cria anúncio de vendedor (Karla nunca é a vendedora — só link afiliado, vendedor original entrega)
+# Comissão ML afiliado é tipicamente 4-8%. Mín. 5% para incluir os produtos
+# de 6% (padrão do catálogo) — 8% zeraria os candidatos.
+AUTO_PUBLISH_COMISSAO_MIN    = float(os.getenv("AUTO_PUBLISH_COMISSAO_MIN", "5"))
+# Regra combinada: R$50–300 (giro rápido, alta conversão — exclui alto ticket)
+AUTO_PUBLISH_PRECO_MIN       = float(os.getenv("AUTO_PUBLISH_PRECO_MIN", "50"))
+AUTO_PUBLISH_PRECO_MAX       = float(os.getenv("AUTO_PUBLISH_PRECO_MAX", "300"))
+AUTO_PUBLISH_MODO_AFILIADO   = os.getenv("AUTO_PUBLISH_MODO_AFILIADO", "1") == "1"  # 1 = SÓ link afiliado (vendedor original entrega, Karla só ganha comissão — SEM risco de cancelamento)
+AUTO_PUBLISH_INTERVALO_HORAS = int(os.getenv("AUTO_PUBLISH_INTERVALO_HORAS", "24"))
+
+
+def _auto_publish_candidatos(db, limite: int):
+    """Seleciona os melhores produtos pendentes segundo as regras de curadoria,
+    ranqueados por ganho mensal potencial (comissão × vendas/mês)."""
+    prods = db.query(AfiliadoProduto).filter(
+        AfiliadoProduto.ativo == True,
+        AfiliadoProduto.preco >= AUTO_PUBLISH_PRECO_MIN,
+        AfiliadoProduto.preco <= AUTO_PUBLISH_PRECO_MAX,
+        AfiliadoProduto.comissao_pct >= AUTO_PUBLISH_COMISSAO_MIN,
+    ).all()
+    pendentes = [p for p in prods if (p.publish_status or "pendente") == "pendente"]
+    pendentes.sort(
+        key=lambda p: (p.comissao_valor or 0) * max(p.vendas_mes or 1, 1),
+        reverse=True,
+    )
+    return pendentes[:limite]
+
+
+def _get_vendedor_token_simples(db):
+    cfg = db.query(VendedorConfig).filter_by(plataforma="ML_VENDEDOR").first()
+    return cfg.access_token if cfg else None
+
+
+async def _produto_disponivel(produto_ext_id, token) -> bool:
+    """Verifica no ML se o produto do vendedor original está ATIVO e com estoque.
+    True = pode publicar. Sem id ML válido, não bloqueia (retorna True).
+    404 (item não existe mais/removido) = não publica. Outras falhas (rede, auth)
+    não bloqueiam — não dá pra distinguir de eventual bloqueio de consulta cross-seller."""
+    if not produto_ext_id or not str(produto_ext_id).startswith("MLB"):
+        return True
+    try:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"https://api.mercadolibre.com/items/{produto_ext_id}", headers=headers)
+        if r.status_code == 404:
+            return False  # item removido/não existe mais no vendedor original
+        if r.status_code != 200:
+            return True   # falha de consulta (auth/rede) — não dá p/ verificar, não bloqueia
+        d = r.json()
+        return d.get("status") == "active" and int(d.get("available_quantity") or 0) > 0
+    except Exception:
+        return True
+
+
+async def _auto_publish_ciclo(db) -> dict:
+    """Um ciclo: publica anúncio REAL na conta ML da Karla (+ link + redes),
+    APENAS produtos disponíveis no vendedor original (evita anúncio morto).
+    Produtos indisponíveis são marcados e pulados."""
+    if not AUTO_PUBLISH_ATIVO:
+        return {"ativo": False, "candidatos": 0, "publicados": 0, "erros": 0, "indisponiveis": 0, "detalhes": []}
+
+    # pega mais candidatos pra compensar os indisponíveis e ainda publicar QTD_DIA
+    candidatos = _auto_publish_candidatos(db, AUTO_PUBLISH_QTD_DIA * 5)
+    token = _get_vendedor_token_simples(db)
+    publicados = 0
+    erros = 0
+    indisponiveis = 0
+    ml_feitos = 0
+    detalhes = []
+    for p in candidatos:
+        if publicados >= AUTO_PUBLISH_QTD_DIA:
+            break
+        # 1) Só publica produto disponível no vendedor original
+        if not await _produto_disponivel(p.produto_ext_id, token):
+            p.publish_status = "indisponivel"
+            indisponiveis += 1
+            db.commit()
+            continue
+        # 2) Os primeiros AUTO_PUBLISH_ML_DIA tentam anúncio REAL na conta da Karla;
+        #    o resto vira só link. Redes sociais ficam com o Auto-Poster (volume seguro).
+        fazer_ml = ml_feitos < AUTO_PUBLISH_ML_DIA
+        try:
+            body = PublicarTudoIn(
+                produto_id=p.id,
+                publicar_redes=False,
+                modo_afiliado=(not fazer_ml),
+            )
+            await publicar_tudo(body, db=db, _=None)
+            if fazer_ml:
+                ml_feitos += 1
+            p.publish_status = "publicado"
+            p.publicado_em = datetime.utcnow()
+            publicados += 1
+            detalhes.append({"produto": p.titulo, "status": "publicado"})
+        except Exception as e:
+            p.publish_status = "erro"
+            try:
+                p.notas = ((p.notas or "")[:400] + f" | auto-publish: {str(e)[:120]}")
+            except Exception:
+                pass
+            erros += 1
+            detalhes.append({"produto": p.titulo, "status": "erro", "erro": str(e)[:150]})
+        db.commit()
+    return {"ativo": True, "candidatos": len(candidatos), "publicados": publicados,
+            "anuncios_ml": ml_feitos, "erros": erros, "indisponiveis": indisponiveis, "detalhes": detalhes}
+
+
+async def _auto_publish_loop():
+    """Loop em background: publica os top N do dia, a cada N horas."""
+    from database import SessionLocal
+    import sys
+    await asyncio.sleep(90)  # aguarda o app subir por completo
+    while True:
+        try:
+            db = SessionLocal()
+            res = await _auto_publish_ciclo(db)
+            print(f"[AUTO-PUBLISH] ciclo: {res.get('publicados')} publicados, "
+                  f"{res.get('erros')} erros de {res.get('candidatos')} candidatos",
+                  file=sys.stderr); sys.stderr.flush()
+            db.close()
+        except Exception as e:
+            print(f"[AUTO-PUBLISH] erro no ciclo: {e}", file=sys.stderr); sys.stderr.flush()
+        await asyncio.sleep(AUTO_PUBLISH_INTERVALO_HORAS * 3600)
+
+
+def iniciar_loop_auto_publish():
+    """Chamado no startup da aplicação (main.py)."""
+    import threading
+    loop = asyncio.new_event_loop()
+    def _run():
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_auto_publish_loop())
+    threading.Thread(target=_run, daemon=True, name="auto-publisher").start()
+
+
+# ── Endpoints de controle/monitoramento do Auto-Publisher ────────────────────
+
+@router.get("/auto-publish/status")
+def auto_publish_status(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    total      = db.query(AfiliadoProduto).filter(AfiliadoProduto.ativo == True).count()
+    publicados = db.query(AfiliadoProduto).filter(AfiliadoProduto.publish_status == "publicado").count()
+    erros      = db.query(AfiliadoProduto).filter(AfiliadoProduto.publish_status == "erro").count()
+    elegiveis  = len(_auto_publish_candidatos(db, 100000))
+    return {
+        "ativo": AUTO_PUBLISH_ATIVO,
+        "regras": {
+            "qtd_dia": AUTO_PUBLISH_QTD_DIA,
+            "comissao_min": AUTO_PUBLISH_COMISSAO_MIN,
+            "preco_min": AUTO_PUBLISH_PRECO_MIN,
+            "preco_max": AUTO_PUBLISH_PRECO_MAX,
+            "modo_afiliado": AUTO_PUBLISH_MODO_AFILIADO,
+            "intervalo_horas": AUTO_PUBLISH_INTERVALO_HORAS,
+        },
+        "catalogo": {
+            "total_ativos": total,
+            "ja_publicados": publicados,
+            "com_erro": erros,
+            "pendentes_elegiveis": elegiveis,
+        },
+    }
+
+
+@router.post("/auto-publish/rodar-agora")
+async def auto_publish_rodar_agora(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Dispara um ciclo de publicação automática imediatamente (para teste/manual)."""
+    return await _auto_publish_ciclo(db)

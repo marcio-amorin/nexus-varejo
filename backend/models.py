@@ -1261,6 +1261,9 @@ class AfiliadoProduto(Base):
     favorito        = Column(Boolean, default=False)
     notas           = Column(Text, nullable=True)
     gtin            = Column(String(20), nullable=True)     # código de barras (EAN/UPC) — exigido pelo ML em algumas categorias
+    # ── Auto-Publisher (máquina de vendas automática) ──
+    publish_status  = Column(String(20), default="pendente")   # pendente | publicado | erro
+    publicado_em    = Column(DateTime(timezone=True), nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -1317,6 +1320,17 @@ class AfiliadoComissao(Base):
     status          = Column(String(20), default="PENDENTE")  # PENDENTE | APROVADO | PAGO | CANCELADO
     referencia_ext  = Column(String(200), nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class LojaEvento(Base):
+    """Analytics da Lojinha (link na bio): visitas e cliques em produtos"""
+    __tablename__ = "loja_eventos"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    tipo           = Column(String(20), nullable=False)   # visita | clique
+    produto_id     = Column(Integer, nullable=True)
+    titulo_produto = Column(String(500), nullable=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class AfiliadoConteudo(Base):

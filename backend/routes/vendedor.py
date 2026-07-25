@@ -396,38 +396,68 @@ def _detectar_cat(titulo: str) -> str:
     # Áudio ANTES de Celulares — "Redmi Buds" tem "redmi" e "buds"; Áudio deve ganhar
     if re.search(r'\bbuds?\b|earbuds?|fone|headphone|earphone|caixa de som|speaker|soundbar', t): return 'Áudio'
     if re.search(r'samsung|motorola|iphone|xiaomi|smartphone|celular|moto g|galaxy|\bredmi\b|\bpoco\b', t): return 'Celulares'
-    if re.search(r'smart tv|televisão|\btv\b|qled|oled|4k|android tv|roku', t): return 'TV & Vídeo'
-    if re.search(r'notebook|laptop|computador|monitor|\btablet\b|ipad|impressora|carregador|cabo usb|power bank|adaptador|hub usb|pen drive|pen-drive|\bssd\b|hd externo', t): return 'Informática'
-    if re.search(r'playstation|xbox|nintendo|ps5|ps4|switch|joystick|gamer|gift card', t): return 'Games'
-    if re.search(r'air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador|luminária|ventilador|climatizador|aquecedor|ferro de passar|purificador|lavadora de alta pressão|lava.?jato|kärcher|karcher', t): return 'Eletrodomésticos'
+    if re.search(r'smart tv|televisão|\btv\b|hdtv|qled|oled|4k|android tv|roku|antena.*(tv|uhf|digital)', t): return 'TV & Vídeo'
+    if re.search(r'notebook|laptop|computador|monitor|\btablet\b|ipad|impressora|carregador|cabo usb|cabo de rede|cat6|cat5|power bank|adaptador|hub usb|pen drive|pen-drive|\bssd\b|hd externo|cartão de memória|cartao de memoria|\bsandisk\b', t): return 'Informática'
+    if re.search(r'playstation|xbox|nintendo|ps5|ps4|switch|joystick|gamer|gift card|dualsense|gamesir|series x.?s|controle.*(sem fio|xbox|microsoft|playstation|nintendo|multiplataforma)', t): return 'Games'
+    if re.search(
+        r'air fryer|fritadeira|geladeira|máquina de lavar|fogão|micro-ondas|liquidificador|aspirador|luminária|'
+        r'ventilador|climatizador|aquecedor|ferro de passar|purificador|lavadora de alta pressão|lava.?jato|'
+        r'kärcher|karcher|sanduicheira|grill\b|batedeira|espremedor|chaleira|cafeteira|multiprocessador|'
+        r'\bmixer\b|cozedor|lavadora\b|tanquinho|refil.*filtro',
+        t
+    ): return 'Eletrodomésticos'
     if re.search(r'tênis|sapato|bota|sandália|chinelo|sapatênis', t): return 'Calçados'
-    if re.search(r'camiseta|camisa|blusa|vestido|calça|jaqueta|moletom|shorts|saia|legging', t): return 'Roupas'
+    if re.search(r'camiseta|camisa|blusa|vestido|calça|jaqueta|moletom|shorts|saia|legging|gravata', t): return 'Roupas'
     if re.search(r'smartwatch|watch|relógio', t): return 'Smartwatches'
+    if re.search(
+        r'capacete|escamoteável|escamoteavel|gladiator|pro tork|new liberty|luva motoqueiro|'
+        r'\bmoto\b.*(capacete|luva)|partida.*bateria.*(moto|pneu)|compressor.*(pneu|moto)',
+        t
+    ): return 'Motociclismo'
+    if re.search(
+        r'parafusadeira|furadeira|esmerilhadeira|lixadeira|chave de impacto|chave catraca|chave de fenda|'
+        r'jogo de chaves|kit ferramentas|kit chave|soquete|serra mármore|serra marmore|alicate|'
+        r'pistola de pintura|caixa para ferramentas|maleta de ferramentas',
+        t
+    ): return 'Ferramentas'
     if re.search(
         r'aparador|barbeador|depilador|epilador|prancha|chapinha|escova secadora|secador de cabelo|'
         r'secador\b.*cabel|massageador|perfume|colônia|colonia|body splash|desodorante|antitranspirante|'
         r'shampoo|condicionador|hidratante|creme|maquiagem|skincare|sérum|serum|niacinamida|protetor solar|'
         r'\bfps\b|esmalte|batom|gloss|delineador|rímel|rimel|base facial|pó facial|blush|primer|contorno|'
         r'progressiva|alisamento|tintura|coloração capilar|óleo capilar|máscara capilar|ampola capilar|'
-        r'sabonete|talco|fio dental|escova de dente|lâmina de barbear|gel de barbear|pós.barba|'
-        r'cotonete|absorvente|fralda|lenço umedecido',
+        r'sabonete|talco|fio dental|escova de dente|lâmina de barbear|aparelho de barbear|carga.*barbear|'
+        r'gillette|gel de barbear|pós.barba|\btaiff\b|'
+        r'cotonete|absorvente|lenços? umedecidos?',
         t
     ): return 'Beleza'
-    if re.search(r'bolsa|mochila|carteira|colar|brinco|anel|óculos|cinto', t): return 'Acessórios'
     if re.search(
-        r'ração\b|racao\b|petisco|coleira|guia p/ pet|guia para pet|areia sanit|areia higiên|areia higien|'
-        r'tapete higiênico|tapete higienico|comedouro|bebedouro|casinha|arranhador|antipulgas|caminha.*(pet|cachorro|gato)|'
-        r'brinquedo.*(pet|cachorro|gato)|shampoo.*(pet|cachorro|gato)|(cachorro|gato|cão|caes|cães).*(ração|petisco|coleira)',
+        r'cadeira(inha)? (para|p/) (auto|automóvel|automovel|veículo|veiculo)|assento.*(criança|crianca|infantil|veículo|veiculo)|'
+        r'\bfralda\b|huggies|styll baby|bebê conforto|bebe conforto|carrinho de bebê|carrinho de bebe',
         t
-    ): return 'Pet'
+    ): return 'Bebê & Infantil'
+    if re.search(r'bolsa|mochila|carteira|colar|brinco|anel|óculos|cinto|mala de viagem|mala de bordo', t): return 'Acessórios'
+    if re.search(
+        r'ração\b|racao\b|coleira|guia p/ pet|guia para pet|areia sanit|areia higiên|areia higien|'
+        r'tapete higiênico|tapete higienico|comedouro|bebedouro|casinha p/|casinha para|arranhador|antipulgas|'
+        r'caminha.*(pet|cachorro|gato)|brinquedo.*(pet|cachorro|gato)|shampoo.*(pet|cachorro|gato)|'
+        r'petisco.*(pet|cachorro|gato|cães|caes)|(cachorro|gato|cão|caes|cães).*(ração|petisco|coleira)',
+        t
+    ): return 'Pet Shop'
     if re.search(
         r'suplemento|whey|creatina|proteína|proteina|\bprotein\b|\bbcaa\b|pré.treino|pre.treino|colágeno|colageno|'
-        r'vitamina[^s]|ômega|omega.3|bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação|'
-        r'termogênico|termogenico|emagrecedor|hipercalórico|hipercalorico|massa muscular|glutamina|albumina|'
-        r'maltodextrina|dextrose|caffeine|cafeína|cafeina|dieta\b|low carb',
+        r'vitamina[^s]|vitamínico|vitaminico|ômega|omega.3|termogênico|termogenico|emagrecedor|hipercalórico|hipercalorico|'
+        r'massa muscular|glutamina|albumina|maltodextrina|dextrose|caffeine|cafeína|cafeina|dieta\b|low carb|'
+        r'carnibol|darkness\b',
         t
     ): return 'Suplementos'
-    if re.search(r'câmera|camera|drone|gopro|ring light|tripé', t): return 'Foto & Vídeo'
+    if re.search(r'bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação|\bbola\b|futsal|vôlei|volei|basquete', t): return 'Esporte'
+    if re.search(r'câmera|camera|drone|gopro|ring light|tripé|suporte para projetor', t): return 'Foto & Vídeo'
+    if re.search(r'papel sulfite|papel fotográfico|papel fotografico|papel a4|resma|masterprint|a4.*(fotográfico|fotografico|folhas)', t): return 'Papelaria'
+    if re.search(r'pilhas? alcalinas?|pilha aaa|pilha aa\b|pilhas? palito|pilha cilíndrica|pilha cilindrica|\bduracell\b', t): return 'Pilhas & Baterias'
+    if re.search(r'taramps|processador de áudio|processador de audio|amplificador.*(automotivo|canais|rms)|módulo.*rms|modulo.*rms|som automotivo', t): return 'Som Automotivo'
+    if re.search(r'filamento|\bpla\b.*(1kg|premium|carretel)|voolt3d|bambu lab|impressora 3d|impressão 3d|impressao 3d', t): return 'Impressão 3D'
+    if re.search(r'termômetro|termometro|medidor de pressão|medidor de pressao|pressão arterial|pressao arterial|oxímetro|oximetro', t): return 'Saúde'
     if re.search(r'papel higiênic|guardanapo|detergente|sabão em pó|amaciante|água sanitária|desinfetante|esponja de aço|saco de lixo|percarbonato|arroz|feijão|macarrão|açúcar|café\b|óleo de soja|refrigerante|bolacha|biscoito|fósforo|inseticida|desodorizador|papel toalha|sabão em barra', t): return 'Supermercado'
     return 'Outros'
 

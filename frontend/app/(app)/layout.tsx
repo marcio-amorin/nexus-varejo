@@ -56,6 +56,7 @@ const NAV: NavItem[] = [
   { href: '/marketplace/vendedor',               icon: Store,         label: 'Painel Vendedor',          group: 'corporativos' },
   { href: '/marketplace/vendedor/anuncios',      icon: Package,       label: 'Meus Anúncios',            group: 'corporativos' },
   { href: '/marketplace/vendedor/config',        icon: Settings,      label: 'Config. Vendedor',         group: 'corporativos' },
+  { href: 'https://varejo.nexusgestaovarejo.com.br/loja', icon: ShoppingBasket, label: 'Ver Lojinha', group: 'corporativos', externo: true },
 
   // ── COMPRAS ────────────────────────────────────────────────────────────────
   { href: '/compras',              icon: ShoppingBag,    label: 'Dashboard Compras',   group: 'compras' },

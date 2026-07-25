@@ -3600,12 +3600,12 @@ __OG_IMAGE__
 body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f0f1f5;color:#1a1a2e;min-height:100vh;padding-bottom:36px}
 .ic{width:11px;height:11px;flex-shrink:0}
 
-header{background:linear-gradient(180deg,#161b30 0%,#1f2745 100%);color:#fff;text-align:center;padding:26px 16px 20px;position:sticky;top:0;z-index:10;box-shadow:0 2px 16px rgba(0,0,0,.25)}
-header .logo{font-size:23px;font-weight:800;letter-spacing:.2px;display:flex;align-items:center;justify-content:center;gap:8px}
-header .logo .ic{width:20px;height:20px;color:#3483FA}
-header .tag{font-size:12px;opacity:.68;margin-top:5px;font-weight:500}
-.ml-pill{display:inline-flex;align-items:center;gap:5px;background:#FFE600;color:#12172b;font-size:10.5px;font-weight:800;padding:5px 12px;border-radius:999px;margin-top:12px}
-.ml-pill .ic{width:11px;height:11px}
+header{background:linear-gradient(180deg,#161b30 0%,#1f2745 100%);color:#fff;text-align:center;padding:38px 16px 30px;position:sticky;top:0;z-index:10;box-shadow:0 2px 16px rgba(0,0,0,.25)}
+header .logo{font-size:38px;font-weight:900;letter-spacing:.3px;display:flex;align-items:center;justify-content:center;gap:10px;text-shadow:0 2px 10px rgba(52,131,250,.35)}
+header .logo .ic{width:34px;height:34px;color:#3483FA}
+header .tag{font-size:15px;opacity:.8;margin-top:8px;font-weight:600}
+.ml-pill{display:inline-flex;align-items:center;gap:6px;background:#FFE600;color:#12172b;font-size:13px;font-weight:900;padding:8px 18px;border-radius:999px;margin-top:16px;box-shadow:0 3px 10px rgba(0,0,0,.25)}
+.ml-pill .ic{width:14px;height:14px}
 
 .trustbar{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid #ececf2;font-size:10.5px;color:#555;font-weight:700}
 .trustbar span{display:flex;align-items:center;gap:4px}
@@ -3729,12 +3729,15 @@ def loja_publica(db: Session = Depends(get_db)):
 
     from routes.vendedor import _detectar_cat
 
-    # ── Ofertas em destaque: o melhor de cada categoria (não os 4 melhores
-    # no geral — isso só pegaria 4 variações de cor do mesmo iPhone). Não
-    # temos desconto/vendas confiáveis pra todo o catálogo, então comissão é
-    # o sinal de "melhor oferta" disponível pra praticamente 100% dos itens.
-    candidatos_destaque = [p for p in prods if p.imagem_url and p.preco]
-    candidatos_destaque.sort(key=lambda p: p.comissao_valor or 0, reverse=True)
+    # ── Ofertas em destaque: preço de impulso (baixo, tipo R$60-150) em vez
+    # de maior comissão — R$7 mil de iPhone não convida a comprar por impulso
+    # igual um produto de R$90. Ranqueia por proximidade de R$95 (o "ponto
+    # doce" de compra por impulso), um por categoria primeiro pra variar,
+    # depois completa com o que sobrar até encher a faixa.
+    _ALVO_DESTAQUE = 95.0
+    _QTD_DESTAQUE = 8
+    candidatos_destaque = [p for p in prods if p.imagem_url and p.preco and 40 <= p.preco <= 180]
+    candidatos_destaque.sort(key=lambda p: abs((p.preco or 0) - _ALVO_DESTAQUE))
     destaques = []
     categorias_no_destaque = set()
     for p in candidatos_destaque:
@@ -3743,8 +3746,17 @@ def loja_publica(db: Session = Depends(get_db)):
             continue
         destaques.append(p)
         categorias_no_destaque.add(cat)
-        if len(destaques) >= 4:
+        if len(destaques) >= _QTD_DESTAQUE:
             break
+    if len(destaques) < _QTD_DESTAQUE:
+        ja_no_destaque = {p.id for p in destaques}
+        for p in candidatos_destaque:
+            if p.id in ja_no_destaque:
+                continue
+            destaques.append(p)
+            ja_no_destaque.add(p.id)
+            if len(destaques) >= _QTD_DESTAQUE:
+                break
     destaque_html = ""
     if destaques:
         cards_destaque = []

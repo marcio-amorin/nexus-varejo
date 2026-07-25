@@ -1453,6 +1453,12 @@ def publicar_catalogo_tudo(db: Session = Depends(get_db), _=Depends(get_current_
             existente.status = "ATIVO"
             existente.publicado_em = existente.publicado_em or datetime.utcnow()
             atualizados += 1
+        # Anúncio ATIVO com link precisa refletir no catálogo também, senão a
+        # Lojinha (que só lista produto.publish_status == "publicado") nunca
+        # mostra esse produto mesmo ele estando "ATIVO" aqui.
+        if link and produto.publish_status != "publicado":
+            produto.publish_status = "publicado"
+            produto.publicado_em = produto.publicado_em or datetime.utcnow()
     db.commit()
     return {"ok": True, "criados": criados, "atualizados": atualizados, "total_catalogo": len(produtos)}
 

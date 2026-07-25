@@ -3672,7 +3672,7 @@ def loja_publica(db: Session = Depends(get_db)):
         db.rollback()
     prods = db.query(AfiliadoProduto).filter(
         AfiliadoProduto.publish_status == "publicado"
-    ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(60).all()
+    ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(400).all()
 
     cards = []
     titulos_vistos = set()

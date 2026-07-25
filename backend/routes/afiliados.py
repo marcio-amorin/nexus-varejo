@@ -3299,14 +3299,13 @@ async def _gerar_conteudo_interno(db, prod, rede, tipo):
     # já traz "COMPRE PELO LINK DA BIO", e o link da bio do Instagram/Facebook
     # precisa ser configurado manualmente (no perfil) apontando pra essa mesma URL.
     link_url = f"{_PROMO_BASE_URL}/loja"
-    # Gera a mídia impactante: vídeo (Reel) se REELS, senão arte de imagem
-    # (preço + CTA queimados). Se falhar, cai na foto original do produto.
-    media = None
-    if prod.imagem_url:
-        if tipo == "REELS":
-            media = await _criar_video_promocional(prod)
-        else:
-            media = await _criar_arte_promocional(prod, tipo)
+    # Publicação normal: usa a foto real do produto (sem arte/overlay montada
+    # em cima, que distorcia foto com colagem/selo do próprio anúncio do ML
+    # e ficava feio). Preço, oferta e link já vão no texto do post/legenda.
+    # Reels ainda precisa de vídeo de verdade — mantém o gerador de vídeo.
+    media = prod.imagem_url or None
+    if tipo == "REELS" and prod.imagem_url:
+        media = await _criar_video_promocional(prod) or prod.imagem_url
     c = AfiliadoConteudo(
         produto_id=prod.id, titulo_produto=prod.titulo, rede_social=rede,
         tipo_conteudo=tipo, texto_post=texto, hashtags=hashtags,

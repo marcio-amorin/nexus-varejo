@@ -3581,37 +3581,40 @@ _LOJA_TEMPLATE = """<!doctype html><html lang="pt-br"><head>
 <title>Maxx Vendas — Ofertas do Mercado Livre</title>
 <meta name="description" content="Ofertas selecionadas do Mercado Livre, com o melhor preço. Compra 100% segura, processada direto pelo Mercado Livre.">
 <meta property="og:title" content="Maxx Vendas — Ofertas do Mercado Livre">
-<meta property="og:description" content="🔥 Ofertas imperdíveis selecionadas pra você, direto do Mercado Livre">
+<meta property="og:description" content="Ofertas selecionadas pra você, direto do Mercado Livre">
 __OG_IMAGE__
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f2f3f7;color:#1a1a2e;min-height:100vh;padding-bottom:36px}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f0f1f5;color:#1a1a2e;min-height:100vh;padding-bottom:36px}
 .ic{width:11px;height:11px;flex-shrink:0}
 
-header{background:linear-gradient(135deg,#7c3aed 0%,#ec4899 55%,#ea580c 100%);color:#fff;text-align:center;padding:24px 16px 18px;position:sticky;top:0;z-index:10;box-shadow:0 2px 16px rgba(0,0,0,.18)}
-header .logo{font-size:27px;font-weight:900;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:8px}
-header .tag{font-size:12.5px;opacity:.92;margin-top:4px;font-weight:600}
-.ml-pill{display:inline-flex;align-items:center;gap:5px;background:#FFE600;color:#2d2d2d;font-size:11px;font-weight:800;padding:5px 12px;border-radius:999px;margin-top:11px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
-.ml-pill .ic{width:12px;height:12px}
+header{background:linear-gradient(180deg,#161b30 0%,#1f2745 100%);color:#fff;text-align:center;padding:26px 16px 20px;position:sticky;top:0;z-index:10;box-shadow:0 2px 16px rgba(0,0,0,.25)}
+header .logo{font-size:23px;font-weight:800;letter-spacing:.2px;display:flex;align-items:center;justify-content:center;gap:8px}
+header .logo .ic{width:20px;height:20px;color:#3483FA}
+header .tag{font-size:12px;opacity:.68;margin-top:5px;font-weight:500}
+.ml-pill{display:inline-flex;align-items:center;gap:5px;background:#FFE600;color:#12172b;font-size:10.5px;font-weight:800;padding:5px 12px;border-radius:999px;margin-top:12px}
+.ml-pill .ic{width:11px;height:11px}
 
-.trustbar{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid #ececf2;font-size:10.5px;color:#666;font-weight:700}
+.trustbar{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid #ececf2;font-size:10.5px;color:#555;font-weight:700}
 .trustbar span{display:flex;align-items:center;gap:4px}
-.trustbar .ic{width:12px;height:12px;color:#16a34a}
+.trustbar .ic{width:12px;height:12px}
+.trustbar .ic-lock{color:#16a34a}
+.trustbar .ic-truck{color:#3483FA}
 
-.contador{text-align:center;padding:14px 16px 2px;font-size:11.5px;color:#8a8a97;font-weight:700;letter-spacing:.3px}
+.contador{text-align:center;padding:14px 16px 2px;font-size:11px;color:#8a8a97;font-weight:600;letter-spacing:.3px}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:14px;max-width:1120px;margin:0 auto}
-.card{background:#fff;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 3px 12px rgba(0,0,0,.08);transition:transform .15s,box-shadow .15s}
-.card:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(0,0,0,.13)}
+.card{background:#fff;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(20,20,40,.08);border:1px solid #ececf2;transition:transform .15s,box-shadow .15s}
+.card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(20,20,40,.1)}
 .card:active{transform:scale(.98)}
 .card .imgwrap{width:100%;height:148px;background:#fff;display:flex;align-items:center;justify-content:center;padding:10px;border-bottom:1px solid #f0f0f3}
 .card img{max-width:100%;max-height:100%;object-fit:contain}
 .info{padding:10px 11px 12px;display:flex;flex-direction:column;flex:1;gap:2px}
 .nome{color:#2a2a3a;font-size:12px;font-weight:600;line-height:1.3;height:31px;overflow:hidden}
-.preco{color:#16a34a;font-size:20px;font-weight:900;margin:5px 0 7px}
-.ml-tag{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;background:#FFE600;color:#2d2d2d;font-size:9.5px;font-weight:800;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.preco{color:#16a34a;font-size:19px;font-weight:800;margin:5px 0 7px}
+.ml-tag{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;background:#FFE600;color:#12172b;font-size:9.5px;font-weight:800;padding:3px 8px;border-radius:999px;margin-bottom:8px}
 .ml-tag .ic{width:9px;height:9px}
-.btn{margin-top:auto;display:flex;align-items:center;justify-content:center;gap:5px;text-align:center;text-decoration:none;background:linear-gradient(135deg,#ea580c,#f59e0b);color:#fff;font-weight:800;font-size:11.5px;padding:10px;border-radius:11px;box-shadow:0 2px 8px rgba(234,88,12,.35)}
+.btn{margin-top:auto;display:flex;align-items:center;justify-content:center;gap:5px;text-align:center;text-decoration:none;background:#3483FA;color:#fff;font-weight:700;font-size:11.5px;padding:10px;border-radius:9px;box-shadow:0 2px 6px rgba(52,131,250,.35)}
 .btn:active{opacity:.85}
 .btn .ic{width:13px;height:13px}
 
@@ -3621,13 +3624,13 @@ footer .selo{display:flex;align-items:center;gap:5px;color:#7a7a86;font-weight:7
 footer .selo .ic{color:#16a34a}
 </style></head><body>
 <header>
-<div class="logo">🛍️ Maxx Vendas</div>
-<div class="tag">🔥 Ofertas imperdíveis selecionadas pra você</div>
-<div class="ml-pill">""" + _IC_BAG + """ Vendido no Mercado Livre</div>
+<div class="logo">""" + _IC_BAG + """ Maxx Vendas</div>
+<div class="tag">Ofertas selecionadas pra você</div>
+<div class="ml-pill">Vendido no Mercado Livre</div>
 </header>
 <div class="trustbar">
-<span>""" + _IC_LOCK + """ Compra 100% segura</span>
-<span>""" + _IC_TRUCK + """ Envio pelo Mercado Livre</span>
+<span>""" + _IC_LOCK.replace('class="ic"', 'class="ic ic-lock"') + """ Compra 100% segura</span>
+<span>""" + _IC_TRUCK.replace('class="ic"', 'class="ic ic-truck"') + """ Envio pelo Mercado Livre</span>
 </div>
 <div class="contador">__TOTAL__ ofertas disponíveis agora</div>
 <div class="grid">__CARDS__</div>
@@ -3636,6 +3639,16 @@ footer .selo .ic{color:#16a34a}
 <div>Maxx Vendas • ofertas atualizadas automaticamente</div>
 </footer>
 </body></html>"""
+
+
+def _truncar_titulo(titulo: str, limite: int = 68) -> str:
+    """Corta no limite de espaço em branco mais próximo (nunca no meio de uma
+    palavra ou em cima de um hífen) e adiciona reticências."""
+    t = (titulo or "").replace("<", "").replace(">", "").strip()
+    if len(t) <= limite:
+        return t
+    corte = t[:limite].rsplit(" ", 1)[0].rstrip(" -,.")
+    return (corte or t[:limite]) + "…"
 
 
 @router.get("/loja", response_class=HTMLResponse)
@@ -3651,13 +3664,19 @@ def loja_publica(db: Session = Depends(get_db)):
     ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(60).all()
 
     cards = []
+    titulos_vistos = set()
     for p in prods:
+        chave_dup = (p.titulo or "").strip().lower()
+        if chave_dup and chave_dup in titulos_vistos:
+            continue  # evita mostrar o mesmo produto repetido lado a lado
+        titulos_vistos.add(chave_dup)
+
         link_obj = db.query(AfiliadoLink).filter_by(produto_id=p.id).order_by(
             AfiliadoLink.created_at.desc()
         ).first()
         url = (link_obj.url_afiliado if link_obj else None) or p.url_produto or "#"
         img = p.imagem_url or ""
-        titulo = (p.titulo or "")[:70].replace("<", "").replace(">", "")
+        titulo = _truncar_titulo(p.titulo)
         preco = _fmt_preco_promo(p.preco)
         cards.append(
             f'<div class="card"><div class="imgwrap"><img src="{img}" loading="lazy" alt=""></div>'
@@ -3671,7 +3690,7 @@ def loja_publica(db: Session = Depends(get_db)):
     og_image = f'<meta property="og:image" content="{prods[0].imagem_url}">' if prods and prods[0].imagem_url else ''
     html = (_LOJA_TEMPLATE
             .replace("__CARDS__", corpo)
-            .replace("__TOTAL__", str(len(prods)))
+            .replace("__TOTAL__", str(len(cards)))
             .replace("__OG_IMAGE__", og_image))
     return HTMLResponse(html)
 

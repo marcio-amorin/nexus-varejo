@@ -1484,8 +1484,15 @@ def limpar_duplicados(db: Session = Depends(get_db), _=Depends(get_current_user)
 def dashboard_vendedor(db: Session = Depends(get_db), _=Depends(get_current_user)):
     from sqlalchemy import func
     total_anuncios = db.query(VendedorAnuncio).filter_by(status="ATIVO").count()
-    total_faturado = db.query(func.sum(VendedorAnuncio.faturamento)).scalar() or 0
-    total_vendas   = db.query(func.sum(VendedorAnuncio.vendas_count)).scalar() or 0
+    # Vem direto de VendedorPedido (não do contador acumulado em VendedorAnuncio,
+    # que é incrementado na chegada do pedido mas nunca descontado se ele for
+    # cancelado depois) - assim cancelamento sempre reflete certo no total.
+    total_faturado = db.query(func.sum(VendedorPedido.valor_venda)).filter(
+        VendedorPedido.status != "CANCELADO"
+    ).scalar() or 0
+    total_vendas   = db.query(func.count(VendedorPedido.id)).filter(
+        VendedorPedido.status != "CANCELADO"
+    ).scalar() or 0
     pendentes      = db.query(VendedorAnuncio).filter_by(status="PENDENTE").count()
     lucro_total    = db.query(func.sum(VendedorPedido.lucro_estimado)).filter(
         VendedorPedido.status != "CANCELADO"

@@ -21,6 +21,7 @@ const STATUS_PEDIDO: Record<string,{label:string;bg:string;cor:string}> = {
   DELIVERED: { label:'Entregue',  bg:'rgba(34,197,94,0.15)',   cor:'#22c55e' },
   SHIPPED:   { label:'Enviado',   bg:'rgba(59,130,246,0.15)',  cor:'#3b82f6' },
   NOVO:      { label:'Novo',      bg:'rgba(245,158,11,0.15)',  cor:'#f59e0b' },
+  CANCELADO: { label:'Cancelado', bg:'rgba(239,68,68,0.15)',   cor:'#ef4444' },
   CANCELLED: { label:'Cancelado', bg:'rgba(239,68,68,0.15)',   cor:'#ef4444' },
 }
 

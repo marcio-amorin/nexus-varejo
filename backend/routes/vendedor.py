@@ -1125,6 +1125,13 @@ async def publicar_tudo(data: PublicarTudoIn, db: Session = Depends(get_db), _=D
         anuncio.url_anuncio = anuncio.url_anuncio or link_afiliado
         anuncio.status = "ATIVO"
         anuncio.publicado_em = anuncio.publicado_em or datetime.utcnow()
+    # Reflete no catálogo também — é esse campo que a Lojinha usa pra decidir
+    # o que exibir. Sem isso, todo produto publicado por aqui (botão manual
+    # "Publicar Tudo" incluído) fica ATIVO em Meus Anúncios mas invisível na
+    # lojinha, já que os dois status vivem em tabelas separadas.
+    if anuncio.status == "ATIVO" and produto.publish_status != "publicado":
+        produto.publish_status = "publicado"
+        produto.publicado_em = produto.publicado_em or datetime.utcnow()
     db.add(anuncio)
     db.commit()
     resultado["passos"].append({"passo": "Link Afiliado", "status": "✅ Gerado", "link": link_afiliado})

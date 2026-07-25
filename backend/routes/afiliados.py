@@ -3586,6 +3586,7 @@ _IC_BAG = '<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M6 7h12l-1.2
 _IC_LOCK = '<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 _IC_TRUCK = '<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M3 7h11v9H3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 10h4l3 3v3h-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7" cy="18" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="17.5" cy="18" r="1.6" stroke="currentColor" stroke-width="1.6"/></svg>'
 _IC_CART = '<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="18" cy="20" r="1.4" fill="currentColor"/><path d="M2.5 3h2l2.2 12.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 2-1.6L21 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+_IC_SEARCH = '<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 
 _LOJA_TEMPLATE = """<!doctype html><html lang="pt-br"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3612,7 +3613,14 @@ header .tag{font-size:12px;opacity:.68;margin-top:5px;font-weight:500}
 .trustbar .ic-lock{color:#16a34a}
 .trustbar .ic-truck{color:#3483FA}
 
+.busca-wrap{padding:14px 14px 0;max-width:1120px;margin:0 auto}
+.busca{position:relative;display:flex;align-items:center}
+.busca .ic{position:absolute;left:13px;width:15px;height:15px;color:#9aa;pointer-events:none}
+.busca input{width:100%;padding:11px 14px 11px 38px;border-radius:12px;border:1px solid #e2e3ea;background:#fff;font-size:13px;color:#1a1a2e;outline:none}
+.busca input:focus{border-color:#3483FA;box-shadow:0 0 0 3px rgba(52,131,250,.15)}
+
 .contador{text-align:center;padding:14px 16px 2px;font-size:11px;color:#8a8a97;font-weight:600;letter-spacing:.3px}
+.sem-resultado{display:none;text-align:center;color:#888;padding:50px 20px;font-size:13px}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;padding:14px;max-width:1120px;margin:0 auto}
 .card{background:#fff;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(20,20,40,.08);border:1px solid #ececf2;transition:transform .15s,box-shadow .15s}
@@ -3643,12 +3651,33 @@ footer .selo .ic{color:#16a34a}
 <span>""" + _IC_LOCK.replace('class="ic"', 'class="ic ic-lock"') + """ Compra 100% segura</span>
 <span>""" + _IC_TRUCK.replace('class="ic"', 'class="ic ic-truck"') + """ Envio pelo Mercado Livre</span>
 </div>
-<div class="contador">__TOTAL__ ofertas disponíveis agora</div>
-<div class="grid">__CARDS__</div>
+<div class="busca-wrap">
+<div class="busca">""" + _IC_SEARCH + """<input type="text" id="busca-input" placeholder="Buscar produto..." oninput="filtrarLojinha()" /></div>
+</div>
+<div class="contador" id="contador">__TOTAL__ ofertas disponíveis agora</div>
+<div class="grid" id="grid">__CARDS__</div>
+<div class="sem-resultado" id="sem-resultado">Nenhum produto encontrado 🔍</div>
 <footer>
 <div class="selo">""" + _IC_LOCK + """ Pagamento processado com segurança pelo Mercado Livre</div>
 <div>Maxx Vendas • ofertas atualizadas automaticamente</div>
 </footer>
+<script>
+function filtrarLojinha() {
+  var q = document.getElementById('busca-input').value.trim().toLowerCase();
+  var cards = document.querySelectorAll('#grid .card');
+  var visiveis = 0;
+  cards.forEach(function (c) {
+    var nome = (c.querySelector('.nome') || {}).textContent || '';
+    var bate = nome.toLowerCase().indexOf(q) !== -1;
+    c.style.display = bate ? '' : 'none';
+    if (bate) visiveis++;
+  });
+  document.getElementById('contador').textContent = q
+    ? (visiveis + (visiveis === 1 ? ' oferta encontrada' : ' ofertas encontradas'))
+    : (cards.length + ' ofertas disponíveis agora');
+  document.getElementById('sem-resultado').style.display = (visiveis === 0 && cards.length > 0) ? 'block' : 'none';
+}
+</script>
 </body></html>"""
 
 

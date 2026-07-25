@@ -3613,6 +3613,20 @@ header .tag{font-size:12px;opacity:.68;margin-top:5px;font-weight:500}
 .trustbar .ic-lock{color:#16a34a}
 .trustbar .ic-truck{color:#3483FA}
 
+.destaque-wrap{background:linear-gradient(135deg,#dc1c28 0%,#ea580c 60%,#f59e0b 100%);padding:16px 14px 20px}
+.destaque-titulo{color:#fff;font-size:15px;font-weight:900;text-align:center;letter-spacing:.3px;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px;text-shadow:0 1px 4px rgba(0,0,0,.25)}
+.destaque-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;max-width:1120px;margin:0 auto}
+.destaque-card{background:#fff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 6px 18px rgba(0,0,0,.28);border:2px solid #ffd400}
+.destaque-card .selo-top{position:absolute;top:8px;left:8px;background:#dc1c28;color:#fff;font-size:9px;font-weight:900;padding:3px 8px;border-radius:999px;z-index:1;letter-spacing:.3px;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.destaque-card .imgwrap{width:100%;height:140px;background:#fff;display:flex;align-items:center;justify-content:center;padding:10px;border-bottom:1px solid #f0f0f3}
+.destaque-card img{max-width:100%;max-height:100%;object-fit:contain}
+.destaque-card .info{padding:10px 11px 12px;display:flex;flex-direction:column;flex:1;gap:2px}
+.destaque-card .nome{color:#2a2a3a;font-size:12px;font-weight:700;line-height:1.3;height:31px;overflow:hidden}
+.destaque-card .preco{color:#dc1c28;font-size:21px;font-weight:900;margin:5px 0 8px}
+.destaque-card .btn{margin-top:auto;display:flex;align-items:center;justify-content:center;gap:5px;text-decoration:none;background:linear-gradient(135deg,#dc1c28,#ea580c);color:#fff;font-weight:800;font-size:11.5px;padding:11px;border-radius:9px;box-shadow:0 2px 8px rgba(220,28,40,.4)}
+.destaque-card .btn:active{opacity:.85}
+.destaque-card .btn .ic{width:13px;height:13px}
+
 .busca-wrap{padding:14px 14px 0;max-width:1120px;margin:0 auto}
 .busca{position:relative;display:flex;align-items:center}
 .busca .ic{position:absolute;left:13px;width:15px;height:15px;color:#9aa;pointer-events:none}
@@ -3654,6 +3668,7 @@ footer .selo .ic{color:#16a34a}
 <span>""" + _IC_LOCK.replace('class="ic"', 'class="ic ic-lock"') + """ Compra 100% segura</span>
 <span>""" + _IC_TRUCK.replace('class="ic"', 'class="ic ic-truck"') + """ Envio pelo Mercado Livre</span>
 </div>
+__DESTAQUE__
 <div class="busca-wrap">
 <div class="busca">""" + _IC_SEARCH + """<input type="text" id="busca-input" placeholder="Buscar produto..." oninput="filtrarLojinha()" /></div>
 </div>
@@ -3714,6 +3729,39 @@ def loja_publica(db: Session = Depends(get_db)):
 
     from routes.vendedor import _detectar_cat
 
+    # ── Ofertas em destaque: o melhor de cada categoria (não os 4 melhores
+    # no geral — isso só pegaria 4 variações de cor do mesmo iPhone). Não
+    # temos desconto/vendas confiáveis pra todo o catálogo, então comissão é
+    # o sinal de "melhor oferta" disponível pra praticamente 100% dos itens.
+    candidatos_destaque = [p for p in prods if p.imagem_url and p.preco]
+    candidatos_destaque.sort(key=lambda p: p.comissao_valor or 0, reverse=True)
+    destaques = []
+    categorias_no_destaque = set()
+    for p in candidatos_destaque:
+        cat = _detectar_cat(p.titulo or "")
+        if cat in categorias_no_destaque:
+            continue
+        destaques.append(p)
+        categorias_no_destaque.add(cat)
+        if len(destaques) >= 4:
+            break
+    destaque_html = ""
+    if destaques:
+        cards_destaque = []
+        for p in destaques:
+            cards_destaque.append(
+                f'<div class="destaque-card"><span class="selo-top">🔥 TOP OFERTA</span>'
+                f'<div class="imgwrap"><img src="{p.imagem_url}" loading="lazy" alt=""></div>'
+                f'<div class="info"><div class="nome">{_truncar_titulo(p.titulo)}</div>'
+                f'<div class="preco">{_fmt_preco_promo(p.preco)}</div>'
+                f'<a class="btn" href="/afiliados/ir/{p.id}" target="_blank" rel="noopener nofollow">{_IC_CART} Comprar agora</a>'
+                f'</div></div>'
+            )
+        destaque_html = (
+            '<div class="destaque-wrap"><h2 class="destaque-titulo">🔥 Ofertas em Destaque</h2>'
+            f'<div class="destaque-grid">{"".join(cards_destaque)}</div></div>'
+        )
+
     cards_por_cat: dict[str, list[str]] = {}
     titulos_vistos = set()
     total_cards = 0
@@ -3756,7 +3804,8 @@ def loja_publica(db: Session = Depends(get_db)):
     html = (_LOJA_TEMPLATE
             .replace("__CARDS__", corpo)
             .replace("__TOTAL__", str(total_cards))
-            .replace("__OG_IMAGE__", og_image))
+            .replace("__OG_IMAGE__", og_image)
+            .replace("__DESTAQUE__", destaque_html))
     return HTMLResponse(html)
 
 

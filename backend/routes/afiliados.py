@@ -3706,23 +3706,34 @@ def loja_publica(db: Session = Depends(get_db)):
 
     from routes.vendedor import _detectar_cat
 
-    # ── Ofertas em destaque: preço de impulso R$90-149 em vez de maior
-    # comissão — R$7 mil de iPhone não convida a comprar por impulso igual
-    # um produto de R$90. Dentro da faixa, o melhor por comissão; um por
-    # categoria primeiro pra variar, depois completa com o que sobrar.
+    # ── Ofertas em destaque: primeiro os marcados com ⭐ favorito no Catálogo
+    # (curadoria manual — marca/desmarca lá, sem precisar pedir ajuste aqui).
+    # Preenche o que faltar com preço de impulso R$90-149 (maior comissão) —
+    # R$7 mil de iPhone não convida a comprar por impulso igual um de R$90.
     _QTD_DESTAQUE = 6
+    favoritos_destaque = db.query(AfiliadoProduto).filter(
+        AfiliadoProduto.publish_status == "publicado",
+        AfiliadoProduto.favorito == True,
+        AfiliadoProduto.imagem_url.isnot(None),
+        AfiliadoProduto.preco.isnot(None),
+    ).order_by(AfiliadoProduto.publicado_em.desc().nullslast()).limit(_QTD_DESTAQUE).all()
+
     candidatos_destaque = [p for p in prods if p.imagem_url and p.preco and 90 <= p.preco <= 149]
     candidatos_destaque.sort(key=lambda p: p.comissao_valor or 0, reverse=True)
-    destaques = []
-    categorias_no_destaque = set()
+    destaques = list(favoritos_destaque)
+    ids_destaque = {p.id for p in destaques}
+    categorias_no_destaque = {_detectar_cat(p.titulo or "") for p in destaques}
     for p in candidatos_destaque:
+        if len(destaques) >= _QTD_DESTAQUE:
+            break
+        if p.id in ids_destaque:
+            continue
         cat = _detectar_cat(p.titulo or "")
         if cat in categorias_no_destaque:
             continue
         destaques.append(p)
+        ids_destaque.add(p.id)
         categorias_no_destaque.add(cat)
-        if len(destaques) >= _QTD_DESTAQUE:
-            break
     if len(destaques) < _QTD_DESTAQUE:
         ja_no_destaque = {p.id for p in destaques}
         for p in candidatos_destaque:

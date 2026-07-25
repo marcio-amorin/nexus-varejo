@@ -403,11 +403,32 @@ def _detectar_cat(titulo: str) -> str:
     if re.search(r'tênis|sapato|bota|sandália|chinelo|sapatênis', t): return 'Calçados'
     if re.search(r'camiseta|camisa|blusa|vestido|calça|jaqueta|moletom|shorts|saia|legging', t): return 'Roupas'
     if re.search(r'smartwatch|watch|relógio', t): return 'Smartwatches'
-    if re.search(r'aparador|barbeador|depilador|epilador|prancha|chapinha|escova secadora|massageador|perfume|desodorante|shampoo|condicionador|hidratante|creme|maquiagem|skincare', t): return 'Beleza'
+    if re.search(
+        r'aparador|barbeador|depilador|epilador|prancha|chapinha|escova secadora|secador de cabelo|'
+        r'secador\b.*cabel|massageador|perfume|colônia|colonia|body splash|desodorante|antitranspirante|'
+        r'shampoo|condicionador|hidratante|creme|maquiagem|skincare|sérum|serum|niacinamida|protetor solar|'
+        r'\bfps\b|esmalte|batom|gloss|delineador|rímel|rimel|base facial|pó facial|blush|primer|contorno|'
+        r'progressiva|alisamento|tintura|coloração capilar|óleo capilar|máscara capilar|ampola capilar|'
+        r'sabonete|talco|fio dental|escova de dente|lâmina de barbear|gel de barbear|pós.barba|'
+        r'cotonete|absorvente|fralda|lenço umedecido',
+        t
+    ): return 'Beleza'
     if re.search(r'bolsa|mochila|carteira|colar|brinco|anel|óculos|cinto', t): return 'Acessórios'
-    if re.search(r'suplemento|whey|creatina|proteína|proteina|\bbcaa\b|pré.treino|pre.treino|colágeno|colageno|vitamina[^s]|ômega|omega.3|bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação', t): return 'Esporte'
+    if re.search(
+        r'ração\b|racao\b|petisco|coleira|guia p/ pet|guia para pet|areia sanit|areia higiên|areia higien|'
+        r'tapete higiênico|tapete higienico|comedouro|bebedouro|casinha|arranhador|antipulgas|caminha.*(pet|cachorro|gato)|'
+        r'brinquedo.*(pet|cachorro|gato)|shampoo.*(pet|cachorro|gato)|(cachorro|gato|cão|caes|cães).*(ração|petisco|coleira)',
+        t
+    ): return 'Pet'
+    if re.search(
+        r'suplemento|whey|creatina|proteína|proteina|\bprotein\b|\bbcaa\b|pré.treino|pre.treino|colágeno|colageno|'
+        r'vitamina[^s]|ômega|omega.3|bicicleta|esteira|haltere|kettlebell|yoga|fitness|musculação|'
+        r'termogênico|termogenico|emagrecedor|hipercalórico|hipercalorico|massa muscular|glutamina|albumina|'
+        r'maltodextrina|dextrose|caffeine|cafeína|cafeina|dieta\b|low carb',
+        t
+    ): return 'Suplementos'
     if re.search(r'câmera|camera|drone|gopro|ring light|tripé', t): return 'Foto & Vídeo'
-    if re.search(r'papel higiênic|guardanapo|detergente|sabão em pó|amaciante|água sanitária|desinfetante|esponja de aço|saco de lixo|percarbonato|cotonete|absorvente|fralda|arroz|feijão|macarrão|açúcar|café|óleo de soja|refrigerante|bolacha|biscoito|fósforo|inseticida|desodorizador|papel toalha|sabão em barra', t): return 'Supermercado'
+    if re.search(r'papel higiênic|guardanapo|detergente|sabão em pó|amaciante|água sanitária|desinfetante|esponja de aço|saco de lixo|percarbonato|arroz|feijão|macarrão|açúcar|café\b|óleo de soja|refrigerante|bolacha|biscoito|fósforo|inseticida|desodorizador|papel toalha|sabão em barra', t): return 'Supermercado'
     return 'Outros'
 
 # ─── Config Vendedor ──────────────────────────────────────────────────────────
